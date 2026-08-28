@@ -1,5 +1,8 @@
 import type { IncomingMessage } from 'node:http'
+import { resolve } from 'node:path'
 
+import tailwindcss from '@tailwindcss/vite'
+import react from '@vitejs/plugin-react'
 import { WELL_KNOWN } from 'roadmap-module-protocol'
 import { defineConfig, type Plugin } from 'vite'
 
@@ -204,6 +207,28 @@ async function body(request: IncomingMessage): Promise<Record<string, unknown> |
  * the package's `exports` are correct, reaching past them is what made a whole
  * class of bug possible, and a module that resolved its contract differently
  * from the host it talks to is a module testing something nobody ships.
+ *
+ * The `@` alias below is a different thing entirely — it points inside this
+ * repository, at `src`, and is what shadcn's generated components import
+ * through.
+ *
+ * ## Why `doors()` is first in the list, and stays first
+ *
+ * `entry` is `/app`, and under Vite dev an extensionless path is not free: a
+ * request for `/app` next to an `app.tsx` resolves to that module and answers
+ * `200 text/javascript` with compiled source. A browser loads such a document
+ * happily and runs nothing in it — the frame's `load` fires, the host greets
+ * it, and nothing answers. This repository now HAS a `src/app.tsx`, which is
+ * exactly that collision, so the order below is load-bearing rather than
+ * defensive: `/app` is claimed before Vite's resolver ever sees it. Atlas lost
+ * half a day to this before it was written down.
+ *
+ * ## No `tailwind.config.js`, and there must not be one
+ *
+ * Tailwind 4 is configured in CSS. The palette, the `dark` variant and the
+ * theme tokens are all in `src/index.css`, and `@tailwindcss/vite` is the whole
+ * of the build wiring. A config file beside it would be a second place to look
+ * that the tool no longer reads.
  */
 export default defineConfig({
   /**
@@ -214,6 +239,7 @@ export default defineConfig({
    * just fetched.
    */
   base: './',
-  plugins: [doors()],
+  plugins: [doors(), react(), tailwindcss()],
+  resolve: { alias: { '@': resolve(import.meta.dirname, 'src') } },
   build: { outDir: 'dist', emptyOutDir: true },
 })

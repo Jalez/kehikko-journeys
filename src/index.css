@@ -1,0 +1,215 @@
+@import 'tailwindcss';
+
+/**
+ * The palette, in shadcn's own token names, plus the six this app cannot do
+ * without — and one rule about the LAYOUT that matters more here than the
+ * colours do.
+ *
+ * ## The dark variant follows the HOST, never the machine
+ *
+ * `@custom-variant dark` below keys on a `.dark` class and on nothing else.
+ * There is deliberately no `@media (prefers-color-scheme: dark)` block in this
+ * file, and its absence is the fix for a real failure rather than an omission:
+ * that media query follows the READER'S OPERATING SYSTEM and knows nothing
+ * about the roadmap this page is sitting inside, so a dark canvas on a machine
+ * set to light framed this module and got a white rectangle. A module one shade
+ * lighter than the page around it is the first thing anybody notices about a
+ * protocol.
+ *
+ * So the class is the single source, `theme.ts` is the only thing that writes
+ * it, and `roadmap.context.theme` is the only thing that tells it what to
+ * write. The machine's preference is consulted exactly once — as the seed for a
+ * page nobody has framed — and is overruled the instant a host speaks. Tokens
+ * and `dark:` utilities therefore cannot disagree, which is the thing a media
+ * query in here would make possible.
+ *
+ * ## Container queries, not viewport breakpoints
+ *
+ * This page's normal case is a pane 220 to 400 pixels wide inside somebody's
+ * canvas, on a monitor two thousand pixels across. Every viewport breakpoint
+ * Tailwind ships would therefore fire — `lg:` is true, `xl:` is true — and the
+ * page would lay itself out for a screen it has three per cent of. So the
+ * `<body>` is a container named `pane`, every responsive class in this app is a
+ * `@container` class, and the only thing any of them ever measures is the box
+ * this page was actually given.
+ *
+ * ## Nothing overflows sideways, ever
+ *
+ * A pane that scrolls horizontally is a pane where half a sentence is behind an
+ * edge nobody thinks to drag. `overflow-x: hidden` would HIDE that rather than
+ * fix it, so it is not here. What is here is `overflow-wrap: anywhere` on the
+ * prose and `min-width: 0` on the flex children — the two things that actually
+ * stop a tracker's title, a file path or an unbroken URL setting a min-content
+ * floor under the whole document. `anywhere` and not `break-word`: only
+ * `anywhere` lowers the min-content contribution, and lowering it is the entire
+ * fix. Measured before it existed: a 492px floor at every pane size.
+ *
+ * Nothing truncates, either. There is no `text-overflow` and no `overflow:
+ * hidden` on anything holding words, because a clipped tracker title in a 220px
+ * pane is a reader who cannot tell which issue they are looking at — and this
+ * app's whole argument is against a screen that quietly says less than it knows.
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --radius: 0.5rem;
+
+  /**
+   * What a reference is doing, and the one non-colour among them.
+   *
+   * Five words, five colours — and `unseen` is not a fifth state. It is the
+   * ABSENCE of a reading, which is why it is the muted foreground rather than a
+   * hue of its own: there is nothing here to be a colour about. The badge that
+   * wears it is dashed, italic and unfilled for the same reason, and every
+   * other badge is filled. The eye reads "there is nothing here to read" before
+   * the words are, which is the correct first impression.
+   *
+   * No verdict on this page is ever carried by hue alone. Each badge is an icon,
+   * a word and a colour, and the first two survive both a monochrome print and a
+   * reader who cannot tell the merged purple from the open blue.
+   */
+  --seen: oklch(0.55 0.13 240);
+  --merged: oklch(0.53 0.2 300);
+  --closed: oklch(0.5 0.02 260);
+  --draft: oklch(0.58 0.12 75);
+  --block: oklch(0.55 0.19 25);
+  --marker: oklch(0.52 0.09 210);
+}
+
+/*
+ * Dark, once, on the class the wire writes. See the essay above on why there is
+ * no media query beside it.
+ */
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --border: oklch(1 0 0 / 14%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+
+  --seen: oklch(0.75 0.13 240);
+  --merged: oklch(0.76 0.13 300);
+  --closed: oklch(0.72 0.02 260);
+  --draft: oklch(0.79 0.12 75);
+  --block: oklch(0.72 0.15 25);
+  --marker: oklch(0.78 0.09 210);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-seen: var(--seen);
+  --color-merged: var(--merged);
+  --color-closed: var(--closed);
+  --color-draft: var(--draft);
+  --color-block: var(--block);
+  --color-marker: var(--marker);
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  /*
+   * Painted on `html` as well as `body`, rather than left to propagate.
+   *
+   * Body-to-canvas propagation is real and would work, but it is conditional on
+   * the root having no background of its own and it interacts with containment.
+   * Measured in the real frame, the host's own `<iframe>` element computes to a
+   * white background — so a module that painted nothing did not borrow the
+   * roadmap's near-black, it got white, in both themes, with near-white text on
+   * top of it. That is not a subtle mis-shade; it is unreadable. This page
+   * paints its own opaque surface, in the same numbers its neighbours use.
+   */
+  html,
+  body {
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  /*
+   * The container every responsive class in this app measures. Named, so a
+   * `@md/pane:` class cannot accidentally attach itself to some nested
+   * container a component introduces later.
+   */
+  body {
+    container: pane / inline-size;
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  p,
+  li,
+  h1,
+  h2,
+  h3,
+  summary,
+  code {
+    overflow-wrap: anywhere;
+  }
+}
+
+/*
+ * Where the reader was sent.
+ *
+ * A ring rather than an outline, and a keyframed one, because this fires when a
+ * host walks somebody here from another pane and the question it answers is
+ * "which of these did I just click?" — a question a static outline left on the
+ * page for two and a half seconds answers just as well right up until there are
+ * two of them. The animation ends on a plain ring so the mark is still there
+ * for a reader who looked away during it.
+ */
+@keyframes journeys-found {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--marker) 70%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+[data-found='true'] {
+  outline: 2px solid var(--marker);
+  outline-offset: 3px;
+  border-radius: var(--radius-md);
+  animation: journeys-found 900ms ease-out 1;
+}

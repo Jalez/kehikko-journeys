@@ -11,7 +11,21 @@
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "noUnusedLocals": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] },
     "types": ["bun", "vite/client"]
   },
-  "include": ["page", "wire", "test", "doors.ts", "limits.ts", "manifest.ts", "register.ts", "store.ts", "vite.config.ts"]
+  "include": [
+    "page",
+    "src",
+    "wire",
+    "test",
+    "doors.ts",
+    "limits.ts",
+    "manifest.ts",
+    "register.ts",
+    "store.ts",
+    "vite.config.ts"
+  ]
 }

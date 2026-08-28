@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { firstShown, isTracked, samePick } from '../page/refs.ts'
+import { firstShown, isTracked, samePick } from '../src/refs.ts'
 
 /**
  * Which reference a broadcast selection lands on, tested without a browser.
