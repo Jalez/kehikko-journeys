@@ -1,0 +1,585 @@
+{
+  "slug": "the-roadmap-tracks-itself",
+  "title": "The roadmap can be trusted about its own state",
+  "lede": "This tool keeps what you decided apart from what is true, refuses to print a guess as a fact, and leaves the deciding to a person. Applied to itself it fails all three. The one path that writes somewhere public had no gate. Controls return nothing and call it an empty list; a refresh claims it read nothing having just read sixteen issues; a finished run reads as stuck. And the largest pile of decided material in the project — the prompts every agent is given, and the checklist every change is held to — is the one part with no surface, so the person whose queue and budget these agents spend cannot see what they are told, let alone change it. None of these are new features. They are the tool's own rules, not yet applied to the tool.",
+  "written": "2026-08-22",
+  "tab": "Roadmap",
+  "project": "Roadmap",
+  "callout": "Every defect here is one word standing in for two. A filter with no input renders an empty list, which is also what a genuine empty result renders as. Claude Code's `blocked` means waiting on a person and this roadmap's means an agent cannot go on, so a run that had finished was reported as stuck. A refresh counting only GitLab totals reads zero and blames the VPN. The remedy is never a new feature: it is saying which of the two it is.",
+  "steps": [
+    {
+      "title": "The one path that writes in public has a gate on it",
+      "body": "gh#1. Three gaps line up: there is no authentication anywhere in src/server.ts, Bun.serve at :167 passes no hostname so it binds every interface, and the send handler at :350-378 calls gitlab.postComment without consulting either the posting switch or the claim ledger. The only thing in front of it is confirm() in the browser. The chain is short and available today: any agent holding the MCP tools calls draft_finding, then one unauthenticated POST puts the comment on GitLab. Note that the policy exemption itself is deliberate and written down — POSTING_ON_STATEMENT says sending from the page bypasses the switch \"because a person sent it\". The reasoning is sound and rests entirely on that clause being true, which nothing checks.",
+      "refs": [
+        "gh#1"
+      ],
+      "notes": [
+        "binding to 127.0.0.1 closes the network half in one line"
+      ]
+    },
+    {
+      "title": "The claim ledger is safe to be wrong about",
+      "body": "gh#3, and the prerequisite for anything that posts. Two defects, both already written down as hazards in the code and neither fixed. claimPost (src/reviews.ts:442) is a read-modify-write over a JSON file with no lock, safe today only because one process calls it — and claimHolder reads and parses every file in data/agent-reviews/ between the read and the write, so the window is not small. postTarget (:394) prefers review.url, an unvalidated free string, over the parsed ref; its own docstring says \"a reporter that names a url names where the comment goes\". Both are latent rather than live: no MCP tool claims, and report_review accepts no url, so nothing writes the field at all. They stop being latent the day a poster exists — which is why this comes first.",
+      "refs": [
+        "gh#3"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The posting switch governs something",
+      "body": "gh#2. The switch, the ledger, the settle endpoint and the consent text are all built; the poster is not, and POSTING_ON_STATEMENT admits it in the words a person is asked to agree to. trackers/github.ts is read-only end to end — every export is a gh view or list. Neither tracker can comment on an issue: GitLab's postComment and replyTo both hardcode merge_requests/{n}/discussions. So the one tracker that can be written to is the one nothing tracks, since every epic here targets GitHub and the state files hold zero GitLab refs. The safety machinery has also never carried a real claim — data/agent-reviews/ is empty — so nobody knows whether it holds.",
+      "refs": [
+        "gh#2"
+      ],
+      "notes": []
+    },
+    {
+      "title": "An agent arriving is told what this is for",
+      "body": "gh#4. src/mcp.ts:66 constructs the server with a name and a version and no instructions, so roughly forty tools reach every session holding them with a good description each and nothing framing any of it: not the decided/true split, not that claim_step before working is what stops two agents in one file, not that only three of the seven stages may be reported and the rest are derived, not that posting is off by default. instructions travels with the server to every repo it is registered in, which a per-repo CLAUDE.md cannot do. Most of the text already exists in README.md, REVIEWS.md, STAGE_REMEDY and src/brief.ts — it just lives where an agent never sees it.",
+      "refs": [
+        "gh#4"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A message addressed to an agent reaches that agent",
+      "body": "gh#5. The problem — nothing can push into a running session, so a message waits until the agent remembers to call next_ask — has been solved twice and switched on neither time. hooks/deliver.mjs is a complete PostToolUse and Stop hook that injects waiting mail as additionalContext and blocks a Stop with mail unread; nothing installs it, and it is absent from this machine's settings. src/courier.ts is imported by nothing at all, while /api/pending sits waiting for the courier that is never started. Alongside that, the two readers of the asks table disagree about what \"addressed\" means: takeAddressed matches to_session, takeAsk ignores it entirely, so an ask addressed to a session and not to a name is takeable by anyone. Latent only because one caller always sets both.",
+      "refs": [
+        "gh#5"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A button that starts nothing says so",
+      "body": "gh#6. dispatch.ts:18 defaults the working directory to ~/projects/innoviumai — a guess, in a project whose other start path refuses to guess on principle (\"Never a default. A guessed path is an agent editing the wrong repository, which is the worst outcome this feature has available to it\") and whose .env.example states the same doctrine for every per-machine path. The directory does not exist on this machine. And the spawn is wrapped in try/catch, which a bad cwd does not trigger: the child comes back with no pid, the error arrives asynchronously on a handler nobody registered, the endpoint answers 200, and the page says \"waiting for it to check in\" forever while refusing a retry for ten minutes. startJourney has the same missing handler and is saved only by having a real configured directory.",
+      "refs": [
+        "gh#6"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A claim can be recovered from a crash",
+      "body": "gh#7. That a claim never expires is deliberate and the reasoning is good — nothing can tell a dead agent from a quiet one, and freeing a step on a guess is how two agents end up in the same file. The supervisor narrowed it without closing it: it releases on exactly one path, where it has found the session and read Claude Code's own word that it is over, and a crash, a kill or a reboot lands in \"lost\", which writes nothing and says so. The only full release is a human pressing Stop. Which needs a running server — and nothing restarts one: the supervisor is an unref'd timer inside the process, package.json has no restart logic, and there is no launchd or systemd anywhere. A reboot is the case that produces both halves at once, and it is also the case a session-end hook cannot cover, which is why the reconcile loop has to stay authoritative whatever else is added.",
+      "refs": [
+        "gh#7"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The roster is about this work",
+      "body": "gh#8. runners(cwd?) takes a directory filter and documents exactly what it is for — \"anything elsewhere is somebody else's business\" — and not one of the six call sites in the server passes it. Measured live: 83 sessions on this machine, none of them in the roadmap's directory, all 83 on the roster, and the headline \"N free\" computed from the lot. The number a person reads before deciding to start work currently means \"some Claude sessions on this laptop are idle\", most of them in a repo with nothing to do with any journey on the page. The right scope is the epic's own repo directory, not the roadmap's — journeys.ts already gets this right when resolving a single run.",
+      "refs": [
+        "gh#8"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A filter that cannot match says so",
+      "body": "gh#9, and the same rule the whole project otherwise keeps: a control that returns nothing teaches the reader the list is empty rather than that the filter is broken. Three of them. The roster's six mark buttons read a state letter written by a labelling script that does not exist on this machine and has no crontab — 0 of 83 sessions carry one, so pressing any of the six empties the list. \"Someone else moved it\" keys off lastNote, which only GitLab writes and only for open merge requests; across 143 refs in the state files, zero have it. The \"Mine\" half of the Who picker keys off meName, which comes from gitlab.me() and is undefined everywhere. The last of those already self-hides, and the settings dialog already admits the labeller is not running — the gap is that the admission is behind a button while the dead controls sit in the open.",
+      "refs": [
+        "gh#9"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The page speaks the tracker it actually reads",
+      "body": "gh#10. Eleven rendered strings still say GitLab on a roadmap whose seven epics hold zero GitLab refs, and the worst of them is not decoration but instruction: the Ask box's placeholder still offers to start work on a bare GitLab issue number, from a project this tool no longer tracks, so a reader typing what it suggests gets nothing. The link layer was already fixed properly — watchesGitlab() suppresses dead links — and the copy layer never caught up. The same family: activity.ts still documents listening as calling poll_ask, a tool that does not exist, while join's own description names next_ask correctly.",
+      "refs": [
+        "gh#10"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The page answers the question the reader came with",
+      "body": "gh#11. A journey shows the plan and the facts and never folds one into the other at the top level: the reader gets a \"Ready to start\" lane, sometimes twenty chips wide and in no order, and has to intersect it with the numbered steps themselves. The answer is already computed. Situation.assignment() returns \"the earliest startable step in the journey\", render/page.ts declares class Resolver extends Situation, and calls neither it nor startableUnits. It even reaches the browser — /api/journeys ships assignment and pieces, and the client reads startable, why and cwd and puts the result in a button tooltip. An agent asking over MCP gets a straight answer; the person looking at the page does not.",
+      "refs": [
+        "gh#11"
+      ],
+      "notes": [
+        "plumbing, not new logic"
+      ]
+    },
+    {
+      "title": "A first reader can tell what they are looking at",
+      "body": "gh#12. Two ways of failing to find something that is there. Below 1200px the index disappears and below 1000px the agents rail does, both by flat display:none with no toggle, no opener and nothing in the control bar — taking the whole issue list, the checklist, the roster, the Ask box and the Start controls with them. The middle band was deliberately addressed; below it they still vanish in silence. And the model itself — a hand-written journey, live tracker facts, live Claude Code sessions — is explained in one footer sentence that covers the first layer only. The agents rail, by far the most novel surface and the one that spends tokens and starts processes, is explained nowhere. Whatever fixes the second has to survive the first: it must still be reachable at 900px, where the rail is not.",
+      "refs": [
+        "gh#12"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Landing work and releasing it read differently",
+      "body": "gh#13. released.ts argues at length that in-development and in-prod are two stages because one \"Merged\" badge covered exactly the gap the promotion process exists to manage. The stage is fed only by epic.branches.prod, and no epic sets branches — parsed all seven, the key is undefined in every one. So the stage sits last in STAGE_ORDER with a label and a remedy string and is unreachable, on a roadmap tracking a repo whose development-to-prod promotion is the very thing it was built to show. The other input is ready: nine merged pull requests already carry a sha, and branches defaults to the right pair for that repo, so \"branches\": {} is enough to opt in.",
+      "refs": [
+        "gh#13"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A green suite means the sentences are right",
+      "body": "gh#14, gh#15 and gh#16 — eleven weaknesses, each confirmed by applying the mutation to a copy and watching 549 tests stay green. They divide by what the test forgot. The brief's tests (gh#14) check that a section exists and never what it says, so a step with no refs can render [done], an outbox bullet can name no queue file, and the blocked lane can lose every title. The reviews panel (gh#15) is pinned by string-matching the constants its renderer reads from, so the posting switch can stop reflecting the server — showing off while posting is genuinely on — and two reviews can collapse into one tab, both silently. And two refusals (gh#16) assert only that they refused, not why, which is the exact substitution this project refuses everywhere else: with one line deleted, stopJourney tells the owner \"no session was started with this run's token\" when the truth is that the sessions could not be read.",
+      "refs": [
+        "gh#14",
+        "gh#15",
+        "gh#16"
+      ],
+      "notes": [
+        "three findings from the same round are already fixed and were not filed"
+      ]
+    },
+    {
+      "title": "A refresh says what it read",
+      "body": "gh#24. The summary line counts `issues` and `mrs`, which are the GitLab totals, so an epic tracking only GitHub reads `0/0` however much it just read — GitHub closures were never counted anywhere. And the alarm is gated on `issues === 0`, which for such an epic is its normal permanent state rather than a symptom, so every refresh prints a VPN warning naming a remedy that cannot fix anything, because nothing tried to reach GitLab. \"Nothing read at all\" is a claim about a read that succeeded: the project's own rule broken in its own output. The formatting was hand-written twice, in cli.ts and again in mcp.ts, which is how the two drifted apart in wording while sharing both defects.",
+      "refs": [
+        "gh#24"
+      ],
+      "notes": [
+        "cost real time: it corroborated a wrong theory about why closed issues read as in-review"
+      ]
+    },
+    {
+      "title": "A run that has finished says it has finished",
+      "body": "gh#25. Two words spelled the same. Claude Code's `blocked` means waiting on a human; this roadmap's `blocked` means an agent cannot go on. The supervisor tested `session.state` against a set holding both meanings and printed the second having read the first, appending \"it is not going to get any further on its own\" — its own inference, and backwards. Underneath that, a run's state came from whether its process was alive, so a run that had released every step and closed its ask was indistinguishable from one still working. The roadmap's own records already knew. It matters beyond the wording because the page's headline question is whether anybody is on this: a finished-but-open session counted as somebody, so idle capacity read as busy and ready work looked spoken for.",
+      "refs": [
+        "gh#25"
+      ],
+      "notes": [
+        "found by a run misreporting itself while two ready issues sat untouched"
+      ]
+    },
+    {
+      "title": "Work nobody is on is visible as work nobody is on",
+      "body": "gh#26. The brief is composed once, at dispatch, from one refresh, and says so — a snapshot, not a feed. A session takes one ask, works that set and stops. So work that becomes ready mid-run is invisible to every agent already dispatched, in two cases that look the same from the board: an issue filed while a run is going, and — more galling — work the run itself unblocked by finishing. The closing instruction leaves freed work for \"the next start\", and nothing performs the next start. The refusal to re-plan mid-flight is right: a fan-out that already partitioned its files from the first picture is how two subagents land in one file. The gap is that nobody says out loud that the work is sitting there.",
+      "refs": [
+        "gh#26"
+      ],
+      "notes": [
+        "startableUnits and assignment already compute this",
+        "saying it and acting on it are very different amounts of trust"
+      ]
+    },
+    {
+      "title": "Clicking an issue takes you to it in the journey",
+      "body": "gh#27. The status lanes render each ref as a plain anchor with target=\"_blank\", so clicking one leaves for the tracker. That is the wrong way round: the lanes are the roadmap talking about its own plan, and the reader clicking there is asking where this sits in the story — which step it belongs to, what it waits on — the one question only this page answers. Leaving is also the more expensive move: a new tab, and the reading position lost. The behaviour already exists one layer up. The index rail switches tab, finds the ref in the journey, scrolls to it and flashes it, and has an answer for a ref named in no step. The lanes never picked it up, and the routine wants factoring out rather than copying.",
+      "refs": [
+        "gh#27"
+      ],
+      "notes": [
+        "the tracker has to stay reachable, and stay a real link for middle-click"
+      ]
+    },
+    {
+      "title": "Reference material waits until it is wanted",
+      "body": "gh#28. The per-epic vocabulary block is headed \"What these words mean here\" and is open by default. It is reference material: a reader consults it on hitting a term they do not know, and nobody reads it front to back. On this journey it runs to eleven entries and is among the longest things on the page, so expanded it pushes the actual narrative down and gets skimmed past every visit. \"Word definitions\" is a label rather than a sentence, which is what a heading beside a collapsed block needs to be. The one thing not to break: the prose links terms into this block, so following one has to reveal the definition rather than scroll to a closed box.",
+      "refs": [
+        "gh#28"
+      ],
+      "notes": [
+        "the checklist already uses details/summary, so the pattern and styling exist",
+        "the old \"must work opened from disk\" constraint no longer applies — native is still the simpler answer"
+      ]
+    },
+    {
+      "title": "The page holds still while you read it",
+      "body": "gh#29. The page is built static and repainted from the activity and journeys endpoints on a timer and on every change event. The repaint adds, removes and rewrites things that occupy space — a live count that appears and disappears on index rows, a class toggled on steps, stage badges rewritten, the roster line and the next-up block arriving from nothing — and none of it is reserved in the built layout. An element absent before the first paint and present after it moves everything below. So the fidget is not a style changing: it is content landing in a layout that made no room. It happens on a timer, which means it happens while somebody is reading, and moves the thing they were reading. A board that twitches reads as unstable even when every value on it is right.",
+      "refs": [
+        "gh#29"
+      ],
+      "notes": [
+        "reserved space must not read as a value: a blank box where a count goes must not look like zero",
+        "worth measuring rather than eyeballing"
+      ]
+    },
+    {
+      "title": "You can read, and change, what each kind of agent is told",
+      "body": "gh#22. Three documents decide almost everything an agent does here, and all three are string literals: the MCP instructions, which reach every session in every repo the server is registered in; the dispatched-session brief, which composes differently for an orchestrator than for a worker; and the reviewer's terms. They are the largest pile of decided material in the project and the only part with no surface — every other decided thing, steps, dependencies, the deploy pair, the posting switch, is editable from the page or over MCP. The settings dialog is the right home, one tab per audience. The design question is that the brief is assembled from live board state, so an editable prompt is a template with the composed parts still composed; and an edit drifting from a default nobody can see is worse than no editing.",
+      "refs": [
+        "gh#22"
+      ],
+      "notes": [
+        "the instructions carry a 1000-word cap for a stated reason; an editor must not quietly remove it",
+        "the page may now assume the server, so the disk-mode read-only case is gone"
+      ]
+    },
+    {
+      "title": "The checklist is yours to change",
+      "body": "gh#23. The merge-request and issue checklists are hardcoded arrays, so adding an item, removing one or rewording one means editing TypeScript and shipping a change. It is also the kind of thing that wants tuning against a real queue: the size thresholds were calibrated on one merge request in one project, and `changeset` carries a paragraph explaining why it does not apply on GitHub, which is what a hardcoded list makes you write instead of just removing the item. The constraint that shapes it: agent items are assertions only an agent can make, so they are prose and freely addable; derived items are read from the tracker and each is backed by code. A dialog that let somebody add a derived item would create a control that reads unknown forever — the defect this roadmap already fixed once.",
+      "refs": [
+        "gh#23"
+      ],
+      "notes": [
+        "ids are referenced from code: check_mr's enum, the exemption table, the review-label logic",
+        "ticks already recorded against a removed item need an answer"
+      ]
+    },
+    {
+      "title": "A tip does not cover the thing it explains",
+      "body": "gh#33. A tip naming the agent, how long ago, its kind and the claim it holds sits on top of an issue row and hides the text underneath. The construction is `position: fixed` at `z-index: 60`, and the comment beside it already names the hazard it created: fixed was chosen so a tip inside a folded step body is not clipped away by the fold, which means it has to be told where to go, and the script telling it is the only thing standing between it and wherever it fell. Four shapes to check before hardening anything: shown before it is placed, placed and never hidden, left anchored to a row the repaint replaced underneath it, or positioned against a rect that a scroll made stale.",
+      "refs": [
+        "gh#33"
+      ],
+      "notes": [
+        "not reproduced — no browser was connected; read off the cascade, so reproduce before fixing",
+        "the repaint half overlaps gh#29"
+      ]
+    },
+    {
+      "title": "The page stops paying for an audience it no longer has",
+      "body": "Decided: the built page does not have to be self-contained, because it is not being sent to anyone. That promise shaped a great deal — every `if (!live)` fallback and its placeholder copy, the inline-everything rule that made the client one enormous template literal, build-time stamps standing in for answers a server could give, and copy hedged because the page could never be sure it was live. The build-time `data-gap` is the worked example: three states on an attribute because a page from disk has nobody to ask.\n\nThe second half is the file itself. With the server required, dist/roadmap.html is a copy nothing reads and something must keep from going stale — so it goes, and a save reports the save rather than a rebuild nobody checks.\n\nWhat is NOT retired is the honesty: removing the disk-mode branches removes an audience, not a standard.",
+      "refs": [
+        "gh#34",
+        "gh#106"
+      ],
+      "notes": [
+        "decided by Jaakko, 2026-08-22",
+        "the built file retired 2026-08-26, after being asked rather than assumed",
+        "three agents in one day lost time to a backtick closing that template literal"
+      ]
+    },
+    {
+      "title": "The page is built out of components, not strings",
+      "body": "gh#35. Around 5,800 lines of hand-written rendering, and the reason to change it is not real time — that already works, over server-sent events, repainting on change rather than on a timer. The reasons are that client.ts is a STRING, so nothing type-checks thousands of lines of browser logic; that a backtick in a comment inside it closes the literal and breaks the build; that components are being reimplemented by hand knowingly, with a comment in the stylesheet reading \"shadcn's skeleton, in one line\"; and that the page can only be tested by string-matching its own output, which is the defect gh#15 was filed about. The reviews panel is the pilot: gh#15 already made it pure functions with real tests, so if a component library does not pay for itself there, that is the answer for the rest.",
+      "refs": [
+        "gh#35"
+      ],
+      "notes": [
+        "surface by surface behind the existing tests, not big-bang",
+        "the honesty rules are the product: a missing input still says so, cannot-tell still never renders as no"
+      ]
+    },
+    {
+      "title": "The tool says which version of itself is running",
+      "body": "gh#41. A fix merged to main changes nothing until somebody pulls, and nothing here says which commit is running. The working copy sat fourteen commits behind for a day, and because the MCP server is spawned per session but always from that copy, every session ran old code however recently it started. One cause, three symptoms that each looked like their own bug: a refresh claiming it read nothing while reading everything, a checklist missing the item built to catch exactly the mistake being made, and a page rendered from code that had been superseded. Reconnecting could not help and appeared to fail, which is what made it hard to see. Two diagnoses were offered and both were wrong, because neither could be settled without asking what was actually running.",
+      "refs": [
+        "gh#41"
+      ],
+      "notes": [
+        "whether the names-issue check would have stopped those four changes is now UNDETERMINED — it was never running",
+        "the settings dialog already admits when the labeller is not running; this is the same class of fact"
+      ]
+    },
+    {
+      "title": "A change that names its issue shows up, whether or not it closes it",
+      "body": "Discovery reads `closingIssuesReferences` and nothing else, so the only change this project can find on its own is one that will close its issue. That excludes the change its own protocol asks for: a stacked slice must not close the issue it is one quarter of, and saying so honestly is what makes it vanish. `names-issue` already distinguishes \"cannot tell\" from \"no\" for a stacked change; discovery does not, and reads a deliberate reference as nothing at all. gh#46 reads references as well as closures and keeps them apart — a referencing change is real work on that issue, but must never be shown as one that will close it.",
+      "refs": [
+        "gh#46"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Work in flight that belongs to no journey is visible as work in flight",
+      "body": "The journeys say what is planned. Nothing says what is happening that nobody planned, so an issue on no journey is not flagged as outside — it is absent, which reads exactly like it does not exist. The literal report is useless: the portal repo holds 788 open issues against some 150 tracked refs, so \"everything no journey names\" is seven hundred rows nobody reads. gh#47 reports the narrower thing the ask actually contains — an open change whose issue no journey names, an issue with a change open against it that no journey names, an issue an agent has claimed that no journey names. Each is somebody spending time right now on something unplaced. A stale backlog issue nobody has touched is not, and a full audit is its own command rather than a line on every refresh.",
+      "refs": [
+        "gh#47"
+      ],
+      "notes": []
+    },
+    {
+      "title": "An unplaced change is caught while its author is still there",
+      "body": "A report nobody reads catches nothing. The checklist is read twice by protocol — before a change is opened and again before it is handed to a person — which makes it the one moment enforcement is worth anything. gh#48 adds a derived item beside names-issue: does any journey step name this change, or an issue it names? Derived rather than asserted, because the answer is already written down and an agent asserting it would be asserting what the tool can read. Three answers, as everywhere here: placed, not placed, and cannot tell when a link could not be read. That last one is why this waits on gh#46 — until a referencing change is discoverable, it would read as unplaced when it is merely unreadable.",
+      "refs": [
+        "gh#48"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Getting the new code running is one command",
+      "body": "Pulling a merged change does nothing to the running server: it holds its port and keeps serving the code it started with, so the new code arrives only after somebody remembers the port, finds the pid and kills it. gh#51 makes that one script, on the model of the portal's dev.sh. Three things it has to get right. Where the launchd job is loaded, killing the listener does not stop the server — KeepAlive brings it back and a hand-started one then fails on the taken port; a supervised server is restarted, not killed. The MCP process is a stdio child of the editor rather than a listener, so nothing here touches it and it keeps the old code until it is reconnected — saying so is most of the value. And a launchctl that will not answer is not the same as no service.",
+      "refs": [
+        "gh#51"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A reader can tell which product a journey belongs to",
+      "body": "Nine journeys across three products sit in one strip with nothing saying which belongs to what, so Practices and Roadmap and Workbench read as three concerns of one thing. They are three things, and the strip grows by one tab per journey forever. gh#53 puts a project tab above and that project's journeys below. The project is written rather than derived: deriving it from repo is almost right and fails on the workbench journey, which has none, so it would land in a group called nothing. One project shows no strip at all — a second row of chrome above a single group answers a question nobody has. And selecting a journey has to select its project, because the deep links reach a hidden journey by clicking its tab and a tab behind an unselected project cannot be clicked.",
+      "refs": [
+        "gh#53"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The switch that changes the page sits above the page",
+      "body": "The Journeys/Reviews pair is the leftmost thing in the tab strip, which is where a reader expects to be told what the row is — so a control that switches the whole page below reads as a heading for the tabs beside it. It is also nowhere near what it changes: press Reviews and the difference appears a screenful lower while the control stays in the corner. Once the row above is about identity — which product, then which journey of it — a mode pair in front of it is a third kind of tab in a row of two other kinds. gh#55 centres it on its own row, directly above the content it governs and still inside the sticky bar, so it does not scroll away from the thing it switches.",
+      "refs": [
+        "gh#55"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Somebody meeting a journey has a way in",
+      "body": "Both modes assume the reader already knows the domain: a newcomer gets thirty steps of plan and no way in. The material to teach from is already written and already on the page, scattered through the plan where it reads as background — the lede, the callout, the word definitions, and the check-yourself questions, which sit at the very foot of a long journey where the reader has either understood it or given up. gh#59 makes Learning a third mode whose job is to teach what the epic is about, and moves the questions there. It also lets a question be attached to one issue or change rather than only to the whole: a reader learns a journey one piece at a time, and what a single change actually changes is the question worth asking.",
+      "refs": [
+        "gh#59"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A change leaves behind a question about what it changed",
+      "body": "Every checklist item asks whether the work is safe to merge. None asks whether anybody but its author will understand it afterwards — and the person who has to is usually not the person who wrote it. gh#60 adds the item to both lists, the issue one and the change one, asking that it carries its own check-yourself question. Derived rather than asserted, because whether a question exists is written down and the tool can read it; an agent asserting it would be asserting what is already knowable. It waits on gh#59, which is what gives a question a ref to hang on — without that there is nothing to read and the item answers no for everything, for ever. Open: whether an item nobody can fail on correctness grounds belongs on a list that has no notion of advisory.",
+      "refs": [
+        "gh#60"
+      ],
+      "notes": []
+    },
+    {
+      "title": "What is fixed at the top stays fixed, and holds what belongs there",
+      "body": "Four parts of one problem. The live status answers \"where is this\" and sits inside the journey, so whoever came for the plan scrolls past it and whoever came for the state reads it inside a document about something else — it is a fourth mode. The orchestrator button starts a real session in a real working copy, which is page-level, yet it scrolls away with the body; it goes to the far corner of the mode line, its status a tooltip rather than a standing line of prose. The epic title answers \"what am I reading\" and is the first thing to leave the screen. And the gap under the bar lets page text scroll through it — a stripe of movement between two things meant to be still, which is why this is ONE container and not three sticky boxes stacked: every seam shows the page sliding underneath.",
+      "refs": [
+        "gh#62"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A finished session lets go of the journey without being asked",
+      "body": "The point of starting an agent from here is that nobody has to tend it, and today a whole class of ending needs a person twice over. A session that reports blocked — one of the three words this project's own protocol tells agents to say — and then dies is never reaped by the supervisor and cannot be stopped on the first press: both read the same set of five finished words, and blocked is not one of them, so the run stands for ever and Start refuses. sessions.ts already knows three categories where journeys.ts derives two, and the missing distinction is the whole bug: blocked-and-running and blocked-and-dead are different situations. No processes, a sure read, and a state that is not busy means it is over. gh#64.",
+      "refs": [
+        "gh#64"
+      ],
+      "notes": []
+    },
+    {
+      "title": "An agent on a step says where its conversation is",
+      "body": "A claim says who holds a step and when, never where to find them. A reader wanting to see what an agent did, take the work over, or ask it something has a name and nothing else.\n\nThe roadmap cannot work this out for itself, which is what makes it a step rather than a tidy-up. The session id it reads from the machine is a uuid; a conversation's address is a different identifier in a different format, and neither yields the other. The server is spawned once per session and shared by every subagent under it, so anything read from its own environment credits a parent with its children's work.\n\nSo the agent says, and is refused if it does not. Nearly right is worse than absent: it renders as a link somebody clicks. A claim made before this reads as not given, never as blank.",
+      "refs": [
+        "gh#104"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A change can be shown, from where the agents actually work",
+      "body": "The checklist asks a change to show what a user would see, before and after. An agent cannot: the browser it drives will not reach a server started from a worktree, which is exactly where agents are told to work so they do not disturb the reader's own. Three hit the same wall in one session.\n\nThat leaves two outcomes and no good one. Either the item stays unticked on every change an agent makes — honest, and useless — or somebody ticks it on the strength of a description, which is a tick that means nothing. An item satisfiable only by being fudged is worse than no item, and it teaches agents that ticks are decorative.\n\nPlaywright needs no browser permission and the item already names it as the quickest way. It should name it as the way.",
+      "refs": [
+        "gh#100"
+      ],
+      "notes": []
+    }
+  ],
+  "exists": [
+    "The posting switch is built end to end: a file-backed policy that is off by absence, an acknowledgement the server enforces rather than the page, and two statements kept beside the code so an agent reading the policy over MCP is told what the person who flipped it was told.",
+    "The claim ledger keys on the resolved target rather than the subject file, so one pull request is claimed once however its ref is spelled — and removeReview refuses to delete a claimed review, so remove-then-re-report can no longer mint a second claim. Both were defects; both are closed.",
+    "The supervisor already reconciles the local roster, runs, claims and asks on a timer with no session, no tokens and no tracker call, and writes exactly one thing: the close-out of a session it positively identified and read an ending on. Everything short of that produces a sentence and touches nothing.",
+    "hooks/deliver.mjs is written and correct — it just is not installed anywhere. The same is true of src/courier.ts and the /api/pending long-poll behind it. This step is wiring, not building.",
+    "Situation.assignment() and startableUnits() already answer 'what should be done next'; journeys.ts uses them for the agent brief, and /api/journeys already puts the answer on the wire.",
+    "runners(cwd) already takes the filter the roster needs, and journeys.ts already scopes correctly when resolving a single run.",
+    "watchesGitlab() already suppresses dead GitLab links, so the link layer of the GitHub migration is done and only the copy layer is outstanding.",
+    "released.ts, inProdRefs and the whole in-prod stage are built, tested and labelled — nine merged pull requests already carry the sha it needs. Only the branches field is unset."
+  ],
+  "missing": "The tool's own central rule is that 'cannot tell' and 'no' are different answers and only one may be printed as a fact. Three surfaces break it and none of them is a missing feature. A filter with no input renders an empty list rather than saying it has no input. A dispatch whose spawn failed renders 'waiting for it to check in' rather than saying it did not start. A test that pins a marker rather than a sentence reports green over a brief that says the opposite of the truth. Underneath all three is the same absent thing: nothing distinguishes a surface with no data from a surface whose data source was never connected. The posting seam has the mirror-image gap — the machinery that decides whether an agent may write in public is complete, and the write itself has no gate at all, so the only thing standing between a drafted finding and a public comment is a confirm() in a browser.",
+  "order": [
+    {
+      "when": "Now",
+      "what": "gh#1",
+      "why": "An unauthenticated endpoint that writes in public under the owner's credentials, and one line closes the network half."
+    },
+    {
+      "when": "Then",
+      "what": "gh#3, then gh#2",
+      "why": "The ledger has to hold before anything uses it; the poster is what makes the switch mean something."
+    },
+    {
+      "when": "Alongside",
+      "what": "gh#4, gh#5, gh#6",
+      "why": "The agent seam. Independent of the posting work and of each other, and gh#5 and gh#6 are wiring rather than design."
+    },
+    {
+      "when": "Then",
+      "what": "gh#7",
+      "why": "Needs a view on gh#5 first: whatever wakes the reconcile loop overlaps with how the hook is installed."
+    },
+    {
+      "when": "Alongside",
+      "what": "gh#8, gh#9, gh#10, gh#11, gh#12, gh#13",
+      "why": "The page. Every one is independent; gh#11 and gh#13 are the cheapest and change the most."
+    },
+    {
+      "when": "Alongside",
+      "what": "gh#14, gh#15, gh#16",
+      "why": "Unblocked by all of it, and the reason to do them early is that the rest lands under a suite that currently cannot see these failures."
+    }
+  ],
+  "open": [
+    "Where does the poster live — in the server, which holds the claim ledger in one process, or as an MCP tool the reviewing agent calls, which makes the claim cross-process and turns gh#3's latent lock hazard into a live one? The answer decides whether a file lock is enough or whether one owner process is required.",
+    "Is a review one comment or one comment per finding? The ledger claims a target once, which reads as one comment; the drafts are per-finding, which reads as several.",
+    "Is GitLab still live? trackers/gitlab.ts is 29K of working code and holds the only comment-posting path in the project, so retiring it would take the poster's one existing implementation with it — while every epic tracked here is GitHub and the state files hold zero GitLab refs.",
+    "Should a claim ever expire on its own? Today it never does, the reasoning holds, and the consequence is that a reboot mid-run wedges a journey with no way back except editing the database.",
+    "Should opting out of the promotion gap have to be explicit? An epic that forgot branches and an epic that deliberately does not track promotion are currently indistinguishable — the same cannot-tell-versus-no confusion released.ts is otherwise scrupulous about. This epic is itself an example: the roadmap repo has one branch, so it has no promotion gap to track, and it says so here rather than by omission.",
+    "When a dead control's input is missing, is the honest answer to hide it or to disable it with a reason? The Who picker hides, the mark filters do not, and nobody has decided which is right."
+  ],
+  "quizzes": [
+    {
+      "question": "Why is claimPost's missing lock described as a hazard rather than a bug?",
+      "options": [
+        "Because only one process calls it today, and that is a property of the callers rather than of the code",
+        "Because JSON files cannot be corrupted by concurrent writes",
+        "Because the claim is re-checked before the comment is posted"
+      ],
+      "answer": 0,
+      "why": "Its own docstring makes the point: the MCP server already imports the module, so the day a claim tool is added there, two processes read the same unclaimed review and both write a claim. Safety that depends on who happens to call you is not safety."
+    },
+    {
+      "question": "What does a filter with no input currently tell the reader?",
+      "options": [
+        "That the list is empty",
+        "That the filter has no data source",
+        "That the tracker has not been refreshed"
+      ],
+      "answer": 0,
+      "why": "It renders an empty list, which is indistinguishable from a genuine empty result. The project's own rule — cannot-tell and no are different answers, and only one may be printed as a fact — is broken on the surface people use most."
+    },
+    {
+      "question": "Why does a session-end hook not close the stale-claim problem?",
+      "options": [
+        "It cannot fire for a crash, a kill or a reboot, which are the cases that strand a claim",
+        "Claude Code does not expose a session-end hook",
+        "The claim is held by the server, not by the session"
+      ],
+      "answer": 0,
+      "why": "It would make the clean-exit case instant, and the clean-exit case is the one the supervisor already handles. The reconcile loop has to stay authoritative for everything else — and a reboot kills the loop too, which is the second half of gh#7."
+    }
+  ],
+  "vocabulary": [
+    {
+      "term": "journey",
+      "means": "One epic's page: a hand-written narrative of what has to become true for a user, with live tracker state rendered beside it. The narrative is the part a person writes and the status is the part nothing may hand-edit — that split is the whole design, and every defect in this epic is somewhere it leaked."
+    },
+    {
+      "term": "derived and reported",
+      "means": "The seam this project is built on. A derived fact is one something else already knows and is read every time — an issue's state, whether a commit is an ancestor of the deploy branch. A reported fact is one only the agent can know, so it says so: working, in-review, blocked. Only three of the seven stages may be reported; asking to report a derived one is refused with the remedy for actually making it true."
+    },
+    {
+      "term": "run",
+      "means": "One started orchestrator, identified by a token written into its opening prompt (roadmap-run:<journey>#<ask>). The token is the only name a background session has that nothing later rewrites — the pid belongs to a launcher that exits within the second, and the name is rewritten by the labelling cron."
+    },
+    {
+      "term": "ask",
+      "means": "A piece of work put on the queue for whoever is free, or addressed to one agent by name or by session id. Taking one is deliberate: an agent claims it rather than being handed it, which is why an ask that nobody takes is a visible fact rather than a silent one."
+    },
+    {
+      "term": "claim",
+      "means": "An agent's hold on a step, and the thing that stops two sessions editing one file. Presence expires; a claim does not — deliberately, because nothing can tell a dead agent from a quiet one. The word does double duty: a claim on a REVIEW is the double-post ledger, written before the tracker is touched and never handed back, since a released claim is a retry and a retry is how the same finding lands twice."
+    },
+    {
+      "term": "the posting switch",
+      "means": "One setting deciding whether a review agent may write to a pull request, a merge request or an issue. Off is the absence of the file, so a roadmap that has never heard of it reads as no rather than as unknown. Turning it on requires stating what you are agreeing to; turning it off requires nothing, because the safe direction is never gated."
+    },
+    {
+      "term": "concern",
+      "means": "A sentence the supervisor left about a journey, kept in its own store so the two modules that need it do not have to import each other. Nothing in it decides anything — it is a place to put a sentence, and the supervisor's whole discipline is that almost everything it finds becomes one of these rather than a write."
+    },
+    {
+      "term": "gate",
+      "means": "A blocker outside every tracker, written as plain prose. A gate never clears itself, so an issue waiting on one stays blocked however green everything else looks — which is the honest answer when the thing in the way is a person clicking a button."
+    },
+    {
+      "term": "subject",
+      "means": "One reviewed thing and every review of it, one file per subject. Named from the parsed ref rather than the raw string, because a merge request and an issue that happen to carry the same number are different things that would otherwise share a filename. The claim, though, keys on the resolved TARGET across every subject: two spellings are two files and one pull request."
+    },
+    {
+      "term": "mark",
+      "means": "The state letter at the front of a session name — C, O, D, M, X, W — put there by an external labelling script and read here for colour and filtering. Nothing in this project derives one, which is exactly why the six filters that read it match nothing on a machine where that script never runs."
+    },
+    {
+      "term": "brief",
+      "means": "The document composed for a dispatched session: what the journey is, what is ready, what is blocked and by what, and how to work here. It is the roadmap's only chance to orient an agent — which is why a test that checks a section exists rather than what it says can leave the brief telling a session that a step is finished when nobody wrote down what it is."
+    }
+  ],
+  "blockedBy": {
+    "gh#2": [
+      "gh#3",
+      "gh#1"
+    ],
+    "gh#7": [
+      "gh#5"
+    ],
+    "gh#23": [
+      "gh#22"
+    ],
+    "gh#35": [
+      "gh#106"
+    ],
+    "gh#48": [
+      "gh#46"
+    ],
+    "gh#60": [
+      "gh#59"
+    ]
+  },
+  "settledBy": {},
+  "containers": [],
+  "people": [
+    "Jaakko"
+  ],
+  "owners": {},
+  "groups": [
+    {
+      "heading": "The posting seam",
+      "refs": [
+        "gh#1",
+        "gh#3",
+        "gh#2"
+      ]
+    },
+    {
+      "heading": "The agent seam",
+      "refs": [
+        "gh#4",
+        "gh#5",
+        "gh#6",
+        "gh#7"
+      ]
+    },
+    {
+      "heading": "What the page shows",
+      "refs": [
+        "gh#8",
+        "gh#9",
+        "gh#10",
+        "gh#11",
+        "gh#12",
+        "gh#13"
+      ]
+    },
+    {
+      "heading": "What the tests check",
+      "refs": [
+        "gh#14",
+        "gh#15",
+        "gh#16"
+      ]
+    },
+    {
+      "heading": "What the roadmap says about itself",
+      "refs": [
+        "gh#24",
+        "gh#25",
+        "gh#26"
+      ]
+    },
+    {
+      "heading": "Reading the page",
+      "refs": [
+        "gh#27",
+        "gh#28",
+        "gh#29"
+      ]
+    },
+    {
+      "heading": "What you control, rather than the source",
+      "refs": [
+        "gh#22",
+        "gh#23"
+      ]
+    },
+    {
+      "heading": "How the page is built",
+      "refs": [
+        "gh#34",
+        "gh#35"
+      ]
+    }
+  ],
+  "watch": [],
+  "repo": "jaakkorajalasol/roadmap",
+  "branches": null
+}

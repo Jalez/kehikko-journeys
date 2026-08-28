@@ -1,0 +1,280 @@
+{
+  "slug": "sections-one-tree",
+  "title": "Everything is a page in one recursive tree",
+  "lede": "The sections model dissolved the category system: there are only sections, a section IS a composed page, and the sidebar is just the root sections. Stages A–C are built and landed — the tree lives on custom_pages, URLs mirror it, all 26 built-ins render in place at any tree position. What remains is what the supersession left half-done: communities that never got their tree seeded, links that still remember the old addresses, and the hardcoded exceptions the model exists to dissolve.",
+  "repo": "Jalez/resident_committee_portal",
+  "branches": {
+    "development": "development",
+    "prod": "prod"
+  },
+  "umbrella": "gh#1384",
+  "written": "2026-08-22",
+  "tab": "Sections",
+  "callout": "gh#1558 is live on production: a pre-0283 community's tree swap can activate without its built-in rows ever being seeded, so whole categories — minutes, members, practices — vanish from the sidebar, the landing and /settings/pages at once.",
+  "vocabulary": [
+    {
+      "term": "section",
+      "means": "The only structural concept: a node in the tree, and a section IS a composed page — not a folder that contains pages. Root sections (rows with no parent) form the sidebar; any section may hold subsections, recursively."
+    },
+    {
+      "term": "the tree",
+      "means": "The per-community page hierarchy, living entirely on the custom_pages table — there is no sections table. A page's URL is derived from its ancestor chain, so moving a page in the tree moves its URL. Each community's tree rows must be seeded; a community where they never were is exactly the gh#1558 failure."
+    },
+    {
+      "term": "composed page",
+      "means": "A page whose body is an ordered list of blocks the community edits — the thing members build themselves. The opposite of a built-in; the epic's endgame is that landings and even built-in leaves become this same kind of thing."
+    },
+    {
+      "term": "built-in",
+      "means": "A shipped feature page (minutes, members, practices…) — in this model a tree row holding a locked component. Movable and renamable like any section, but its core block cannot be removed: you can move what it does, not delete it. (A built-in TABLE, in the neighbouring tables journey, is the same idea one layer down — an app-seeded thing being made ordinary.)"
+    },
+    {
+      "term": "leaf",
+      "means": "Where the URL walk stops: the resolver consumes segments that match tree children, and the first segment matching none begins the leaf page's own internal sub-path (\"new\", an id + \"edit\"). Tree position always wins over a sub-route reading."
+    },
+    {
+      "term": "landing",
+      "means": "Not a separate page type: a landing is just a root section's own blocks, rendered when you visit the root's URL. \"Category landing page\" as a distinct concept is gone."
+    },
+    {
+      "term": "category",
+      "means": "The SUPERSEDED model (gh#237): fixed top-level groups each feature was welded into. It survives only as a column — the root-ancestor key that is the URL's first segment, kept in sync by the move core — and in prose about the old world. Where a step says \"category\", read \"root section\" unless it names the old model on purpose."
+    },
+    {
+      "term": "squatting",
+      "means": "A member-created page taking a root section's name. It gains nothing: root identity keys on builtin_key, never on the slug, so the resolver can never mistake the user page for the root."
+    },
+    {
+      "term": "derived permission",
+      "means": "A tree page's read permission is computed from its canonical URL by the same deriver every static route uses — nobody hand-writes it, and it is published into the role editor per request. This is why converting a hardcoded page to a composed one, or swapping a built-in for a composed page at the same address, moves nobody's access — provided some role actually holds the name (the gh#1379 leak)."
+    }
+  ],
+  "steps": [
+    {
+      "title": "One tree, one table — and it stands",
+      "body": "The built part, and it is most of the epic. The tree lives on custom_pages — no sections table, no second concept: a category root is a row with no parent, a landing is that row's own blocks, a built-in is a row holding a locked component. Tenant-safe self-FK, restrict-on-children, slug uniqueness that follows the tree. Two pure functions resolve every URL from the tree, so the splat loader, the sidebar and the breadcrumb cannot disagree about where a page lives. Communities create, rename, reorder and delete root sections; the home icon grid and the settings inventory show the whole tree, intros included. This superseded the gh#237 category model — where the two disagree, the tree wins.",
+      "refs": [
+        "gh#1392",
+        "gh#1383",
+        "gh#1478",
+        "gh#1487"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Every community actually has the tree",
+      "body": "The model is only real where its rows exist. gh#1558, live on production: a community provisioned before migration 0283 can have the tree-based nav activate without its built-in rows ever being seeded — whole categories of shipped pages silently disappear, and nothing reconciles the registry against the rows afterwards. The seeding has to become something that converges, not something that happened once at the right moment.",
+      "refs": [
+        "gh#1558"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A page's derived permission is held by someone",
+      "body": "A composed page is gated by the name its own canonical URL derives — the same deriver every static route uses, so converting a hardcoded page to a composed one moves nobody's access. But a derived name is only as good as the roles holding it, and two leaks remain. gh#1379: the family gates were granted to role templates, which are cloned at provision time — already-provisioned communities never received them, so their members cannot see composed pages at all. And gh#1513: audience_roles is a second, hidden source of truth for visibility that the permissions tab neither shows nor edits — two mechanisms answering one question.",
+      "refs": [
+        "gh#1379",
+        "gh#1513"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A moved built-in behaves like it lives there",
+      "body": "Built-ins render in place at any tree URL, but their own furniture still remembers home. gh#1390's first pass taught 36 sub-routes to build links from the canonical base; gh#1419 is the ledger of the 51 that still hardcode a legacy self-link, so a tab or back link jumps to the old URL after a cross-category move. gh#1461 is the same failure after a page action — the section-splat mount navigates to the legacy path. And gh#1389: dragging a section to a new parent computes its position from visual order and can land one slot off. Moving a page is only real when nothing on the page disagrees.",
+      "refs": [
+        "gh#1390",
+        "gh#1419",
+        "gh#1461",
+        "gh#1389"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A free page grows depth, and the dispatcher shrinks",
+      "body": "A free page's landing works at any depth, but its own sub-routes do not: /new and /:id/edit under the splat currently 404, because the landing had to fully work first. gh#1380 wires them — a page under a page, with working add and edit. That unlocks gh#1400: today two implementations dispatch tree pages (the single-segment $pageSlug mount and the section-splat), and the fold to one is blocked exactly on the splat refusing any rest path on a custom leaf. The eleven runtime mounts are a React Router ranking requirement, not duplication — the subtractable part is two implementations to one.",
+      "refs": [
+        "gh#1380",
+        "gh#1400"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The hardcoded exceptions dissolve",
+      "body": "The claim is one modifiable page system, and two exceptions still stand. gh#1381: category landings should be composed pages edited through the same Customize surface as any member-built page — today a landing's blocks are real but the landing is not yet a first-class composed page. gh#1840: a built-in leaf should be replaceable by a composed page at the same address — the URL-derived permission rule already guarantees that swap moves nobody's access, which was the point of building it that way. Code-owned pages like billing stay code-owned; everything else becomes the same kind of thing.",
+      "refs": [
+        "gh#1381",
+        "gh#1840"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The page furniture reads the tree",
+      "body": "Surfaces that decorate pages still read the dissolved model. The info reel is hardcoded to inventory — gh#1378 generalizes it for composed pages and gh#1876 makes it page configuration outright, a thing a page declares rather than a bolt-on one feature owns. gh#1574: groupIcon() reads the static nav tree, so a community-created root's icon drifts between sidebar and breadcrumb. gh#1479: breadcrumb and sidebar should share one landing resolver, including the gated-landing exception. Each of these is the same bug — a second copy of knowledge the tree already holds.",
+      "refs": [
+        "gh#1876",
+        "gh#1378",
+        "gh#1574",
+        "gh#1479"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The operational built-ins leave the tree",
+      "body": "Six built-ins — members, practices, templates, actions, billing, mail — are operational surfaces, not content, and the direction is to relocate them out of the content tree. Their wiring has landed and is pinned by tests; gh#1388 is the relocation itself, deferred from Stage C. Billing is the sharpest edge: gh#1391 decides the billedByParent subject for its tree mount, and gh#1547 shows why it matters — a parent-billed community can still reach its own subscription surfaces through the splat mount, a page the model says it should not have.",
+      "refs": [
+        "gh#1388",
+        "gh#1391",
+        "gh#1547"
+      ],
+      "notes": []
+    }
+  ],
+  "stepsFrom": {
+    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "where": "data/papers/sections-one-tree/main.tex",
+    "why": "This journey has a paper as well as the steps stored here. Where a roadmap is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
+  },
+  "exists": [
+    "Stages A–C are landed: the custom_pages tree (migrations 0283/0284), seeding, the pure path resolver, the per-category splat, cross-category moves that re-root a subtree, and the drag-to-nest editor at /settings/pages.",
+    "All 26 built-ins render in place at their tree URL; the unwired-key fallback branch is unreachable, and the remaining fallback branch is deliberate, not dead code.",
+    "Nav renders from the tree with a kill switch (SECTION_NAV_SOURCE) that reverts to static nav without touching the tree data.",
+    "Canonicalization is gated: a stale or moved path 301s to the canonical URL only after the viewer passes the gate, and every failure 404s — never 403s.",
+    "The runtime catalog merge publishes every tree page's derived permission per request, so the role editor lists it like any written name, and grant-page-read.server.ts carries grants through create, move and delete."
+  ],
+  "missing": "Nothing reconciles the built-in registry against a community's rows after the fact. Seeding is a moment, not an invariant — which is exactly how gh#1558 shipped: the tree swap activated for communities whose rows were never written, and the model has no answer for a community where the two disagree.",
+  "order": [
+    {
+      "when": "Now",
+      "what": "gh#1558",
+      "why": "Live on production; communities are silently losing shipped pages."
+    },
+    {
+      "when": "Now",
+      "what": "gh#1379",
+      "why": "Composed pages are invisible to members of already-provisioned communities until the backfill lands."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1419, gh#1461, gh#1389 — moves that hold",
+      "why": "Independent, mechanical, and each one makes a legal move produce a wrong link today."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1380, then gh#1400",
+      "why": "Nested sub-routes unblock the dispatcher fold; the fold is explicitly waiting on them."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1381, gh#1840 — dissolve the exceptions",
+      "why": "The model's endgame; safe only once access and links are trustworthy."
+    },
+    {
+      "when": "Alongside",
+      "what": "gh#1876, gh#1378, gh#1574, gh#1479, gh#1388, gh#1391",
+      "why": "Furniture and relocation — unblocked by the ordering above, each self-contained."
+    }
+  ],
+  "open": [
+    "Where do the six operational built-ins relocate TO? gh#1388 wired them for relocation, but the destination surface is not decided.",
+    "FEATURE_PACKAGES is declared but inert — one entry, no production consumer. Does the mail package get a consumer, or does the grouping die?",
+    "Does audience_roles survive as a mechanism once gh#1513 lands, or does the permission ladder become the only answer to who sees a page?"
+  ],
+  "quizzes": [
+    {
+      "question": "Why does root-section identity key on builtin_key === category rather than on the row's slug?",
+      "options": [
+        "Slugs are not unique across communities, so a slug lookup could cross tenants",
+        "So a user-created page can never squat a root by taking its name",
+        "Because the slug column did not exist before migration 0283"
+      ],
+      "answer": 1,
+      "why": "A root's slug is normally just the category name, which a member could give to their own page. Keying identity on builtin_key means taking the name gains nothing — the resolver never mistakes the user page for the root."
+    },
+    {
+      "question": "Why do all sections failures — unknown root, unknown built-in key, gate failure — return 404 and never 403?",
+      "options": [
+        "A 403 confirms to a probing viewer that the guessed page exists",
+        "React Router cannot render a 403 from a splat route",
+        "403 responses are cached by the CDN and would stick after a grant"
+      ],
+      "answer": 0,
+      "why": "Fail closed everywhere: even the canonical-URL redirect is computed before the gate but thrown only after it passes, so a probe learns nothing — not the page's existence, not its canonical address."
+    }
+  ],
+  "blockedBy": {
+    "gh#1400": [
+      "gh#1380"
+    ]
+  },
+  "settledBy": {},
+  "containers": [],
+  "people": [
+    "Jaakko"
+  ],
+  "owners": {},
+  "groups": [
+    {
+      "heading": "The tree stands",
+      "refs": [
+        "gh#1392",
+        "gh#1383",
+        "gh#1478",
+        "gh#1487"
+      ]
+    },
+    {
+      "heading": "Every community has it",
+      "refs": [
+        "gh#1558",
+        "gh#1379"
+      ]
+    },
+    {
+      "heading": "Access from the URL",
+      "refs": [
+        "gh#1513"
+      ]
+    },
+    {
+      "heading": "Moves that hold",
+      "refs": [
+        "gh#1389",
+        "gh#1390",
+        "gh#1419",
+        "gh#1461"
+      ]
+    },
+    {
+      "heading": "Fewer exceptions",
+      "refs": [
+        "gh#1380",
+        "gh#1400",
+        "gh#1381",
+        "gh#1840"
+      ]
+    },
+    {
+      "heading": "Furniture from the tree",
+      "refs": [
+        "gh#1876",
+        "gh#1378",
+        "gh#1574",
+        "gh#1479"
+      ]
+    },
+    {
+      "heading": "Leaving the tree",
+      "refs": [
+        "gh#1388",
+        "gh#1391",
+        "gh#1547"
+      ]
+    }
+  ],
+  "watch": [
+    "gh#1368",
+    "gh#1507",
+    "gh#1490"
+  ],
+  "project": "Community portal"
+}

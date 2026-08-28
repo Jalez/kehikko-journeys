@@ -1,0 +1,326 @@
+{
+  "slug": "practices-are-the-only-governor",
+  "title": "Everything that governs behaviour is a practice you can read",
+  "lede": "\"Talon tavat\" are meant to be the one place a community sees why the app said no. The authoritative spec for that claim is docs/PRACTICES_MODEL.md (owner decisions 2026-08-13/14): a practice is targeting + placement + action, and nothing else governs. The structural half has landed — one table, one vocabulary, placement as operation × before/after/later — but conditions still hide in code, a disabled practice can still fire, and a refusal still cannot name the practice that refused.",
+  "written": "2026-08-21",
+  "tab": "Practices",
+  "project": "Community portal",
+  "callout": "The vocabulary is settled: a **practice** (tapa) is the written half, an **action** (teko) is the half that runs, a **run** is one execution. Rule and routine are dead words except in frozen stored values. docs/PRACTICES_MODEL.md is the authoritative spec; it supersedes the shape (not the goal) of docs/PRACTICE_WHEN_MODEL.md, docs/TALON_TAVAT_UNIFICATION.md and docs/ROUTINES_GENERALIZATION_SPEC.md — read their banners before citing them.",
+  "steps": [
+    {
+      "title": "Off means off",
+      "body": "First, deliberately: docs/PRACTICES_MODEL.md §11 makes gh#1682 step 1 — \"trust prerequisite; nothing else is safe to seed until off is true.\" A practice shows as disabled and its actions fire anyway, because the switch was never on the path the arms take (§10.2 — the practice page writes one flag, the firing gates read another, and the hub's bulk toolbar has the same split, so both must be fixed). Everything a community believes about its own practices is downstream of this being true, and the model's own seeded defaults would inherit the bug — which is why it comes before everything, not merely \"immediately after\".",
+      "refs": [
+        "gh#1682"
+      ],
+      "notes": []
+    },
+    {
+      "title": "One table holds every practice",
+      "body": "The structural change the rest sits on. gh#1687 drops the `routines` table — its arms fold into the practice row — and removes the retired words from code: types, repos, engines, routes, permission names (`governance:practices:*` with a roles[] backfill). docs/PRACTICES_MODEL.md §10.1 records the owner decision: dropped, not kept as an arm store — docs/TALON_TAVAT_UNIFICATION.md had rejected this migration as cost \"for no user value\"; gh#1682 and gh#1355 are that value. §11a adds the fold's shape: one practice, one action; an action has no enabled at all (gh#1721); history belongs to `action_run`, the action ledger. Much has landed — migrations 0305 (fold), 0307/0308 (vocabulary + permission rename) — with remaining slices on the issue.",
+      "refs": [
+        "gh#1687"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Placement is an operation and a time",
+      "body": "docs/PRACTICES_MODEL.md §2.2: every practice runs at operation × {before, after, later} — replacing both retired pickers (a fixed action list on one side, a trigger list on the other). \"Later\" anchors freely (§6): the operation's moment, a field value on the item, or the calendar. gh#1697 built this (migration 0311). Two reversals to know: view IS an operation (§9.1 overturns docs/PRACTICE_WHEN_MODEL.md §7 decision 4), but stays out of the picker until its seats exist — last of the operations, because it is the only hot one (§11 step 9). The older gh#1346/gh#1347/gh#1348 designs were rewritten or folded into this axis (§11 dispositions).",
+      "refs": [
+        "gh#1697"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Blocking is an action that names its target",
+      "body": "docs/PRACTICES_MODEL.md §3: the phase says when, the action says what — \"before\" does not mean blocking, and an after practice can block another practice's action (it just cannot un-write the row). gh#1698 makes stopping something a teko that names its targets — other practices, and/or the operation on a targeted item set — replacing the bare boolean flag the practice carries today, which blocks whichever operation it happens to run inside while nothing names what is blocked. Naming the refused-by practice is an agreed requirement. Reference rot is specified in §4.3: deleting a referenced practice must warn or leave a visible broken reference, never silently neuter the blocker; referencing a disabled practice is a harmless no-op.",
+      "refs": [
+        "gh#1698"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Order is derived, and a cycle is refused at save",
+      "body": "docs/PRACTICES_MODEL.md §4: named blocking relationships form a dependency graph and resolution walks it — declaring what a practice depends on IS declaring the order. List order breaks ties between independent practices, so position becomes a real, editable property (today both engines order by creation time, which is stable but is not a decision anybody made — §10.4). gh#1699: a cycle is rejected when it is saved, not discovered when it runs — a system contradiction must not surface behind a member's Save button.",
+      "refs": [
+        "gh#1699"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Actions are a catalog, not a category",
+      "body": "docs/actions-unification-rfc.md (gh#1198) made actions a first-class, app-wide domain — the `action` table, `action_run` ledger, one fire function, `create_action`/`run_action` as canonical tool names — and docs/PRACTICES_MODEL.md §2.3 builds on it: the catalog grows, the concept does not, and adding a new kind of action must never add a new concept for the member. Two consequences from §9 and §11a: the mechanical/AI discriminator goes away — the assistant is an executor of an action, not a category of practice — and the practice→action link becomes a registered entity relationship, so the existing no-delete-when-linked practice protects an action a practice uses, instead of a raw database error. gh#1399 is the catalog's hardest entry: censor rewrites content, and an action that returns a rewritten body has nowhere to put it while the evaluator returns a boolean.",
+      "refs": [
+        "gh#1198",
+        "gh#1399"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Targeting is a condition, evaluated when the action fires",
+      "body": "docs/PRACTICES_MODEL.md §2.1: there is no \"global practice\" — a practice that appears everywhere is one whose condition matches many items, and field-value conditions (\"receipts over 500 €\") are first class, not an add-on. §5: conditions — including a blocker's — are evaluated at the moment the action would happen, never frozen at enqueue; a deferred action carries only a reference and the whole resolution runs again before it fires. The runner already re-checks enabled and the window at fire time; re-resolving conditions is the missing half. For field-value time anchoring, docs/ROUTINES_GENERALIZATION_SPEC.md's derive-don't-declare principle and its UI-field vs DB-column mapping survive its otherwise superseded shape. gh#1844 is the identity this rests on: a criterion names a row-state by value, so a value that can be minted twice makes a condition silently govern a state nobody pointed it at.",
+      "refs": [
+        "gh#1230",
+        "gh#1844"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The retired words leave the stored data too",
+      "body": "gh#1703 carries the rename into values that outlive the code — action_run.source, the notification types, the settings key — and most of it landed in migration 0310 (which also dropped the action table's dead enabled column, gh#1721, per docs/PRACTICES_MODEL.md §11a). What remains is gh#1733: action.behavior 'enforce_rule', split out because the same string is the value of four different things, and changing only one leaves two spellings of one concept. Whether to change it at all is still the owner's call. Frozen contracts stay frozen either way — including the deprecated MCP aliases, kept as thin delegating wrappers per §12.5 so no external caller breaks.",
+      "refs": [
+        "gh#1703",
+        "gh#1733"
+      ],
+      "notes": []
+    },
+    {
+      "title": "What a new community inherits is exactly one copy",
+      "body": "gh#1842: a seeded default practice appears twice on a child node — its own copy and the parent's, both real rows with different ids, so the collector's dedupe-by-id never fires. Every seeded default has this shape. This matters doubly under docs/PRACTICES_MODEL.md §7, where a platform default is a seeded row a community may edit or switch off — the seeder (which already exists and is the thing to extend, per the spec's banner) must hand each community exactly one visible copy. The open decision is whether to dedupe by system_key, seed defaults only at the root, or show inherited practices as their own group.",
+      "refs": [
+        "gh#1842"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A refusal names the practice that refused",
+      "body": "docs/PRACTICES_MODEL.md §8: a practice is the community's decision, and the person who meets it is often not the person who made it. Four requirements: a form or item shows, in advance, which practices apply to it; a refusal names which practice refused and why — never a generic error; an action that fired says which practice caused it; a pending deferred action is visible, and so is its failure (an after-phase failure must not break the operation, but must not be buried in a log either). Two surfaces already do the \"which practices apply here\" half — the per-table and per-page practice lists — and the spec says extend them, not reinvent. gh#1672 is the same contract on a batch: a refused bulk action must answer in the list it was run from, naming what was refused and what was not.",
+      "refs": [
+        "gh#1230",
+        "gh#1672"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The conditions still hiding in code become practices",
+      "body": "Where the epic pays off. gh#1829 collects some fifteen email criteria — and their tests — into a registry the practices page can show: invariants rendered locked, the rest as editable seeded practices. gh#1841 does the same for row visibility, replacing filters buried in the row source with a practice whose criteria compile to a SQL predicate and fail closed. Both replace a condition only the repo can see with one the app can show — docs/PRACTICES_MODEL.md §10.3's category, and docs/FORMS_TABLES_UNIFICATION.md's founding principle A: as few forced built-ins as possible, absolute transparency on every one that exists.",
+      "refs": [
+        "gh#1829",
+        "gh#1841"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Seed the defaults, delete every hardcoded behaviour",
+      "body": "Last, deliberately: docs/PRACTICES_MODEL.md §11 step 8 holds this until the one-switch guarantee is true — seeding a default is honest only once off means off. gh#1363 is the canonical §1 violation: news-published notifications fire from inside the writer, no practice consulted, the only off switch a caller-side boolean nobody passes. gh#1367 is the same shape on forms — the legacy github_mirror boolean still fires from three call sites alongside the generic mirror practice (docs/FORMS_TABLES_UNIFICATION.md W6b). Seeding first needs an answer to whose authority a seeded practice acts on, because a seeded practice has no creator and a fire-time permission check finds nobody: gh#1925 settles that it acts as a ROLE, resting on gh#1926 (nobody grants what they do not hold), gh#1928 (an action's requirements are derived from what it does, never declared) and gh#1929. And §10.3: `system:no-delete-when-linked` becomes a seeded default a community may disable.",
+      "refs": [
+        "gh#1363",
+        "gh#1367",
+        "gh#1925",
+        "gh#1926",
+        "gh#1927",
+        "gh#1928",
+        "gh#1929",
+        "gh#2037"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Deleting a practice is treated as destructive",
+      "body": "gh#1695: delete_practice and delete_rule are not marked destructive, so a headless MCP client can delete a practice with no preview. Once practices are the only governor, deleting one silently removes a guarantee — the tool has to say so before it acts. The runs survive the practice either way: history belongs to actions, and `action_run` is the ledger (docs/PRACTICES_MODEL.md §11a — a practice is a reason an action ran, recorded once, on the action).",
+      "refs": [
+        "gh#1695"
+      ],
+      "notes": []
+    }
+  ],
+  "stepsFrom": {
+    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "where": "data/papers/practices-are-the-only-governor/main.tex",
+    "why": "This journey has a paper as well as the steps stored here. Where a roadmap is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
+  },
+  "exists": [
+    "docs/PRACTICES_MODEL.md is the authoritative spec (owner decisions 2026-08-13/14) — targeting + placement + action, build order in §11. It supersedes the shape of PRACTICE_WHEN_MODEL.md, TALON_TAVAT_UNIFICATION.md and ROUTINES_GENERALIZATION_SPEC.md; each carries a banner saying what still holds.",
+    "The surface unification SHIPPED 2026-08-05 (docs/TALON_TAVAT_UNIFICATION.md, epic gh#1239): one hub at /governance/practices, create-draft→edit flow, legacy paths 301'd, chat moderation cut over to the practice gate.",
+    "The structural half of the model has landed as migrations: 0305 (the `routines` table folded into the practice row), 0307/0308 (vocabulary + permission rename), 0310 (stored-data vocabulary, action.enabled dropped), 0311 (placement axis, gh#1697).",
+    "The mechanisms the spec says to extend rather than invent already exist in narrower form: per-table and per-page \"which practices apply here\" surfaces, platform-seeded editable default rows, fire-time re-checking of enabled and window, and the app-wide action catalog with `create_action`/`run_action` as canonical tools (docs/actions-unification-rfc.md).",
+    "The frozen contracts are already enumerated and commented as frozen, so gh#1703 knows exactly what it may not touch."
+  ],
+  "missing": "The behavioural half of docs/PRACTICES_MODEL.md: field-value targeting conditions, execution-time re-resolution of a deferred action, and the §8 visibility contract — no view yet answers \"what governed this row, right now?\", and a refusal cannot name the practice that refused. Until it can, a community cannot tell a hardcoded condition (news notifications, github_mirror, the email criteria) from one of its own.",
+  "order": [
+    {
+      "when": "First",
+      "what": "gh#1682 off means off",
+      "why": "PRACTICES_MODEL.md §11 step 1: trust prerequisite — nothing else is safe to seed until off is true, and the model's own seeded defaults would inherit the bug."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1687 one table",
+      "why": "Dissolves the structural cause of gh#1682 and gh#1355; every later step is smaller on one table. Largely landed (0305/0307/0308)."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1697 placement axis",
+      "why": "The authoring vocabulary members actually meet — operation × before/after/later. Landed (0311); view stays out of the picker until its seats exist."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1698, gh#1699, gh#1198 actions + blocking + order",
+      "why": "Actions as a catalog, blockers naming their targets, cycle rejection at save. Targeting conditions can land in parallel (§11 step 5 is independent of step 4)."
+    },
+    {
+      "when": "Alongside",
+      "what": "gh#1703, gh#1733 stored-data rename",
+      "why": "Migrations; keep them off the critical path of the behaviour work."
+    },
+    {
+      "when": "Then",
+      "what": "Execution-time resolution, then visibility",
+      "why": "§11 steps 6–7: re-resolving a deferred action needs field-value conditions; naming a refusal needs the action catalog; showing pending/failed needs both."
+    },
+    {
+      "when": "Last",
+      "what": "gh#1829, gh#1841, gh#1363, gh#1367 — seed defaults, move conditions in",
+      "why": "§11 step 8, deliberately last: deleting a hardcoded behaviour is honest only once the engine is trustworthy. Then the view seats, last of the operations."
+    }
+  ],
+  "open": [
+    "Does row visibility (gh#1841) belong to this epic or to the tables epic? It is one issue answering both.",
+    "Where a transformer lives (PRACTICES_MODEL.md §12): mask/censor rewrite content, but the criterion evaluator returns a boolean, so a rewritten body has nowhere to travel — gh#1399's censor question waits on this.",
+    "What a blocked operation returns to a non-interactive caller — import, API, assistant (PRACTICES_MODEL.md §12): the same named refusal, presumably, but the surfaces differ."
+  ],
+  "quizzes": [
+    {
+      "question": "A practice reads as OFF in the UI but its actions still fire. What is wrong?",
+      "options": [
+        "The arms run on a path the enabled switch was never on",
+        "The practice was seeded twice, and one copy is enabled",
+        "The cache holds the previous enabled value"
+      ],
+      "answer": 0,
+      "why": "The switch gates the wrong layer (PRACTICES_MODEL.md §10.2). It is a different bug from the duplicate seed in gh#1842, though both end with a community unable to say which practice is deciding."
+    }
+  ],
+  "vocabulary": [
+    {
+      "term": "practice",
+      "means": "The community's written decision (Finnish tapa, pl. tavat): targeting + placement + action, one row a member can read, edit and switch off — and one switch, whole practice: a practice that reads as off does nothing. It replaces BOTH retired words: what used to be a \"rule\" and what used to be a \"routine\" are the same thing here (gh#1687)."
+    },
+    {
+      "term": "action",
+      "means": "The half that runs by itself (teko) — refuse, notify, mirror, set a field. Not the thing the member did; that is the operation. An action is a catalog item a practice points at, and its history lives on the action, not the practice."
+    },
+    {
+      "term": "operation",
+      "means": "The thing a member does to an item — create, save, delete, send, publish, view. Practices attach around operations; the operation itself is never a practice. Do not read \"action\" where a step says operation, or vice versa."
+    },
+    {
+      "term": "run",
+      "means": "One execution of an action, recorded in the action_run ledger. Not a schedule and not the action itself — the action is the thing that can fire, a run is one time it did. Runs survive the deletion of the practice that caused them."
+    },
+    {
+      "term": "placement",
+      "means": "When a practice runs: an operation crossed with before, after or later. It replaces both retired pickers (the fixed rule-action list and the routine trigger list). \"Later\" is a real placement with its own anchor, not a cron field."
+    },
+    {
+      "term": "blocking",
+      "means": "An action that names what it stops — other practices, or an operation on named items. Not a phase and not a flag: \"before\" does not mean blocking, and an after practice can block another practice's action (it just cannot un-write the row)."
+    },
+    {
+      "term": "targeting",
+      "means": "The condition saying which items a practice applies to, down to a field value (\"receipts over 500 €\"). There is no \"global practice\" — one that appears everywhere just matches many items. Conditions are evaluated at the moment the action would fire, never frozen at enqueue."
+    },
+    {
+      "term": "seeded default",
+      "means": "A platform-provided practice written into each community as an ordinary editable row at provisioning — never behaviour hidden in code. The community may change it or switch it off; that is what makes deleting the hardcoded behaviours safe."
+    },
+    {
+      "term": "frozen value",
+      "means": "A place where a retired word still survives because changing it would break stored data or an external contract — action_run.source, notification types, action.behavior \"enforce_rule\", the report reason \"rule_violation\", the deprecated MCP aliases, the 301 URL stubs — each commented as frozen. Frozen means \"not yet\", not \"forever\": it is debt with a comment on it, and every one of these is a candidate for a migration or a deprecation window that retires the old word for good. So the standing instruction is to replace \"rule\" and \"routine\" wherever they appear, including these — a frozen value is a licence to postpone the replacement, never a reason to stop wanting it, and never a reason to add a new one."
+    }
+  ],
+  "blockedBy": {
+    "gh#1698": [
+      "gh#1697"
+    ],
+    "gh#1699": [
+      "gh!2145 — both remaining halves (the save-time cycle refusal in resolveBlocks, and the reorder UI's new repo method) want app/db/adapters/repos/practices.repo.ts, which gh!2145 modifies. Blocked on that MERGING, not on anyone being free."
+    ],
+    "gh#1703": [
+      "gh#1687"
+    ],
+    "gh#1363": [
+      "gh#1929"
+    ],
+    "gh#1829": [
+      "gh#1828"
+    ],
+    "gh#1841": [
+      "ask #47a: the read/view seat must require explicit opt-in, or stored NULL-phase read-scoped practices go live on deploy"
+    ],
+    "gh#1367": [
+      "gh#1929",
+      "gh#1694"
+    ],
+    "gh#1929": [
+      "gh#1926",
+      "gh#1928"
+    ],
+    "gh#1927": [
+      "gh#1926"
+    ],
+    "gh#1938": [
+      "ask #61: does the blocks backfill emit `read` targets for mixed-operation rows, or filter read out (change 3 only; change 2 is in flight)"
+    ],
+    "gh#1733": [
+      "gh#1711"
+    ],
+    "gh#2136": [
+      "ask #60: what placement a guidance practice takes — reuse read+before (blocked on gh#2135), a new non-CRUD operation, a new `guide` behavior, or defer"
+    ]
+  },
+  "settledBy": {},
+  "containers": [],
+  "people": [
+    "Jaakko"
+  ],
+  "owners": {},
+  "groups": [
+    {
+      "heading": "The engine",
+      "refs": [
+        "gh#1682",
+        "gh#1687",
+        "gh#1697",
+        "gh#1698",
+        "gh#1699"
+      ]
+    },
+    {
+      "heading": "Actions and targeting",
+      "refs": [
+        "gh#1198",
+        "gh#1230"
+      ]
+    },
+    {
+      "heading": "The stored data",
+      "refs": [
+        "gh#1703",
+        "gh#1733",
+        "gh#1842"
+      ]
+    },
+    {
+      "heading": "Moving conditions in",
+      "refs": [
+        "gh#1829",
+        "gh#1841",
+        "gh#1363",
+        "gh#1367"
+      ]
+    },
+    {
+      "heading": "Safety",
+      "refs": [
+        "gh#1695"
+      ]
+    }
+  ],
+  "watch": [],
+  "repo": "Jalez/resident_committee_portal",
+  "branches": {
+    "development": "development",
+    "prod": "prod"
+  }
+}

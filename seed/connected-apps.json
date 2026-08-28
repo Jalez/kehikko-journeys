@@ -1,0 +1,244 @@
+{
+  "slug": "connected-apps",
+  "title": "Connecting an app means declaring what it does, and every crossing is accounted for",
+  "lede": "A community connects an outside app — Telegram, GitHub, one day a payment provider — and should be able to see what it does and what personal data it sees; and connecting the next app should never mean writing a new integration. The owner's direction (2026-07-28) is binding: one general adapter model, where an app declares the capability kinds it provides and the infrastructure is built once per kind, never per app. The accountability half is largely real — one fail-closed gate on every outbound crossing, its mirror on every inbound one. The standard half is still a design claim: three capability kinds plug in three different shapes, the declaration is not yet enforced by the type system, and the two integrations communities want most — collecting money and signing minutes — sit on a framework with no live provider.",
+  "repo": "Jalez/resident_committee_portal",
+  "branches": {
+    "development": "development",
+    "prod": "prod"
+  },
+  "written": "2026-08-22",
+  "tab": "Connections",
+  "callout": "gh#1667: when the egress gate refuses a send, the refusal is invisible — no log line the community can see, no error to the user. A fail-closed gate whose refusals look like success trains people to distrust the feature, not the payload.",
+  "vocabulary": [
+    {
+      "term": "adapter",
+      "means": "The one shape through which the portal talks to an external app: an identity plus one provider per capability kind the app declares. The point of the word is what it forbids — bespoke integration code written per app."
+    },
+    {
+      "term": "capability kind",
+      "means": "The axis the standard is built on: WHAT an app can do (broadcast, feed, record mirror, sync, requestCallback, identity), never WHICH app it is. Infrastructure is built once per kind; direction is a property of the kind rather than a second axis, because two of the kinds are intrinsically two-way."
+    },
+    {
+      "term": "egress chokepoint",
+      "means": "The single gate every outbound crossing must route through. Chokepoint is the design, not a performance complaint: exactly one door out of the building, so the accounting on the way through cannot be skipped by any caller."
+    },
+    {
+      "term": "ingress",
+      "means": "The mirror gate on data coming IN from an app — a webhook event, a callback. It refuses differently than egress: by dropping the event and still acking 200, because a webhook error response makes the platform retry the same refused event forever."
+    },
+    {
+      "term": "fail-closed",
+      "means": "When the gate cannot prove a crossing is allowed — no live subprocessor record, an under-declared data category, a disconnected app — the crossing does not happen. The opposite of software's usual default, where the unhandled case is the one that slips through."
+    },
+    {
+      "term": "subprocessor",
+      "means": "GDPR's word for an outside company that handles personal data on the portal's behalf. Every connected app that receives such data must hold a live entry in the subprocessor list — the egress gate refuses to send for an app without one."
+    },
+    {
+      "term": "accountability record",
+      "means": "The subprocessor list plus the per-crossing audit rows: the paper trail of which app saw what category of data. Its honesty problem is scope — it only knows about crossings that route through the gates, and some crossings (sign-in, hosting) never do."
+    },
+    {
+      "term": "requestCallback",
+      "means": "The capability kind payments and e-signature share: an outbound initiation, a pending row, and a later inbound callback that must resolve that specific pending request. One two-way contract — modeled instead as an outbound slot plus an inbound slot, the correlation between the halves is lost, which is why it is its own kind."
+    },
+    {
+      "term": "sync",
+      "means": "The capability kind for calendars, file storage and accounting reconcile: two-way, idempotent upsert/delete by external id. Not \"send plus receive\" — a deliver-and-ingest pairing cannot express which update or delete corresponds to which record. Today it has no contract or infrastructure at all."
+    }
+  ],
+  "steps": [
+    {
+      "title": "A capability is provided one way, not three",
+      "body": "Broadcast, feed and record-mirror each plug in differently today: a rich adapter interface, a bare function, and ad-hoc webhook code. Each pairing of declaration and implementation is held together by a convention and a test, so a fourth app copies whichever shape is nearest. The app registry now carries one provides declaration per app and one appsProviding(kind) dispatch — but declaring a kind still compiles without its provider, and the derived legacy capability flags still exist. What must become true: declaring a capability requires implementing its contract, at the type level, and the legacy shape is gone.",
+      "refs": [
+        "gh#1290",
+        "gh#1382"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The outbound gate covers every send — and a refusal says so",
+      "body": "The egress chokepoint is built and enforcing: an app with no live subprocessor record cannot send, categories are derived from the actual payload, and an under-declared category throws before anything crosses or is audited. Two gaps keep the invariant from being whole. Redeliver and resync bypass the gate, so a crossing the first send would refuse can still happen on retry. And when the gate does refuse, nothing tells anyone — the send just quietly reports as failed with only a server-side warning nobody outside can read. A refusal is a legitimate answer; it has to be legible to the person whose send it stopped.",
+      "refs": [
+        "gh#1667",
+        "gh#1375"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Inbound crossings stand on their own feet",
+      "body": "The ingress gate is shipped end to end: an inbound event from an app that no longer declares the capability, or is disconnected, is dropped with a 200 ack, and a stored post leaves a typed provenance row. What remains is the plumbing under it. Webhook URLs are still global, bound to one apex host, so every new community needs its provider reconfigured by hand. And feed state still lives on social_links, one table doing three jobs — links directory, connection identity, ingestion binding — which is the last phase of the registry work and carries its own security review.",
+      "refs": [
+        "gh#14",
+        "gh#1297"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The accountability record tells the whole truth",
+      "body": "The subprocessor list is now wired to the gates, so a connected app cannot drift out of it. But the list is only honest about what routes through the gates. Microsoft receives a signing-in user's name, email and picture and has no entry at all. The Hetzner entry carries assumed facts — DPA status, region — never confirmed by an operator. And the personal-data flag on form fields reads like general protection while it is honored in exactly one place, the GitHub mirror; a control that promises more than it does is its own kind of drift.",
+      "refs": [
+        "gh#1646",
+        "gh#1004",
+        "gh#1402"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Money and signatures land on the request-callback frame",
+      "body": "The research finding was sharp: the two most valuable integrations for a Finnish housing board — collecting payments and signing minutes — are both the same shape, an outbound initiation answered later by a correlated callback, and neither fits a one-way slot. The frame for that kind is built: contracts, a shared lifecycle runner gated on both sides, a storage interface the existing signature-requests table already conforms to, and unit tests. Nothing live uses it. What must become true: a real provider on each payload — a payment app and an e-signature app — with the pending row and correlation running through the shared runner, not beside it.",
+      "refs": [
+        "gh#1382"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A new app proves the standard is real",
+      "body": "General and scalable is currently a claim with one hand-wired instance behind it — the GitHub sink, the only live record mirror, has no adapter-level test. The cheapest honest proof is the next app: Discord is outbound-only over a webhook, and should cost exactly an identity plus one provider, inheriting the gates and drift checks for free. If it costs more, the standard is not done. The far end of the same line is letting a community connect its own API or MCP server without a code change — where the long pole is the accountability layer, not the connector plumbing, which is exactly why the gates come first.",
+      "refs": [
+        "gh#804",
+        "gh#1473"
+      ],
+      "notes": []
+    }
+  ],
+  "stepsFrom": {
+    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "where": "data/papers/connected-apps/main.tex",
+    "why": "This journey has a paper as well as the steps stored here. Where a roadmap is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
+  },
+  "exists": [
+    "The egress chokepoint (egressToConnectedApp) is fully shipped and enforcing: fail-closed on a missing or planned subprocessor record, payload-derived categories, and a throw before audit or delivery on an under-declared category.",
+    "The ingress chokepoint (ingressFromConnectedApp) is shipped through Phase C: both webhook ingests and the request-callback resolver pass it, dropping fail-closed with a 200 ack and writing external_ingress provenance on retained data.",
+    "The app registry declares one provides object per app with a single appsProviding(kind) dispatch; the legacy three-flag shape is derived from it and cannot drift.",
+    "The requestCallback frame is built framework-only: contracts, the gated lifecycle runner, the RequestStore interface, and unit tests — with a field-by-field proof that signature_requests already conforms.",
+    "Direction is derived, not flagged: appSendsOutbound and appReceivesInbound read provides, and the two-way kinds count on both sides."
+  ],
+  "missing": "The binding between declaring a capability and implementing it is a test, not a type — a declared kind with no provider still compiles, which is the door the copy-the-last-one drift walks through. The sync kind (calendars, file storage, accounting reconcile) has no contract or infrastructure at all. And nothing exercises the one live record mirror at the adapter level, so the standard's central promise has never been demonstrated against a real app.",
+  "order": [
+    {
+      "when": "Now",
+      "what": "gh#1667",
+      "why": "User-facing: refusals currently masquerade as ordinary failures, with no trace a community can see."
+    },
+    {
+      "when": "Now",
+      "what": "gh#1375",
+      "why": "Redeliver and resync are live bypasses of the one-gate invariant."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1646, gh#1004, gh#1402 record truth",
+      "why": "Small, independent, and each is a live gap between what is declared and what happens."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1290 remaining phases, gh#1382",
+      "why": "Type-level binding and the recordMirror rename finish the standard the direction demands."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1382 live requestCallback provider",
+      "why": "Payments and e-signature are the highest-value integrations, and the frame is waiting."
+    },
+    {
+      "when": "Alongside",
+      "what": "gh#14, gh#1297",
+      "why": "Inbound plumbing — per-tenant webhook URLs and the social_links split — is independent of the outbound track."
+    },
+    {
+      "when": "Later",
+      "what": "gh#804, gh#1473",
+      "why": "The proof apps: Discord as the cheap fourth app, arbitrary APIs as the horizon."
+    }
+  ],
+  "open": [
+    "OutboundProvider generic over its payload, or a small closed union of outbound sub-kinds? The union keeps drift checks exhaustive; the generic is fewer types.",
+    "Do resolveTargets and listTargets belong in the standard outbound contract, or are they broadcast-only extras kept off the base?",
+    "One connections/io.server.ts for both gates, or keep egress and ingress split?",
+    "Is the standard worth finishing at three apps, or when the fourth lands? The docs recommend defining contracts now and migrating lazily.",
+    "Audit grain, both directions: per crossing satisfies compliance, but a busy broadcast or channel could be many rows.",
+    "Inbound provenance: keep both the generic cross_org_access row and the typed external_ingress row, or is the typed one enough?",
+    "Does connection-level consent for inbound belong in the gate, or stay with the per-post author allowlist?",
+    "Should the egress gate also enforce isAppConnected fail-closed, folding two chokepoints into one?"
+  ],
+  "quizzes": [
+    {
+      "question": "Why can't collecting a payment or signing a minute be modeled as an outbound capability plus an inbound one?",
+      "options": [
+        "The payloads are too large for the broadcast contract",
+        "Splitting them loses the correlation: the inbound callback must resolve the specific pending request the outbound initiation created",
+        "Payment providers refuse webhook delivery to multi-tenant hosts"
+      ],
+      "answer": 1,
+      "why": "requestCallback is intrinsically two-way — initiate, hold a pending row, resolve on the correlated callback. Split across outbound and inbound slots, the contract that ties the two halves together disappears, which is why it is its own capability kind."
+    },
+    {
+      "question": "The egress gate fails closed by throwing; the ingress gate fails closed by dropping and acking 200. Why the asymmetry?",
+      "options": [
+        "Ingress errors are less important than egress errors",
+        "A webhook non-200 makes the platform retry forever, so refusing inbound means dropping without storing, not erroring",
+        "The ingress gate predates the error types the egress gate uses"
+      ],
+      "answer": 1,
+      "why": "Deliberate, per the ingress spike: a throw on a webhook turns one refused event into an endless retry storm. The drop is still fail-closed — nothing is parsed or persisted — and the audit row is only written when data is actually retained."
+    }
+  ],
+  "blockedBy": {
+    "gh#1297": [
+      "gh#1290"
+    ]
+  },
+  "settledBy": {},
+  "containers": [],
+  "people": [
+    "Jaakko"
+  ],
+  "owners": {},
+  "groups": [
+    {
+      "heading": "The standard itself",
+      "refs": [
+        "gh#1290",
+        "gh#1382"
+      ]
+    },
+    {
+      "heading": "Outbound accountability",
+      "refs": [
+        "gh#1667",
+        "gh#1375"
+      ]
+    },
+    {
+      "heading": "Inbound plumbing",
+      "refs": [
+        "gh#14",
+        "gh#1297"
+      ]
+    },
+    {
+      "heading": "The record tells the truth",
+      "refs": [
+        "gh#1646",
+        "gh#1004",
+        "gh#1402"
+      ]
+    },
+    {
+      "heading": "Proof by the next app",
+      "refs": [
+        "gh#804",
+        "gh#1473"
+      ]
+    }
+  ],
+  "watch": [
+    "gh#1535",
+    "gh#1361",
+    "gh#1665"
+  ],
+  "project": "Community portal"
+}

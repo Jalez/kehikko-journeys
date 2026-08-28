@@ -1,0 +1,197 @@
+{
+  "slug": "workbench-reads-like-the-thesis",
+  "title": "The workbench reads like the thesis",
+  "lede": "The reading view shows the thesis as it will actually read, and holds your place and your highlights while you work on it",
+  "written": "2026-08-23",
+  "tab": "Workbench",
+  "project": "Thesis Workbench",
+  "callout": "The workbench is not a LaTeX previewer. It is where the thesis is read and questioned, so anything it renders differently from the compiled PDF is a small lie the author has to hold in their head while reading.",
+  "steps": [
+    {
+      "title": "A cross-reference reads as the number the PDF will print",
+      "body": "A `\\ref` names a label that usually lives in another file, so the parser — which sees one file at a time — could only emit a placeholder, and the reader met sentences like \"returns as future work in Chapter §ch:conclusion\". A project-wide label index, built by walking main.tex with each `\\include` spliced in at its position, now counts chapters, sections, figures, tables, listings and numbered equations the way LaTeX counts them, and every reference is rewritten to its number before it reaches the page. The numbers are recomputed from source rather than read back from an `.aux` file, so an edit that has never been compiled still shows the right one. A reference to a label that does not exist keeps its marker and is styled as unresolved, because a broken cross-reference is something the author needs to see.",
+      "refs": [],
+      "notes": [
+        "server/latex/labels.ts",
+        "commit 4eb5e87",
+        "numbers cross-checked against main.pdf"
+      ]
+    },
+    {
+      "title": "Reopening the workbench puts you back where you were reading",
+      "body": "A reload — after a build, after an edit, after a crash — dropped the author on the first page of chapter one, so every refresh cost the work of finding their place again. The open document, the layout and the position in the text are now remembered and restored. The position is stored as a byte offset into the .tex rather than as a scroll offset or a block id: block ids are regenerated on every parse and scroll offsets move whenever the A4 view re-measures, so both would restore to the wrong place, while a source offset still means the same sentence after a reload and something close to it after an edit.",
+      "refs": [],
+      "notes": [
+        "web/src/lib/session.ts",
+        "commit 4eb5e87",
+        "scroll restore not yet verified in a browser"
+      ]
+    },
+    {
+      "title": "A highlight stays visible while you decide what to do with it — including nothing",
+      "body": "Highlighting a passage used to make it disappear twice over: focusing the Ask panel's input made the browser drop its own selection, and the panel then opened directly below the highlight, on top of the text the question was about. The page now draws the pending range itself, through the same span-splitting the annotation decorations use, and draws the snapped range — so what looks highlighted is exactly the source that will be edited. The panel has moved to the margin beside the paper, level with the top of the selection, falling to the left margin and then to the window edge as the window narrows. Highlighting is also not always a question: the panel carries a Copy action for the full rendered text, and its quote is selectable and scrollable instead of being cut off mid-sentence.",
+      "refs": [],
+      "notes": [
+        "web/src/components/Segments.tsx",
+        "web/src/lib/askPlacement.ts",
+        "commits fa9c631, 2c6f023",
+        "Copy is ⌘⇧C",
+        "placement unit-tested; not yet seen in a browser"
+      ]
+    },
+    {
+      "title": "You can tell at a glance which mark belongs to which request",
+      "body": "Every queued request was drawn in the same pencil blue, so a paragraph carrying three of them offered nothing to match a highlight to its card in the margin. Each request now takes a pencil from a six-colour rack and keeps it for life — the colour is derived from the item's own id, so it is fixed when the request is made and does not shift as marks around it are added, answered or removed. The page and the rail read that colour from one function rather than each deciding for itself, which is how a card and its highlight came to disagree in the first place. Hovering either end of a pair now deepens both. Notices keep their colour by kind: that is meaning rather than identity, and it matches the todonotes colours in the compiled PDF.",
+      "refs": [],
+      "notes": [
+        "web/src/components/Segments.tsx",
+        "commit 22ee924",
+        "stale stays red, done stays teal",
+        "not yet seen in a browser"
+      ]
+    },
+    {
+      "title": "A mark can be corrected after the fact, in wording or in aim",
+      "body": "A queued request or a note was write-once: a typo in the instruction, or a highlight that caught the wrong half of a sentence, could only be fixed by deleting the mark and making it again. A card in the rail now reopens in the panel that made it, with its text filled in, and the panel can be armed to take a corrected passage — drag the text it should have pointed at and the mark moves with the draft intact. Re-anchoring re-snapshots the source, so it is the actual fix for a mark gone stale rather than a cosmetic change, and a stale request returns to the queue when its aim is corrected. What may not be edited is decided in the service rather than by hiding buttons: work an agent already holds, work already finished, and notes that belong to a macro in the .tex.",
+      "refs": [],
+      "notes": [
+        "PATCH /api/work-items/:id, /api/notices/:id",
+        "commit e80d612",
+        "10 service tests",
+        "HTTP round-trip checked by hand; UI not yet seen in a browser"
+      ]
+    },
+    {
+      "title": "A reference takes you to what it points at",
+      "body": "Resolving \"Chapter 6\" answers what the number is; it does not answer where the chapter is. The label index already knows the document and byte offset behind every reference, and that target is carried on the segment, so what remains is the interaction: click a reference to open its document and land on the labelled block, using the same offset-based scrolling the restored reading position uses. The same index would let the margin rail show what a label is referenced by, which is the question that actually comes up while restructuring a chapter.",
+      "refs": [],
+      "notes": [
+        "not started",
+        "refTarget already on the segment"
+      ]
+    },
+    {
+      "title": "Headings carry their numbers, as they do on the printed page",
+      "body": "The prose now says \"Chapter 6\" while the heading it points at says only \"Conclusion\", so the reader has to count chapters in the sidebar to connect the two. The numbering the label index computes is exactly what a heading needs, so this is display work rather than new logic: render the number ahead of the heading text for numbered headings, leave starred ones bare, and keep it out of the source-mapped span so a selection over a heading still resolves to the author's own characters and nothing else.",
+      "refs": [],
+      "notes": [
+        "not started",
+        "index already computes the number"
+      ]
+    },
+    {
+      "title": "A request is a thread, and it says whether it is waiting on anybody",
+      "body": "Queuing a comment used to be half the gesture: the other half was leaving the page and saying \"work the thesis queue\" in a Claude session. An unaddressed card now carries Address now, which spawns a headless run scoped to that one thread — granted this project's tools by name and nothing else, one at a time, since two agents editing the same file would each work from offsets the other is moving. What comes back is a message, not a receipt: the agent answers into the card, the author replies, and a reply re-queues the thread with the exchange attached, so a correction reads as one. Each card leads with where it stands — unaddressed, addressing, addressed — and stays until the author resolves it, which is a different decision from the agent having finished. A separate, confirmed delete takes the highlight with it.",
+      "refs": [],
+      "notes": [
+        "server/services/agent.ts",
+        "commits 9cd3e0c, d2831c5, 4f7832b",
+        "13 service tests",
+        "reply and close verified over HTTP against a copy of the real database",
+        "the spawned agent's edit path still unproven"
+      ]
+    },
+    {
+      "title": "A citation reads as a citation, and opens to the source behind it",
+      "body": "A citation was rendered as its key, which is not how the sentence reads in the PDF and gives no way to tell one backed by a real entry from one naming a source nobody added — both are a word in brackets, which matters most right after an agent has added one. The .bib files are parsed the way labels are, so a citation shows its authors and year, and clicking it names the source and links out to it, one link per key. A key with nothing behind it stays bracketed and marked; an entry recording no DOI or URL says there is nowhere to send you rather than offering a dead link. The margin speaks the same language: an agent's message and a note lifted from a macro are resolved the same way, since both are written in the LaTeX they describe.",
+      "refs": [],
+      "notes": [
+        "server/latex/bib.ts",
+        "server/services/prose.ts",
+        "commits d3bc789, 0255c46, c280ddb",
+        "19 tests",
+        "clicking driven in a DOM, since markup cannot answer whether a click does anything"
+      ]
+    },
+    {
+      "title": "What an agent changed can be read where it happened, and as it was",
+      "body": "An agent's account of its own work is a claim, and the author had nothing to check it against without opening the .tex. Every turn now carries what it changed, word by word, and hovering it shows that change in the sentence it happened in. Where a later turn overwrote it, saying so was true and useless — the reader asked to look back and was told they could not — so the edit log is walked backwards and the chapter is shown as it read at that turn, with what the turn produced marked in it. Each undo is checked against the text it expects: a file edited outside the workbench leaves a hole in the log, and the honest answer is that it cannot be shown as it was. The past is read-only and wears no marks, whose offsets describe the file as it is now.",
+      "refs": [],
+      "notes": [
+        "server/services/history.ts",
+        "commits 95ebeda, 9dc8db7, d32001b, 964feb0, 0c3866e, 708d03d",
+        "43 tests",
+        "reconstruction checked against this thesis's own edit log"
+      ]
+    },
+    {
+      "title": "The page on screen is the page the template mandates",
+      "body": "The reading view was a nice page rather than this thesis's page: seventeen pixels of serif on a sheet with margins picked by eye, where the university's class sets twelve point, sans, a four-centimetre binding margin against two on the outer edge, and paragraphs marked by space rather than indent. That decides how many words land on a line, which is what an author judges when reading their own prose back. The page is now read from the class file where the project has one — that is where a template states what it mandates, and the preamble using it may say nothing — and from main.tex, in the geometry package's terms and the older textwidth ones alike. This project keeps its template out of the repo and drafts against a stand-in, so a class main.tex does not load still sets the page, and the footer says so.",
+      "refs": [],
+      "notes": [
+        "server/latex/style.ts",
+        "commit bde7b32",
+        "16 tests, against tauthesis.cls as written",
+        "fonts are the local machine's Helvetica, not the compiler's"
+      ]
+    },
+    {
+      "title": "An edit appears while you are watching it happen",
+      "body": "The agent working the queue is a separate process writing the same files — that separation is the design — and it left the page unable to see its own edits land: the change hit the disk and the reading view went on showing the sentence it parsed minutes ago until the author reloaded, which is a strange thing to ask of somebody watching a change being made for them. The project is now watched and the browser told. Text and queue are reported apart because they cost differently to answer: a chapter means re-parsing, the queue means a handful of rows, so a request being claimed lights its card without touching the text. Re-reading is not re-opening — the reader is already where they mean to be — so the page does not jump, and a poll stays behind it for a machine where the stream never connects.",
+      "refs": [],
+      "notes": [
+        "server/services/watch.ts",
+        "commit 073e5b6",
+        "5 tests, plus the stream checked over HTTP against a real edit"
+      ]
+    },
+    {
+      "title": "The left margin asks whether you still hold what you wrote, and shows where",
+      "body": "A thesis has six chapters, and a column down the side spent a sixth of the window saying so. The chapters moved into the header and the left margin became somewhere to read the thesis back: multiple-choice questions about a passage, anchored to it as a thread is, so one asked about a paragraph since rewritten says so rather than quietly testing text that is gone. Each carries the phrase that decides its answer, quoted from the passage and checked against it — hovering the right answer lights that clause and nothing either side, since the passage is what the reader has just read. Asking for questions spawns a run whose tools cannot change the thesis: an agent asked to write questions about a paragraph has no business rewriting it, and the way to be sure is not to hand it the tool.",
+      "refs": [],
+      "notes": [
+        "server/services/quizzes.ts",
+        "web/src/components/LearningRail.tsx",
+        "commits 65cc779, 8133791, d5c61ec",
+        "17 tests",
+        "the question-writing prompt is not yet tried against a real run"
+      ]
+    }
+  ],
+  "exists": [
+    "Source-mapped parsing: every span on screen knows its byte range in the .tex, so a highlight becomes an exact edit range",
+    "A4 and continuous reading layouts, with pagination measured rather than guessed",
+    "Margin rail carrying todonotes as answerable notices, and highlight-to-queue work items",
+    "A project-wide label index, so a reference can be resolved to the number LaTeX would print",
+    "MCP server exposing the same documents, edits and queue to an agent"
+  ],
+  "missing": "",
+  "order": [],
+  "open": [
+    "References are resolved but not navigable — the target document and offset are carried on the segment, nothing clicks through yet",
+    "Headings still render without their numbers, so a resolved 'Chapter 6' has nothing on the page that answers to it",
+    "Notices are still coloured by kind rather than per note; only queued requests carry their own pencil",
+    "A queued mark's colour is derived from its id rather than stored, so it would not survive the ids changing",
+    "Page breaks in the A4 view are an estimate and say so; only a build knows the real ones",
+    "No browser-level test covers the reading view: selection, highlight, placement and colour are verified by unit tests and by hand"
+  ],
+  "quizzes": [],
+  "vocabulary": [
+    {
+      "term": "mark",
+      "means": "A passage of the thesis with something attached to it: either a notice (a note to the author, often lifted out of a todonotes macro in the source) or a queued request for Claude. Both are anchored to a byte range in the .tex, not to rendered text, which is what lets them survive the file being edited around them."
+    },
+    {
+      "term": "the rail",
+      "means": "The margin beside the page where every mark's card sits, level with the text it marks and joined to it by a leader line when either end is hovered. It is the workbench's answer to a proofreader's margin, not a sidebar of chrome."
+    },
+    {
+      "term": "snapped range",
+      "means": "What a highlight becomes once it is mapped back onto the source. Where a drag ends inside something with no character-by-character correspondence to the .tex — a citation rendered as a bracketed key, a collapsed line break — the range widens outward to that whole span rather than inventing an offset. A range slightly too wide still edits the right sentence; a fabricated one can split a LaTeX command in half."
+    },
+    {
+      "term": "thread",
+      "means": "A passage of the thesis with an exchange attached to it: the author's request, the agent's answer, and any correction on top. It is unaddressed while the last thing said has had no answer, addressing while an agent is writing one, and addressed once it has — and it stays on the rail until the author resolves it, which is a different decision from the agent having finished."
+    }
+  ],
+  "blockedBy": {},
+  "settledBy": {},
+  "containers": [],
+  "people": [
+    "Jaakko Rajala"
+  ],
+  "owners": {},
+  "groups": [],
+  "watch": [],
+  "branches": null
+}

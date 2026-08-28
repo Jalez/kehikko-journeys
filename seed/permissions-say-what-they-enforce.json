@@ -1,0 +1,293 @@
+{
+  "slug": "permissions-say-what-they-enforce",
+  "title": "A permission says exactly what it lets you do",
+  "lede": "A role editor should offer exactly the permissions the app actually checks — and should describe them the same way everywhere. Today it does neither. Four object kinds carry four different vocabularies, pages render as a three-rung ladder while tables render as a verb grid, and a verb an object has no name for is filtered off the screen rather than shown as missing. The objective is one verb set — CRUD — applied to explicit nouns: all rows, own rows, columns, the object itself, sharing. The failures on the way there are of two kinds, derivation (which names exist) and conferral (who may hand one on), and both fail without saying anything.",
+  "written": "2026-08-21",
+  "tab": "Permissions",
+  "project": "Community portal",
+  "callout": "Every failure in this journey is silent by construction. An uncatalogued name is dropped on save with no error, a verb an object cannot spell is filtered off the screen instead of shown absent, and a grant filter applied to the wrong array removes rights rather than refusing them. So the two guards matter more than any single fix: gh#1948 makes the vocabulary uniform enough that a gap is visible to a person, and gh#1944 makes it visible to a test. Until both stand, the next divergence is found the way every previous one was — by accident, after a merge.",
+  "steps": [
+    {
+      "title": "Every permission is a verb on a noun",
+      "body": "The verbs are CRUD and do not vary. The noun changes — all rows, own rows, columns, the object itself, sharing — and each noun gets its own matrix with the same columns across the top.\n\nTwo consequences the app does not honour yet. `self` is a noun, not a suffix on a verb: \"own rows\" is a different thing to act on, so it cannot share a grid with \"all rows\". And a verb an object has no name for must render as visibly absent rather than filtered away — absence is how a person sees that pages have no create path.\n\nUnderneath sits the deeper fix: a name says what, and to what kind; a scope says which one. Today the instance id is welded into the name, so the two cannot vary independently.\n\nImportance: this is the objective; every later step serves it.",
+      "refs": [
+        "gh#1948",
+        "gh!1949",
+        "gh#843"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Both kinds of table answer to the same verbs",
+      "body": "A community table and a built-in one are named differently by design, but at table level they should offer the same set of acts — so a person reasoning about who may add, edit, delete or export a table does not need to know which kind it is.\n\nThe failure this closed is the journey's canonical example. A built-in's Add and Edit were enforced, but built from template strings, so the catalog generator never saw them: the lock was installed and the key never minted. Because an uncatalogued name is dropped in silence on save, the tick appeared to work and vanished.\n\nWhat was left out is design, not shortcut. `share` gates a `table_shares` row a built-in cannot have; `import` follows the table's own declaration; there is no `manage` because nothing reads one.\n\nImportance: groundwork the rest of the derivation work stands on.",
+      "refs": [
+        "gh#1870"
+      ],
+      "notes": []
+    },
+    {
+      "title": "You cannot hand out a permission you do not hold",
+      "body": "An admin may put on a role only what they hold themselves. One predicate answers that question, and the rule is sound. What fails is the places that misapply it or route around it — and each failure is silent.\n\nApplied to a role's whole replaced permission array instead of to the additions, \"grant ≤ own\" quietly becomes \"revoke everything you personally lack\", and a member loses rights nobody chose to take. Applied without a message, it renders a control it will not honour: the tick reports success and is gone. Omitted, a save drops the runtime-minted names it could not classify. Skipped, a surface confers a name its actor need not hold.\n\nImportance: highest of the open work, and the revoking one first — the only one that destroys stored data rather than refusing an action. They share a call site, so they are cheaper together than apart.",
+      "refs": [
+        "gh#1527",
+        "gh#1500",
+        "gh!2007",
+        "gh#1932",
+        "gh#1933",
+        "gh!1945",
+        "gh#1889",
+        "gh#1890"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Every gate has a key, and every key opens something",
+      "body": "The set of names the app enforces and the set a role editor can grant have to be the same set. Both directions fail quietly.\n\nA gate whose name never reached the catalog is a lock with no key — and since an uncatalogued name is dropped on save without an error, the tick looks saved and is not. The mirror is a catalogued name no gate reads: a tick that opens nothing, which teaches an admin something false about what they just granted.\n\nA catalog-coverage test already guards the first direction, exemption list and all. It has two gaps. It finds gates by grepping for literal strings, so a name assembled at runtime is invisible to it — exactly as it was to the generator. And nothing asserts the reverse direction at all.\n\nImportance: closing those two gaps is what stops this journey repeating itself.",
+      "refs": [
+        "gh#1944",
+        "gh#1891"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Reaching across communities is a row, not a permission",
+      "body": "Inside a community, access is a permission name on a role. Across communities it is a row the owning community controls, carrying the row scope the owner picked — none, self, community, or all, where `all` discloses personal data to another community and is chosen explicitly at share time, never by default.\n\nThe split is forced rather than stylistic. Permission names are edited in the recipient's own role editor, so a name used across tenants would be self-granting by construction. The owner's share alone is the decision — trust that over any older code comment, a trap the design doc's own header warns about.\n\nImportance: mostly built, and the risk now is erosion. The open question is whether the per-table `share` right joins the no-self-confer veto: it has the identical shape to the names already covered, and without it a holder can confer it to themselves from the role editor.",
+      "refs": [
+        "gh#1517"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Adding and editing become separate rights",
+      "body": "Today one name covers both. A role trusted to correct an existing receipt is unavoidably trusted to create new ones, and a community has no way to say otherwise.\n\nThe scope is settled, and it is the wide one. Every compound splits, and the compound is retired rather than kept as an umbrella — one spelling per act. Pages come too, taking `update` alone: a page has nothing to add, and minting a name no gate reads would fail the parity check by construction.\n\nRetirement is what makes this expensive. With the umbrella gone, every stored grant must be rewritten or a member silently loses half a right they held yesterday — every community's roles, the global system roles, the templates — and the implication table rewired so delete still covers the pair.\n\nImportance: deliberately late, and the parity check should exist before the catalog doubles.",
+      "refs": [
+        "gh#1711"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The permission list reads in the community's own language",
+      "body": "A permission a board member cannot read is one they grant by shape rather than by meaning. Most of the catalog's subgroup headings have no translation and render as raw keys — `email-locked`, `minutes:sign` — in the Finnish interface as much as the English one.\n\nThis stopped being cosmetic when the matrix view turned those headings into row labels. They are now the most prominent text on the surface where rights are handed out.\n\nThe constraint on the fix is the issue's own warning: translating by guesswork is worse than leaving English, because an admin grants on the strength of what the row says. Each heading's covered permissions have to be read out of the catalog before it is named.\n\nImportance: the last mile, and not optional. Names that are correct and unreadable still produce the wrong grants.",
+      "refs": [
+        "gh#1718",
+        "gh#1866"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The comments describe the code that is actually there",
+      "body": "Two comments still describe the table vocabulary as it was before the built-in write pair landed, sitting directly above code that now says the opposite.\n\nNothing is broken and the fix is small. It earns a place on the journey because of what this particular seam is: the vocabulary is the entire subject here, and a comment stating the retired rule is how the next person re-derives the wrong invariant and writes a change around it. The canonical design carries a header warning that comments written before a certain date state a superseded rule — that warning exists because this has already happened once.\n\nImportance: lowest here, and still worth doing. It costs minutes, and it is the cheapest defect class on the whole journey to prevent.",
+      "refs": [
+        "gh#1893"
+      ],
+      "notes": []
+    }
+  ],
+  "stepsFrom": {
+    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "where": "data/papers/permissions-say-what-they-enforce/main.tex",
+    "why": "This journey has a paper as well as the steps stored here. Where a roadmap is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
+  },
+  "exists": [
+    "Permission names are generated into app/lib/rbac/*.generated.ts — the single source of truth. RBAC_ROUTE_CATALOG.md is a planning spec and stale where they disagree, by its own banner (gh#843 tracks the drift).",
+    "A catalog-coverage unit test already exists (tests/unit/permission-catalog-coverage.test.ts, from the RBAC URL-rename project) and already carries a reasoned exemption list. It asserts that every gated LITERAL resolves to a catalog entry — one direction, and blind to gates whose names are assembled at runtime. gh#1944 extends it rather than replacing it.",
+    "The per-table vocabulary and its runtime catalog merge, the role editor's Tables tab, /settings/tables, the permissions modal on all four entry points, and the whole cross-community half (table_shares + split RLS + recipient-side read + submitting) are BUILT — docs/TABLE_SHARING_DESIGN.md §8: T1–T7 shipped 2026-08-05.",
+    "The role editor grants per-object table names: its loader merges a runtime per-table catalog, attaches per-name grantability, and renders it. Verified in code 2026-08-24, which is what closed gh#1930. Built-ins are excluded by isGrantableTable — the documented §5 exemption, not a gap.",
+    "The per-table read-self tier is built and enforced past the list as well as in it — the row source narrows for a self-tier viewer, the row delete gate re-checks ownership, and the info reel is gated to the `all` tier so it cannot become a full-table read.",
+    "Grant-≤-own is enforced through one predicate, canGrantPermissionAtScope (app/lib/auth.server.ts), at three seams: the role editor, the create_role/update_role MCP tools, and the object-access seam. The open bugs here are places that bypass it or misapply it — not a missing rule.",
+    "The CRUD lattice already distinguishes the pair: CRUD_IMPLIES makes create and update siblings that do not imply each other, and update implies read. That is what lets a page grant stay ONE stored name after gh#1711 retires the compound.",
+    "The Owner question is CLOSED (docs/TABLE_SHARING_DESIGN.md §6.4): an Owner cannot be locked out of a member-created table or page in their own community, locked by tests/unit/owner-object-lockout.test.ts."
+  ],
+  "missing": "A standing comparison of the two sets — ENFORCED names against GRANTABLE ones — now ticketed as gh#1944 but not built. Both failure directions are already documented from experience (an enforced name the catalog never saw, §2; a catalog name no gate reads, §7) and every instance so far was found by accident. Where it runs matters as much as that it runs: gh#1890's lesson is that PR checks do not execute the DB-backed integration suites, so a guard placed only there surfaces on the release gate after the merge, not on the change that caused it.",
+  "order": [
+    {
+      "when": "Now",
+      "what": "gh#1527, then gh#1500",
+      "why": "A save that removes rights nobody chose to remove is live data loss. The tick that lies shares its call site, and gh#1500's value is already computed and returned — only the rendering is missing."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1944 — extend the catalog-coverage test",
+      "why": "Derived-name enumeration first, then the reverse direction; the other order drowns in false positives. It must stay a unit test, because PR checks do not run the DB-backed suites."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1932, gh#1933, gh#1891",
+      "why": "The remaining silent-drop and grantability gaps. Independent of each other, so they can go in parallel."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1517, gh#843",
+      "why": "One veto decision and one doc reconciliation. Both small and self-contained."
+    },
+    {
+      "when": "Last",
+      "what": "gh#1711, gh#1718",
+      "why": "gh#1711 doubles the catalog and forces a stored-grant backfill — it wants the parity check already standing. gh#1718 renames what an admin reads while granting."
+    }
+  ],
+  "open": [
+    "Inheritance polarity — additive (a lower level may only add, Figma) or subtractive (may only narrow, Confluence). Now the consequential one: section-scoped page creation makes containment load-bearing, and it decides whether a section grant can be narrowed on one page inside it. `audience_roles` is already subtractive, which argues for matching it.",
+    "How a section is addressed as a scope. Page creation is section-scoped, so sections become grant targets in their own right — but a section landing is itself a custom_pages row, so whether that is a distinct scope type or a page scope depends on how the recursive tree is addressed.",
+    "Export and import — bulk read and bulk create. Do they collapse into those cells, or stay nameable? gh#1891 (import exists only where the presenter declares it) argues for keeping them nameable.",
+    "Sharing — its own noun, or a scope type whose target is another community? The latter is tidier and matches how table_shares already behaves: it matches on community ids and a tier, never on permission names.",
+    "gh#1711 retires the compound, so a stored-grant backfill is unavoidable. Not yet decided: a data migration ahead of the rename, or a read-time fallback that rewrites lazily. The lattice change has to land atomically with whichever is chosen.",
+    "Where the per-object `:manage` family finally lives, given it is being decomposed. gh#1947 triages the cluster against origin/development first."
+  ],
+  "quizzes": [
+    {
+      "question": "Why can a permission be enforced and yet impossible to grant?",
+      "options": [
+        "Because the gate's name is built from a template string, so no search finds it and it never reaches the catalog",
+        "Because the roles UI caches the catalog",
+        "Because RLS strips it for non-owner roles"
+      ],
+      "answer": 0,
+      "why": "A name assembled at runtime is invisible to every static sweep that builds the grantable list. The mirror image — a catalog name no gate reads — is just as silent."
+    },
+    {
+      "question": "Why do builtin tables keep URL-mirroring names instead of joining the per-object tables:<id> family?",
+      "options": [
+        "Because requiring per-object grants on builtins would hide finance tables from every treasurer role on deploy",
+        "Because builtin names are shorter",
+        "Because RLS cannot bind on a uuid-shaped permission"
+      ],
+      "answer": 0,
+      "why": "docs/TABLE_SHARING_DESIGN.md §5: builtins are exempt and must stay exempt — 'one system' means community tables use per-object names while builtins keep the RBAC rule's URL-mirroring names."
+    }
+  ],
+  "vocabulary": [
+    {
+      "term": "enforced",
+      "means": "A gate somewhere in the code actually checks the name at runtime. A permission can be enforced without being grantable — the lock is installed but the key was never minted, so nobody can ever pass."
+    },
+    {
+      "term": "grantable",
+      "means": "The name appears in the generated catalog, so a role editor can tick it onto a role. The mirror failure of enforced-but-ungrantable: a grantable name no gate reads — a tick that opens nothing. This epic is largely about keeping the two sets identical."
+    },
+    {
+      "term": "the catalog",
+      "means": "Here, the generated list of permission names (app/lib/rbac/*.generated.ts) that the role editor offers — the source of truth for what is grantable. Not the tables catalog of the neighbouring journey, and not RBAC_ROUTE_CATALOG.md, which is a planning spec and stale where they disagree."
+    },
+    {
+      "term": "derived name",
+      "means": "No permission name is hand-written: it is generated from the route URL or from the table registry. That is why a gate whose name is assembled from a template string at runtime is invisible to the generator's sweep — enforced, but never catalogued."
+    },
+    {
+      "term": "URL-mirroring name",
+      "means": "A name spelled after the route it protects, like resources:inventory:read. Built-in tables keep these by design (docs/TABLE_SHARING_DESIGN.md §5) — moving them to per-object names would hide the finance tables from every treasurer role the moment the change deployed."
+    },
+    {
+      "term": "per-object name",
+      "means": "The runtime family a community-created table mints for itself — tables:<id>:read|write|delete|… — addressed by the table's id, not a URL. The deliberate second derivation: community tables get these, built-ins never do, and both are \"the design\", not an inconsistency to fix."
+    },
+    {
+      "term": "grant-≤-own",
+      "means": "An admin can put on a role only permissions they hold themselves — you cannot hand out more than you have. One predicate answers it at every seam, and the rule is not in dispute. What goes wrong is how it is applied: to a role's whole replaced permission array it silently revokes rather than refuses, and applied without a message it renders a control it will not honour."
+    },
+    {
+      "term": "compound write",
+      "means": "One name covering both adding and editing, as in `tables:<id>:write`. Splitting it into `create`/`update` is per-surface, not a big bang, and needs no data migration: `CRUD_IMPLIES` (app/lib/permissions.ts:259-265) makes `write` permanently satisfy both halves, so an unconverted surface stays correct indefinitely and no stored grant is ever rewritten. The rule that makes a conversion honest is the reverse direction — `update` does NOT satisfy `write`, so the surface that mints the pair must convert its own gates in the same change, or it ships a grant that opens nothing. Tables, built-in and community, are already split and enforced (#1870); ~59 non-table names still spell the compound."
+    },
+    {
+      "term": "share (a table)",
+      "means": "Across communities, access is never a permission name — it is a row (table_shares) the owning community controls, carrying the row scope the owner chose. Forced, not stylistic: names are edited in the recipient's own role editor, so a cross-community name would be self-granting."
+    },
+    {
+      "term": "conferral",
+      "means": "Handing a permission to someone else, as distinct from holding it. The journey has two seams: derivation decides what names exist, conferral decides who may pass one on. A conferral bug does not widen what the app enforces — it widens who can arrange for someone else to pass a gate, which is why it reads as harmless until you look."
+    },
+    {
+      "term": "silent drop",
+      "means": "What happens to a permission name the save path cannot account for: it is removed from the set being written, with no error and no notice. The save reports success. This one behaviour is why almost every defect on this journey was found by accident — an uncatalogued name, a name the actor may not confer, and a runtime-minted name the filter did not know about all disappear the same way, and the screen says it worked."
+    },
+    {
+      "term": "noun",
+      "means": "The thing a permission acts on — all rows, own rows, columns, the object itself, sharing. The verb set (CRUD) is constant; the noun is what varies, and each noun is its own matrix. \"Own rows\" is a NOUN, not a variant of the read verb: it is a different thing to act on, which is why it cannot share a grid with \"all rows\" and why a `-self` verb suffix misdescribes it."
+    },
+    {
+      "term": "visibly absent",
+      "means": "The third state of a matrix cell, distinct from both \"granted\" and \"granted to nobody\": this noun has no such verb at all. It must be drawn, never filtered out — a column that simply does not appear tells a person nothing, while an absent cell tells them a page has no create path or a table's columns have no right of their own. Drawing it does NOT mint a permission name; a name no gate reads stays forbidden."
+    }
+  ],
+  "blockedBy": {
+    "gh#1711": [
+      "Owner ask #30 — which surfaces get the create/update pair, and in what order. Its other stated decision is already answered by shipped code (CRUD_IMPLIES keeps :write as a permanent umbrella), so no migration and no code precondition remain."
+    ],
+    "gh#1838": [
+      "gh#1952",
+      "gh#2000 — /governance/submissions/:submissionId is a third door onto a row's history and discussion and still answers to governance:submissions:read alone, so the seam is not clean until it is fixed too",
+      "No UI sets form_definitions.has_discussion / has_history — the capability flags are a write-only slot, so no table can declare either",
+      "Community-table row edits record no entity_activity, so tables:<id>:history would gate an empty list"
+    ],
+    "gh#1521": [
+      "A production DATA question no agent can answer: does any live community role carry `*` or `<base>:*`? The SQL is in the issue body and needs running against prod. Code-side it is now settled — the role editor CANNOT store a wildcard (filterPermissionsForScope drops uncatalogued names), but setRolePermissionsAtScope's `preserved` branch keeps one alive forever if a migration, seed or script ever wrote it."
+    ]
+  },
+  "settledBy": {},
+  "containers": [],
+  "people": [
+    "Jaakko"
+  ],
+  "owners": {},
+  "groups": [
+    {
+      "heading": "Conferral — the invariant, and where it leaks",
+      "refs": [
+        "gh#1527",
+        "gh#1500",
+        "gh#1932",
+        "gh#1933"
+      ]
+    },
+    {
+      "heading": "Derivation and parity",
+      "refs": [
+        "gh#1944",
+        "gh#1891",
+        "gh#1930",
+        "gh#843",
+        "gh#1870"
+      ]
+    },
+    {
+      "heading": "Vocabulary — one name, one act",
+      "refs": [
+        "gh#1711",
+        "gh#1517"
+      ]
+    },
+    {
+      "heading": "Blocking the release",
+      "refs": [
+        "gh#1889",
+        "gh#1890"
+      ]
+    },
+    {
+      "heading": "Derivation",
+      "refs": [
+        "gh#1891",
+        "gh#1870",
+        "gh#1711"
+      ]
+    },
+    {
+      "heading": "Legibility",
+      "refs": [
+        "gh#1718",
+        "gh#1866",
+        "gh#1893"
+      ]
+    }
+  ],
+  "watch": [
+    "gh#1838",
+    "gh#1519"
+  ],
+  "repo": "Jalez/resident_committee_portal",
+  "branches": {
+    "development": "development",
+    "prod": "prod"
+  }
+}

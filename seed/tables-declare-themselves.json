@@ -1,0 +1,273 @@
+{
+  "slug": "tables-declare-themselves",
+  "title": "A built-in table is just a table",
+  "lede": "Communities can already create tables that declare everything about themselves — fields, states, presentation — as data they can see and edit. The tables the app ships with cannot: a built-in's base fields, states, order, presentation and capabilities still live in code, where only a deploy can change them. The canonical plan (docs/FORMS_TABLES_UNIFICATION.md) already collapsed forms and tables into one catalog with one generic mount, and inventory is cut over — the template for every hardcoded table (docs/INVENTORY_CONVERGENCE.md). What remains is the declaration itself. The journey ends when \"built-in\" is only where the seed came from — and, per the plan's subtraction rule, when the old hardcoded paths are deleted, not merely bypassed.",
+  "written": "2026-08-21",
+  "tab": "Tables declare themselves",
+  "project": "Community portal",
+  "callout": "Giving built-in tables the write vocabulary community tables already had (gh#1870) turned the promotion gate red, on exactly the fault line docs/TABLE_SHARING_DESIGN.md §5 warned about: builtins are EXEMPT from `tables:<id>` names and keep their URL-mirroring names — \"pin it with a test\". That seam belongs to the permissions journey, which now carries the standing enforced-equals-grantable check (gh#1944) that would have caught it on the change rather than on the release. The rule for this epic: when a step here moves a permission surface, it plugs into that seam instead of minting a parallel one.",
+  "steps": [
+    {
+      "title": "A table says what its own base fields are",
+      "body": "Everything below depends on this — docs/FORMS_TABLES_UNIFICATION.md §3c states it as the first invariant: \"one field vocabulary is the contract between form-side and table-side... get it right first; everything composes against it.\" Today a built-in's base columns — title, status, the state values — live in code, while a community table declares all of it as data in the one catalog (the generalized form_definitions, per that doc's Resolved decision 2). gh#1836 makes the base fields visible and declarable, and makes `status` optional with per-table values. gh#1851 was this landing badly the first time: the built-in seed kept a status column the new base-field block forbade, and development went red until the seed was allowed to keep the column it describes.",
+      "refs": [
+        "gh#1836",
+        "gh#1851"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The declared state survives being edited",
+      "body": "A state list you can edit is a state list you can break — and the plan's quality bar (docs/FORMS_TABLES_UNIFICATION.md §1b-E) says no slice ships a regression for existing communities. gh#1844 is the sharp edge: delete a row state and its stored value can be re-minted later by a different state, silently re-pointing any practice criterion that named it — the practice keeps matching, on rows it was never about. gh#1845 is the quieter half: the submission usage-analytics counter compares against the hardcoded Approved/Rejected strings, so a table whose author replaced its states never fires it — authoring states costs the community its own numbers.",
+      "refs": [
+        "gh#1844",
+        "gh#1845"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A table declares how it presents itself",
+      "body": "Order, columns, widgets. gh#1837 lets a table declare its default row order. gh#1877 shows the row state as a column and wires the place widget to built-in tables. gh#1862 gives built-in table settings the show/hide switch a custom table has — the /settings/tables surface docs/TABLE_SHARING_DESIGN.md §5 specifies (rename, show/hide, permissions, delete). Direction check from the docs: column configuration belongs in the ONE definition's per-field `listColumn` (docs/FORMS_TABLES_UNIFICATION.md §3b) — the inventory cutover deliberately DROPPED the bespoke column picker for exactly that reason (docs/INVENTORY_CONVERGENCE.md). So each of these must land as catalog data, not as another code-side overlay.",
+      "refs": [
+        "gh#1837",
+        "gh#1877",
+        "gh#1862"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A field declares its own limits, and the server believes only the declaration",
+      "body": "gh#1874: a number field states its bounds and the server enforces them — at the ONE gated write seat, which is where the canonical plan puts all submission validation (`createSubmissionGated` + `validateSubmissionAnswers`, docs/FORMS_TABLES_UNIFICATION.md W2/E3c and §9a: every live create path is gated there). Worth doing here rather than in the form layer, because the same pattern already failed once elsewhere — gh#1684, the relations maxItems cap, is enforced only in the browser while treasury-summary trusts it on the server. A declared limit that only the client checks is not a limit.",
+      "refs": [
+        "gh#1874",
+        "gh#1684"
+      ],
+      "notes": []
+    },
+    {
+      "title": "One action vocabulary, on the row and on the selection",
+      "body": "gh#1875 is the owner decision that a button is a button: one list of actions a table declares for its rows and for a multi-row selection. Today the only way to put a button on a row is a code presenter, and presenters are refused for community tables — inventory has a Reserve button no community table can have. The docs already frame the presenter as an overlay for what \"the data definition can't carry\" and the row accessor as an incremental-migration seam, not the end state (docs/FORMS_TABLES_UNIFICATION.md §3a; docs/INVENTORY_CONVERGENCE.md §2) — gh#1875 moves actions from that seam into the declaration, following the existing fail-closed `crud` pattern (declaration ∧ permission). Adjacent bugs showing the surface is untended: gh#1770 (mobile View opens EDIT), gh#1763 (AppTable discards the caller's emptyState).",
+      "refs": [
+        "gh#1875",
+        "gh#1770",
+        "gh#1763"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Finance cuts over, and the old descriptors are deleted",
+      "body": "The strand this epic was missing, and the canonical plan's biggest open risk (docs/FORMS_TABLES_UNIFICATION.md §W5 subtraction ledger): transactions and reimbursements are seeded as builtins with row-sources and presenters, but their live routes still render the old descriptor — TWO definitions each, 593 duplicate lines, a live drift surface (gh#1395). The ledger is explicit about why this sits here and not earlier: the catalog copies lack createdBy, relations, bank-account/IBAN, approval metadata and import/export, so deletion is a functional completion of the declaration, which is what the steps above build. The plan's rule binds the whole epic: \"a cutover slice is not done when the new path works. It is done when the old path is deleted.\" Inventory's S4 cutover is the template (docs/INVENTORY_CONVERGENCE.md).",
+      "refs": [
+        "gh#1395"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Capabilities become per-table, and each carries its own permission",
+      "body": "gh#1838 turns discussion and history into per-table capabilities with a permission action each — today both render only for people who can EDIT the row, which is backwards for shared records. The pattern is already shipped and documented: community tables mint per-object runtime families (`tables:<id>:<action>`) merged through the ONE `getPermissionsForScope` seam, no second resolver (docs/TABLE_SHARING_DESIGN.md §2). Two traps that doc records from experience: a new verb must be added to the permission generator's ACTIONS set or the grant is silently dropped — a name nobody can hold, the same shape as gh#1870's enforced-but-ungrantable gap; and builtins keep their URL-mirroring names (`resources:inventory:*`), exempt from per-object names by design (§5) — the capability's permission must respect both namings.",
+      "refs": [
+        "gh#1838"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Sharing and row scoping reach built-in tables",
+      "body": "Table sharing is BUILT for community tables — docs/TABLE_SHARING_DESIGN.md §8 records T1–T7 all shipped 2026-08-05: grantable per-table tiers, the permissions modal, /settings/tables, `table_shares` with the owner-picked row scope (R6: none/self/community/all), recipient-side read through the gateway, pre-submit disclosure. Builtins are outside all of it: the doc notes their row-sources have no self-scope (a `read-self` holder is deliberately 404'd, §6.1), and gh#1870 left manage, share and import unlevelled for builtins. If a built-in table is just a table, the share modal and the SQL-level row tiers must work on a builtin's row-source too — while keeping the documented builtin naming exemption (§5) intact.",
+      "refs": [
+        "gh#1908"
+      ],
+      "notes": []
+    },
+    {
+      "title": "What a row shows is a practice, not hidden code",
+      "body": "The last thing still living in code. gh#1841 makes row visibility practice-driven: whether an item appears depends on the table's practice, which a community can read and change. Two constraints from the docs. It composes with, not replaces, the who-axis that already exists — permission tier and share scope decide who may look, the practice decides what a looker sees (docs/TABLE_SHARING_DESIGN.md). And the filter must hold at SQL level: that doc's §6.1 rejects in-memory row filtering because a trimmed page still leaks `totalCount` as a row-count oracle — the same bar applies to a practice-shaped filter. After this, a built-in table has nothing left a community table cannot express.",
+      "refs": [
+        "gh#1841"
+      ],
+      "notes": []
+    }
+  ],
+  "stepsFrom": {
+    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "where": "data/papers/tables-declare-themselves/main.tex",
+    "why": "This journey has a paper as well as the steps stored here. Where a roadmap is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
+  },
+  "exists": [
+    "One catalog and one renderer, per docs/FORMS_TABLES_UNIFICATION.md: the catalog IS the generalized form_definitions with source builtin|community; the /tables/:slug mount has full gated CRUD; the W1 field vocabulary is DONE and everything renders through one FieldControl.",
+    "The inventory cutover is DONE and is the named template for migrating any hardcoded table — /resources/inventory renders the same GenericTablePage as /tables/inventory (docs/INVENTORY_CONVERGENCE.md, S4 landed 2026-07-23).",
+    "Table sharing v3 is BUILT for community tables: T1–T7 shipped, including SQL-level read-self, the one permissions modal, table_shares with owner-decided scope (R6), and the recipient-side read (docs/TABLE_SHARING_DESIGN.md §8). The Owner-lockout question is CLOSED — an Owner always reaches every table in their own community (§6.4).",
+    "The list toolbar convention (gh#1281) already owns action placement for both table shapes.",
+    "gh#1870 landed one table-level permission vocabulary for both kinds — deliberately leaving manage, share and import unlevelled for builtins, and with a follow-up red gate (gh#1889, gh#1890) in its wake."
+  ],
+  "missing": "Nothing yet proves the two table kinds stay in step: the red gate behind gh#1889/gh#1890 fired only after merge, because PR checks never run the DB-backed suite guarding builtin grants — the comparison has to run before merge, which is what gh#1944 is for on the permissions journey. Structurally, the mount's builtin write surfaces were deliberately CLOSED (requireWritableTable 404s builtin slugs; createSubmissionGated refuses builtin formIds — docs/INVENTORY_CONVERGENCE.md), so this epic is knowingly reopening a documented decision and must update those seams, not route around them. Builtin row-sources have no read-self scope (docs/TABLE_SHARING_DESIGN.md §6.1), so sharing/row tiers cannot reach builtins yet (gh#1908). And transactions + reimbursements still carry two definitions each until gh#1395 — the docs' subtraction rule (old path deleted, not bypassed) is the epic's real finish line.",
+  "order": [
+    {
+      "when": "First",
+      "what": "Base fields declarable (gh#1836)",
+      "why": "docs/FORMS_TABLES_UNIFICATION.md §3c: the field vocabulary is the contract — get it right first; everything else reads it."
+    },
+    {
+      "when": "Then",
+      "what": "State edit-safety (gh#1844, gh#1845)",
+      "why": "An editable state list that corrupts practices is worse than a fixed one — the plan's no-regression bar (§1b-E)."
+    },
+    {
+      "when": "Then",
+      "what": "Presentation + limits (gh#1837, gh#1877, gh#1862, gh#1874)",
+      "why": "Independent of each other; can go in parallel. All land as catalog data, not code overlays."
+    },
+    {
+      "when": "Then",
+      "what": "Row actions (gh#1875)",
+      "why": "Needs the presentation layer settled; moves the presenter seam's last code-only capability into the declaration."
+    },
+    {
+      "when": "Then",
+      "what": "Finance cutover + descriptor deletion (gh#1395)",
+      "why": "The W5 ledger blocks deletion on the declaration being complete — which the steps above deliver. Cutover is done when the old path is deleted."
+    },
+    {
+      "when": "Last",
+      "what": "Capabilities, sharing reach, visibility (gh#1838, gh#1841)",
+      "why": "These change the permission surface and the practice engine at once, and must plug into the shipped sharing/permission seams (docs/TABLE_SHARING_DESIGN.md) rather than mint parallel ones."
+    }
+  ],
+  "open": [
+    "Does a built-in table keep its seed identity after a community edits its base fields, or does it become an ordinary table with history?",
+    "gh#1840 lets a composed page replace a built-in leaf at the same address — the sections journey carries it. Is it the page-level twin of this journey, and does anything table-shaped fall out of it here?",
+    "When sharing reaches builtins: docs/TABLE_SHARING_DESIGN.md §9 leaves open the default reach of a new table and whether a sub-community reaches a parent's table within a tree — both bite harder once builtins are ordinary tables.",
+    "Submission deletes still fire no rules (gh#1366, deleteSubmissionGated does not exist) — if row visibility becomes a practice (gh#1841), delete staying ungated is the adjacent hole."
+  ],
+  "quizzes": [
+    {
+      "question": "Why did the built-in status column break development in gh#1851?",
+      "options": [
+        "The seed wrote a column the new base-field declaration did not allow it to keep",
+        "The migration ran twice",
+        "The column was renamed in the locale files but not in the schema"
+      ],
+      "answer": 0,
+      "why": "Making base fields declarable also made them exclusive. The seed describes its own status column, so it has to be allowed to keep it — the fix was to permit the seed, not to drop the column."
+    },
+    {
+      "question": "Per docs/TABLE_SHARING_DESIGN.md, which tables use `tables:<id>:action` permission names?",
+      "options": [
+        "All tables — one naming for everything is the whole point",
+        "Community-created tables only; builtins keep URL-mirroring names like resources:inventory:read",
+        "Built-in tables only, since they exist at deploy time"
+      ],
+      "answer": 1,
+      "why": "§5: requiring per-object grants for builtins would hide finance tables from every treasurer role on deploy. \"One system\" means community tables use per-object names and builtins keep their URL-mirroring names — the exemption gh#1870's vocabulary merge has to preserve."
+    }
+  ],
+  "vocabulary": [
+    {
+      "term": "built-in table",
+      "means": "A table the app itself seeds at deploy — inventory, transactions, reimbursements. \"Built-in\" does not mean fixed or untouchable: the whole journey is making it an ordinary table, so that built-in ends up meaning only where the seed came from."
+    },
+    {
+      "term": "community table",
+      "means": "A table a community creates for itself in the product. It already declares everything — fields, states, presentation — as data. It is the finish line built-ins are being walked toward, not a lesser kind of table."
+    },
+    {
+      "term": "catalog",
+      "means": "The one database store holding every table's definition (the generalized form_definitions). Not a product catalog or a list of anything — when a step says something must \"land as catalog data\", it means the table's own stored definition, readable and editable by the community, instead of code."
+    },
+    {
+      "term": "declaration",
+      "means": "A table describing itself as data in the catalog, as opposed to behavior hardcoded next to it. \"Declares\" is the load-bearing word of the epic: whatever is declared, a community can see and change; whatever stays in code, only a deploy can."
+    },
+    {
+      "term": "base field",
+      "means": "A column a table has from birth — title, status — before its author adds any of their own. For built-ins these still live in code; making them declarable (gh#1836) is the first step everything else composes against."
+    },
+    {
+      "term": "row state",
+      "means": "The per-table list of values a row moves through (Approved, Rejected, …), declared as data — not a fixed status enum. Because practices and counters name these values by string, editing the list can silently re-point what depends on it."
+    },
+    {
+      "term": "presenter / row-source",
+      "means": "The two code-side seams a built-in still leans on: the presenter overlays rich cells the data definition can't carry (inventory's Reserve button), the row-source says where its rows actually live (a legacy table instead of submissions). Both are documented as migration seams, not the end state — each step drains something out of them into the declaration."
+    },
+    {
+      "term": "subtraction",
+      "means": "Deleting the old path, not just shipping the new one. A cutover slice counts as finished only when the code it replaced is gone — until then the app carries two definitions of the same table (transactions and reimbursements do today) and they drift."
+    },
+    {
+      "term": "practice",
+      "means": "The community's written decision about how things are done here (fi tapa, pl. tavat), paired with the action that runs it — the concept the practices journey owns. When a step says row visibility becomes \"a practice\", it means a stored decision the community can read, edit and switch off, instead of hidden code."
+    }
+  ],
+  "blockedBy": {
+    "gh#1841": [
+      "gh#1836"
+    ],
+    "gh#1877": [
+      "gh#1836"
+    ],
+    "gh#1844": [
+      "gh#1836"
+    ],
+    "gh#1395": [
+      "gh#1836",
+      "gh#1875"
+    ]
+  },
+  "settledBy": {},
+  "containers": [],
+  "people": [
+    "Jaakko"
+  ],
+  "owners": {},
+  "groups": [
+    {
+      "heading": "Declaration",
+      "refs": [
+        "gh#1836",
+        "gh#1837",
+        "gh#1874"
+      ]
+    },
+    {
+      "heading": "Presentation",
+      "refs": [
+        "gh#1877",
+        "gh#1862",
+        "gh#1875",
+        "gh#1763",
+        "gh#1770"
+      ]
+    },
+    {
+      "heading": "Capabilities & sharing",
+      "refs": [
+        "gh#1838",
+        "gh#1841",
+        "gh#1870"
+      ]
+    },
+    {
+      "heading": "State integrity",
+      "refs": [
+        "gh#1844",
+        "gh#1845"
+      ]
+    },
+    {
+      "heading": "Cutover & subtraction",
+      "refs": [
+        "gh#1395"
+      ]
+    }
+  ],
+  "watch": [
+    "gh#1840",
+    "gh#1860",
+    "gh#1366"
+  ],
+  "repo": "Jalez/resident_committee_portal",
+  "branches": {
+    "development": "development",
+    "prod": "prod"
+  }
+}

@@ -1,0 +1,312 @@
+{
+  "slug": "modes-are-modules",
+  "title": "Every mode is a module you can add or remove",
+  "lede": "The page has five modes and two rails, and every one of them is written into this repository, so the only way to add a surface is to edit it and the only way to remove one is to delete code somebody else depends on. A module is the other arrangement: a program the owner runs, with two doors — a page for a person and an MCP server for an agent — over a store of its own. Eight surfaces are aimed at the door, the notification panel and the activity chart among them. What the frame keeps is one list — the issues, merge requests and pull requests, read once with the owner's credentials — and the formats: a notification has a shape, and a shape is the one thing neither the module sending it nor the module showing it can own alone.",
+  "written": "2026-08-26",
+  "tab": "Modules",
+  "project": "Roadmap",
+  "callout": "The protocol landed before the proof. A module can be found, checked, agreed to, framed, asked questions and now heard from — and every surface on the page is still written into this repository, so nothing has yet tested the arrangement against a panel with real work to do. Two of those panels exist only to show what other modules send: the notification panel and the activity chart. They are why the frame keeps formats rather than surfaces — an extension is named, versioned and checked, so a sender and a shower on different release cycles have something they can both hold onto.",
+  "steps": [],
+  "stepsFrom": {
+    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "where": "data/papers/modes-are-modules/main.tex",
+    "why": "The steps of this journey are the sections of its paper. Nothing is stored here because nothing was ever written here — they are projected out of LaTeX at read time by a program this app is not. This app cannot parse a paper and will not learn how, so it says so rather than showing an empty journey."
+  },
+  "exists": [
+    "The module protocol, end to end: a manifest on /.well-known/roadmap-module.json, loopback-only discovery from ~/.roadmap/modules or an opt-in port sweep, protocol negotiation, and a status for every module that is not framed — offered, changed, incompatible, silent.",
+    "Found is not trusted: a grant records the origin, the permissions and a digest of what was agreed to, so a manifest that later asks for more drops back to asking while keeping what it had.",
+    "The frame is cross-origin, sandboxed, and named in a frame-src header built from the grants alone — so a module nobody agreed to cannot be framed even if markup for it reached the page.",
+    "The bridge: a module holds no token and never reaches the server itself. It posts to the page, the page asks /api/modules/call, and the scope check runs on the side the frame cannot lie to.",
+    "Extensions: named, versioned formats — roadmap.notifications@1 and roadmap.calls@1 — declared in the manifest, checked on every event and stamped with who sent it. Declaring one IS asking to send it, so there is one permission and one sentence per format.",
+    "Every crossing is counted — module, method, answered or refused, how long — kept for the week the tracker chart is kept for and shown under the module's name, with refusals counted apart and keeping their reason.",
+    "A module names its own MCP server in the same manifest, held to its own origin, and the roadmap prints where it is without proxying it or speaking to it.",
+    "Starting one from the page: a YAML or JSON registration names a directory and one script inside it — never a command line — which must exist, be executable, and stay inside that directory. Every module ships it as run.sh, told its port through the environment. Start waits for the module's own manifest, so 'started' means what 'found' means; a script that runs and never answers is reported as exactly that, with its pid. Stop is offered only for what this roadmap started, and nothing starts on its own.",
+    "The list of issues and changes answers for the journey on screen rather than for the whole product.",
+    "docs/writing-a-module.md: nothing to a module on the page in nine steps, with a checklist and a list of what the roadmap will never do. The example module is held to the same schema by a test, because an example that has drifted is worse than none — it is a thing somebody will copy.",
+    "A runnable example module with both doors, both extensions and a run.sh, and 66 tests — including a real script really started and waited for."
+  ],
+  "missing": "The formats exist and the routing does not. A module may EMIT a notification and the roadmap's own panel shows it; a module may not yet CONSUME one, so the notification panel and the activity chart cannot actually leave — a module declaring what it consumes is declaring an intention, and the list says so rather than letting it read as working. Two more pieces are missing under that: a spool, so an event emitted while nothing is consuming survives until something is, and the way in for agents, who write to the same panel over MCP rather than through a frame. Beyond the formats: a module still cannot be told that something changed, cannot reach another module at all, and cannot ask for a rail rather than the reading column. And the roadmap can now see a module asking six times a second and still cannot slow one down.",
+  "order": [
+    {
+      "when": "Now",
+      "what": "Consuming, and a spool",
+      "why": "Emitting is built; showing is not. Until the frame can route an event to a module that consumes it, the notification panel and the activity chart cannot leave — and until events survive a consumer restarting, the first restart is a day the news went nowhere."
+    },
+    {
+      "when": "Next",
+      "what": "Told, not asked",
+      "why": "The roadmap already watches its own database and tells every open page what moved. A module gets the same, narrowed to what it may already read. The agents column cannot be a module until this exists, and everything else polls until it does."
+    },
+    {
+      "when": "Then",
+      "what": "The switchboard: offers, uses, and a pairwise yes",
+      "why": "The paper module adding a checklist item is the request that turns a set of panels into a tool. Routed by the frame, by module id, so the two never learn each other's address — every crossing counted, refusable and attributable, which a direct line is not."
+    },
+    {
+      "when": "Alongside",
+      "what": "A rail as a room, a ceiling on asking, and a map for agents",
+      "why": "Two of the eight panels live in a rail. A module asking six times a second is visible and unstoppable. And a session now has several servers to learn."
+    },
+    {
+      "when": "First out",
+      "what": "The workbench as the paper module",
+      "why": "It is already a program with its own server and its own store, written by somebody solving a different problem. If it can be a mode without either side's design bending, the arrangement holds."
+    },
+    {
+      "when": "Then out",
+      "what": "Learning, the checklist, the agents column, Reviews",
+      "why": "Smallest first, and each proves one thing: the write half, a rail as a room, being told what changed, and what a module may do on somebody's behalf — nothing outward."
+    },
+    {
+      "when": "After those",
+      "what": "Notifications and the activity chart",
+      "why": "The two surfaces whose whole content comes from other modules. They are the proof that keeping formats rather than panels was the right split."
+    },
+    {
+      "when": "Last",
+      "what": "Journeys, or a written reason it stays",
+      "why": "Until the panel the tool is named after can leave, 'the roadmap is a host' is a sentence rather than a fact. A reasoned no is also a result."
+    }
+  ],
+  "open": [
+    "A spool for events nobody is consuming yet. If the notifications module is restarting, the news has to wait somewhere — bounded, and kept as long as the activity it describes.",
+    "Two consumers of one fact: the frame must keep counting crossings whether or not a module draws the chart, because refusals and rates are how it decides whether to answer at all. Is that a problem to solve or a line to write down?",
+    "A ceiling on how often a module may ask: a rate the frame simply refuses past. Counting made the runaway visible; nothing yet makes it stop.",
+    "Should a module be startable on a schedule or on first use of its tab, rather than only on a press? The press is the safe answer and may be the annoying one — six modules is six presses after every reboot. An opt-in per module is the obvious middle, and it is a real decision rather than an oversight.",
+    "Where do a module's logs go when the roadmap started it? Today stdio is dropped, so 'it started and never answered' sends somebody to a terminal that no longer exists. A file beside the module, or its own output, or nothing — but say which.",
+    "Do agents write into extensions too? They post to the notification panel over MCP today; if that panel becomes a module, the roadmap's own tools become another emitter of the same format.",
+    "How narrow is a subscription? A module should be told only about what it may already read, and only about what it said it cares about.",
+    "Is an offer between modules synchronous? 'Add these checklist items' wants an answer; 'this passage moved' does not.",
+    "How does a module ask for a rail rather than for the reading column? The checklist and the agents column both live in one.",
+    "Does Journeys actually leave? A roadmap whose journeys are a module shows nothing when that module is not running, and the step is written so that 'no, and here is why' is a real answer."
+  ],
+  "quizzes": [
+    {
+      "question": "The roadmap has found a module on this machine, and its manifest is valid and speaks the right protocol. What may it do?",
+      "options": [
+        "Read the journeys, since that is the permission it asked for",
+        "Nothing at all until a person agrees to it",
+        "Show its tab, but answer no questions until somebody agrees",
+        "Whatever its manifest asked for, until somebody removes it"
+      ],
+      "answer": 1,
+      "why": "Being found, being valid and being compatible are three checks a module passes on its way to being LISTED — none of them frames it and none of them grants it anything. Until somebody says yes there is no grant, the page is never told where to frame it, and the header the browser enforces does not name its origin. The failure this refuses is a module that becomes a tab because it happened to be running.",
+      "passage": {
+        "path": "chapters/trust.tex",
+        "srcStart": 50,
+        "srcEnd": 72,
+        "quote": "Discovery only offers."
+      }
+    },
+    {
+      "question": "A module you agreed to last week ships an update: reworded summary, version bumped from 1.0.0 to 1.1.0. What does the roadmap do?",
+      "options": [
+        "Asks you to agree again, since the manifest changed",
+        "Nothing — it keeps running, because nothing it may do has changed",
+        "Disables it until you have re-read the new summary",
+        "Re-frames it and quietly keeps the old permissions"
+      ],
+      "answer": 1,
+      "why": "What is stored with a grant is a digest of the parts that decide what a module may DO — where the frame points, the permissions, whether it keeps its own storage, the protocol it is spoken to in. Prose is not one of them. This is not politeness: a dialog that reappears for a typo is one people learn to dismiss without reading, and a gate nobody reads is not a gate. Change a permission and the module drops back to asking, keeping what it already had while it waits.",
+      "passage": {
+        "path": "chapters/trust.tex",
+        "srcStart": 683,
+        "srcEnd": 764,
+        "quote": "A reworded summary or a bumped version changes none of\nthose and so asks nothing."
+      }
+    },
+    {
+      "question": "Which panel is moved out first, and why that one?",
+      "options": [
+        "Learning, because it is the smallest and read-only",
+        "Reviews, because it is the largest and would shape the bridge hardest",
+        "The paper desk, because the workbench already is a program somebody else built",
+        "Journeys, because the tool is named after it"
+      ],
+      "answer": 2,
+      "why": "A protocol proved only against an example written by its own author has proved nothing. The workbench was built by somebody solving a different problem, in a different repository, with its own store and its own lifecycle — so it is the one candidate that can fail honestly. If it can be a mode without either side's design bending, the arrangement holds; if it cannot, the manifest is missing something, and learning that before three more panels are shaped around the gap is the cheap version of that lesson.",
+      "passage": {
+        "path": "chapters/extraction.tex",
+        "srcStart": 72,
+        "srcEnd": 122,
+        "quote": "The first module is not written; it is recognised."
+      }
+    },
+    {
+      "question": "Six panels become modules. Why does the list of issues and changes stay in the frame?",
+      "options": [
+        "It is too small to be worth extracting",
+        "Because a reference is how a reader crosses between modules, and a module owning the list would make every other module depend on that one",
+        "Because an iframe cannot render a list of links well",
+        "Because the trackers refuse to be read by anything except the host"
+      ],
+      "answer": 1,
+      "why": "Put the list in a module and there are two outcomes, both bad: every other module asks that one for it, which makes one module load-bearing for the rest, or each grows its own, which is four snapshots of one tracker disagreeing on one screen. It is also the visible face of what the frame is actually for — the roadmap holds the credentials and does the one reading, and the list is that reading, drawn where anybody can see how stale it went.",
+      "passage": {
+        "path": "main.tex",
+        "srcStart": 4341,
+        "srcEnd": 4425,
+        "quote": "It stays because it is the one thing every module needs and none of them should\nown."
+      }
+    },
+    {
+      "question": "The paper module needs to add an item to the checklist module. What does it do?",
+      "options": [
+        "Reads the checklist module's address from the modules list and posts to it",
+        "Names the checklist module by id and asks the frame, which routes it under a permission agreed for that pair",
+        "Writes into the roadmap's checklist store, since the roadmap is the hub",
+        "Asks the person to copy the item across"
+      ],
+      "answer": 1,
+      "why": "Two modules that know each other's address are two modules with a private protocol, and the first thing that happens is a version skew on a line the roadmap never carried and therefore cannot report. Routed through the frame, every crossing is counted, refusable and attributable in the same panel as everything else — and a module whose partner is not running gets an answer saying so rather than a connection error inside a frame the reader cannot see into. The permission is pairwise and reads as a sentence, because \"may talk to other modules\" is not something anybody can weigh.",
+      "passage": {
+        "path": "chapters/wire.tex",
+        "srcStart": 5783,
+        "srcEnd": 5946,
+        "quote": "A caller names the module it wants\nby id and the service it wants by name; it never learns the other module's\naddress, and the two never open a line to each other."
+      }
+    },
+    {
+      "question": "If the notification panel becomes a module, what does the frame keep?",
+      "options": [
+        "The panel, as a fallback for when the module is not running",
+        "The format a notification takes — named, versioned, and checked on every event",
+        "Nothing: senders and the panel agree between themselves",
+        "A copy of every notification, so the module can be replaced"
+      ],
+      "answer": 1,
+      "why": "A sender and a shower are different programs on different release cycles, and the shape between them is the one thing neither can own alone. So the frame holds the extension — roadmap.notifications@1 — checks every payload against it, and stamps who sent it; the panel that draws them is a module like any other and could be swapped for one with different opinions about what deserves attention, without a single sender being told. The version lives in the name because a consumer subscribes to a shape, and a shape that quietly changed under it is worse than one that was replaced.",
+      "passage": {
+        "path": "chapters/wire.tex",
+        "srcStart": 5409,
+        "srcEnd": 5526,
+        "quote": "Declaring an extension \\emph{is} asking to send it. There is one permission per\nextension rather than one for sending"
+      }
+    },
+    {
+      "question": "You press Start on a module and the button reports failure, saying the script is running with pid 41207. What happened?",
+      "options": [
+        "The spawn failed, and the pid is stale",
+        "It started and never answered on its well-known path, so it is up and silent — and was not killed, because its output is where to look",
+        "The manifest was invalid",
+        "It started, answered, and was then stopped"
+      ],
+      "answer": 1,
+      "why": "A spawn that returns a pid has established almost nothing — spawn does not even throw on a missing binary. So Start waits for the module's own manifest, read by the same code discovery uses, and reports whether THAT came back. \"Running and silent\" is its own outcome and needs both halves of the sentence: reported as a failure to start, it would send somebody to check their run.sh; reported as success, it would leave them wondering why no tab appeared. Nothing kills it either, because the process that is up is the one holding the output that explains it.",
+      "passage": {
+        "path": "main.tex",
+        "srcStart": 5317,
+        "srcEnd": 5392,
+        "quote": "Every module ships that script under one name, \\texttt{run.sh}, so somebody"
+      }
+    }
+  ],
+  "vocabulary": [
+    {
+      "term": "module",
+      "means": "A program the owner runs on their own machine that answers a manifest on a well-known path and serves a page fit to be framed. The roadmap finds it, checks it, and gives it a tab; it never installs, starts, updates or stores anything for it. Not a plug-in in this repository — the code is somebody else's, and stays that way."
+    },
+    {
+      "term": "manifest",
+      "means": "The JSON a module answers with at /.well-known/roadmap-module.json: what it is called, which protocol it speaks, which modes it brings and which permissions it wants. It is how a module markets itself, and it is data — nothing in it is ever evaluated, and anything it points at must be on the module's own origin."
+    },
+    {
+      "term": "grant",
+      "means": "The record of what a person agreed to for one module: its origin, the permissions given, and a digest of the manifest as it read at the time. Not \"this module is allowed\" but \"this is what was allowed, and this is what it said when it was\" — which is what lets a module that starts asking for more drop back to asking."
+    },
+    {
+      "term": "the bridge",
+      "means": "The only line a module has to the roadmap: it posts a message to the page around it, the page asks the server on its behalf, and the server checks the permission before answering. A module holds no token and no cookie, so there is nothing to leak and nothing that survives being removed."
+    },
+    {
+      "term": "host",
+      "means": "What is left of the roadmap once panels can live outside it: discovery, the grants, the two stores (what was decided and what the trackers say is true), the one credentialed path that writes in public, and the room it lends a module — the reading column, the rails, a URL fragment, the theme. It lends room; it never lends authority."
+    },
+    {
+      "term": "the two doors",
+      "means": "What a module offers over one store: a page, which the roadmap frames for a person, and an MCP server, which a person connects a session to. The roadmap prints where the second is and never speaks to it — an agent working on what a module holds talks to the module, not to the hub that renders it."
+    },
+    {
+      "term": "the frame",
+      "means": "What is left of the roadmap when every panel that can be a module is one: the list of issues, merge requests and pull requests for the journey you are reading, and beneath it the parts nobody sees — discovery, the grants, the two stores, and the one credentialed reading of the trackers. The frame lends a module its room and never lends it authority."
+    },
+    {
+      "term": "a crossing",
+      "means": "One message over the line between a module and the frame. It carries who is asking — established by the frame from the window it arrived in, never taken from the message — what is being asked, which journey it is about, which references it concerns, and when. Every one is counted, answered or refused, and shown under the module's name."
+    },
+    {
+      "term": "an offer",
+      "means": "A named service one module makes available to others — \"add these checklist items\", \"which section is this passage in\" — declared in its manifest and reached only through the frame, by module id, under a permission agreed for that specific pair. Small and about the offering module's own material: an offer amounting to \"run this\" would be a way to borrow another module's permissions. Designed, not yet built."
+    },
+    {
+      "term": "an extension",
+      "means": "A named, versioned format the frame holds and checks — roadmap.notifications@1, roadmap.calls@1. A module declares which it emits and which it consumes; the frame validates every payload against the shape and stamps who sent it. It is what lets the notification panel and the activity chart be modules: a sender and a shower never have to know about each other, only about the format between them."
+    },
+    {
+      "term": "a registration",
+      "means": "A file in ~/.roadmap/modules/, YAML or JSON, whose NAME is the module's id — so it cannot claim to be for a module it is not. It says where the module answers, and optionally where it lives and which script starts it. A directory and one script inside it, never a command line: a registration is not a place to write shell."
+    }
+  ],
+  "blockedBy": {
+    "gh#115": [
+      "gh#111"
+    ],
+    "gh#116": [
+      "gh#111"
+    ],
+    "gh#118": [
+      "gh#111"
+    ],
+    "gh#124": [
+      "gh#111",
+      "gh#112",
+      "gh#113"
+    ],
+    "gh#126": [
+      "gh#118"
+    ],
+    "gh#127": [
+      "gh#118",
+      "gh#115"
+    ],
+    "gh#129": [
+      "gh#114",
+      "consuming an extension is designed and not built — docs/modules.md, \"Emitting is built. Consuming is not\""
+    ],
+    "gh#130": [
+      "gh#114",
+      "consuming an extension is designed and not built — docs/modules.md, \"Emitting is built. Consuming is not\""
+    ],
+    "gh#125": [
+      "gh#111",
+      "gh#112",
+      "gh#113"
+    ],
+    "gh#128": [
+      "gh#111",
+      "gh#112",
+      "gh#113"
+    ],
+    "gh#131": [
+      "gh#124",
+      "gh#125",
+      "gh#126",
+      "gh#127",
+      "gh#128",
+      "gh#129",
+      "gh#130"
+    ],
+    "gh#122": [
+      "gh#131"
+    ]
+  },
+  "settledBy": {},
+  "containers": [],
+  "people": [
+    "Jaakko Rajala"
+  ],
+  "owners": {},
+  "groups": [],
+  "watch": [],
+  "repo": "jaakkorajalasol/roadmap"
+}

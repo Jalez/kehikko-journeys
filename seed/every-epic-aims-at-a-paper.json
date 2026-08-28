@@ -1,0 +1,198 @@
+{
+  "slug": "every-epic-aims-at-a-paper",
+  "title": "Every epic aims at a paper you can read and argue with",
+  "lede": "Each journey carries a target-architecture paper, read in the roadmap page with the workbench's reading desk, and the paper's sections are where the steps come from",
+  "written": "2026-08-24",
+  "tab": "Papers",
+  "project": "Roadmap",
+  "callout": "A journey says what has to become true and a tracker says what is true. Neither says what the thing is meant to look like when it is finished, so that has lived in issue comments and in somebody's head. The paper is that third thing — and because it is the written half, it is where the steps come from rather than a document beside them.",
+  "steps": [
+    {
+      "title": "An epic can be opened and read as a paper, not only as a list of steps",
+      "body": "A journey answers what has to become true and in what order. It cannot answer what the finished thing looks like, so that answer has lived in issue comments, in chat, and in whoever wrote it. A paper lives at data/papers/&lt;slug&gt;/ and opens as a tab beside the journey, rendered by the workbench's parser rather than a new one: the same source-mapped blocks, so every span on the page still knows its byte range. Reading is the whole of this step — no marks, no agents, no editing. It is worth having on its own, because a paper nobody can open is the document this is meant to replace.",
+      "refs": [
+        "gh#66"
+      ],
+      "notes": [
+        "parser vendored into src/paper/",
+        "first paper is this journey's own architecture"
+      ]
+    },
+    {
+      "title": "The paper holds more than one project without the second one breaking the first",
+      "body": "The reading desk was built for one thesis: one root in one environment variable, one database, and tables that key a mark to a path. Nine papers in one repo break every one of those, and quietly — two papers with a chapters/intro.tex each would share their marks. Work items, notices, edits and builds gain the paper they belong to, path confinement is resolved per paper rather than per process, and the thesis keeps working as the one paper whose root is outside the repo. That last part is the test that matters: the thesis is a real user of this code and must not be paid for by this journey.",
+      "refs": [
+        "gh#68"
+      ],
+      "notes": [
+        "schema migration, appended not edited",
+        "THESIS_TEX_ROOT becomes one paper's root"
+      ]
+    },
+    {
+      "title": "A section names the work that delivers it, and the page reads that work's state",
+      "body": "A paper that names no work is an essay, and drifts from the product without anything noticing. A section declares the issues and changes meant to deliver it, in the paper's own language rather than in a sidecar file, and the margin shows what the trackers say about each — the same reading the journey already gets, in the place the claim is made. The split the roadmap enforces holds unchanged: the paper says what was decided and never says what is true, because the state beside a reference is read at build time and cannot be typed into the prose.",
+      "refs": [
+        "gh#69"
+      ],
+      "notes": [
+        "\\gh{1866}, \\mr{1848} macros parsed like \\ref",
+        "state comes from data/state/<slug>.json"
+      ]
+    },
+    {
+      "title": "The steps are read out of the paper, so there is one place a decision is written",
+      "body": "Two written accounts of the same decision is one too many: a step saying one thing and the paper saying another is a disagreement nobody is told about. So for a papered epic the steps become a projection — a section's heading is the step's title, the work it names is the step's refs — and set_step refuses rather than writing a second copy. Editing a step means editing the paper. This is the inversion the rest of the journey is for, and it is the step that can go wrong: a hand-written journey is somebody's work, so the eight that exist are either converted deliberately or left unpapered, and an epic with no paper keeps written steps exactly as now.",
+      "refs": [
+        "gh#70"
+      ],
+      "notes": [
+        "set_step refuses on a papered epic, with where to write instead",
+        "unpapered epics unchanged"
+      ]
+    },
+    {
+      "title": "You can question a paragraph of the architecture where you are reading it",
+      "body": "Disagreeing with a design used to mean leaving the page: open the repo, find the file, write the change, or say it in an issue where it is no longer beside the sentence it is about. A highlight in the paper becomes a thread anchored to a byte range, and the answer arrives in the card that asked. The run goes through the roadmap's own dispatch rather than a second queue — the ask queue, the supervisor and the notification panel already exist, and two of each would mean two accounts of who is working. One agent at a time per paper, because two editing the same file work from offsets the other is moving.",
+      "refs": [
+        "gh#71"
+      ],
+      "notes": [
+        "reuses src/dispatch.ts, src/supervisor.ts",
+        "workbench's own agent.ts is the reference, not the implementation"
+      ]
+    },
+    {
+      "title": "A change to the paper can be read as a change, and undone where git is also watching",
+      "body": "The reading desk's edit log is the only undo the thesis has, because there is no git in that directory. A paper in the roadmap repo has two, and two undos that do not know about each other is how a revert quietly loses somebody's commit. So an agent's turn is shown the way it already is — what it changed, in the sentence it changed it in, reconstructed as the text read at that turn — while the durable record is the commit, and the log's job narrows to reading the past rather than owning it. An edit made outside the desk leaves a hole in the log, and the honest answer stays that it cannot be shown as it was.",
+      "refs": [
+        "gh#72"
+      ],
+      "notes": [
+        "server/services/history.ts is the reference",
+        "decide: does a paper edit commit, and on which branch"
+      ]
+    },
+    {
+      "title": "A section the work has overtaken says so, instead of being quietly wrong",
+      "body": "A target architecture is worth reading only while it still describes the target. The failure is silent: the work a section names lands, the shape it argued for changed on the way, and the paper goes on stating the old one to everybody who opens it. A section whose named work has all landed since the section was last touched is marked for re-reading — not marked wrong, because the trackers cannot know whether it is, and saying so would be the hand-written status this project refuses. It is a question put to the author in the margin, and answering it is a real decision: confirm the section, or rewrite it.",
+      "refs": [
+        "gh#73"
+      ],
+      "notes": [
+        "derived from ref state + file mtime, never typed",
+        "reuses the notice kinds already on the rail"
+      ]
+    },
+    {
+      "title": "The paper asks whether you still hold what it says",
+      "body": "A design read once is a design half-held, and an architecture nobody can restate is not shared however well it was written. Both halves of this already exist and have never met: the roadmap keeps questions against a journey, and the reading desk anchors them to the passage that answers them, with the deciding clause quoted and checked against the text. Joining them means a question about a paragraph says so when that paragraph has been rewritten, rather than testing prose that is gone. The run that writes questions is given tools that cannot change the paper — an agent asked to examine a passage has no business rewriting it, and the way to be sure is not to hand it the tool.",
+      "refs": [
+        "gh#74"
+      ],
+      "notes": [
+        "add_quiz exists; anchoring does not",
+        "server/services/quizzes.ts is the reference"
+      ]
+    },
+    {
+      "title": "A paper can be handed to somebody who does not run any of this",
+      "body": "The audience for a target architecture is wider than the people with the repo checked out: a reviewer, a collaborator, the version of you reading it on a train. The paper compiles with tectonic — the desk already drives it and parses its errors — so an epic's architecture leaves as a PDF, and the built page keeps rendering it for anybody who opens the HTML. This is also the check that the paper is real LaTeX rather than a shape the reader happens to render: a document that only exists on screen is a format nobody else can read.",
+      "refs": [
+        "gh#75"
+      ],
+      "notes": [
+        "server/services/build.ts is the reference",
+        "dist/roadmap.html is a snapshot and must keep working offline"
+      ]
+    }
+  ],
+  "stepsFrom": {
+    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "where": "data/papers/every-epic-aims-at-a-paper/main.tex",
+    "why": "This journey has a paper as well as the steps stored here. Where a roadmap is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
+  },
+  "exists": [
+    "Source-mapped LaTeX parsing: every span on screen knows its byte range, so a highlight is an exact edit range (thesis-workbench, server/latex/parse.ts)",
+    "A project-wide label and citation index, so a cross-reference reads as the number the PDF will print",
+    "A margin rail of marks — notices and queued requests — anchored to source rather than to rendered text, surviving edits around them",
+    "Threads: a highlight spawns a headless run scoped to that one passage, and the answer arrives in the card that asked",
+    "Agent history that can be read back as the text was at the turn that changed it",
+    "The roadmap's own dispatch, supervisor and ask queue — a second queue would be one too many",
+    "Quizzes and a vocabulary drawer on the roadmap page, and per-project tab grouping"
+  ],
+  "missing": "Nothing in the roadmap renders a document today, and the workbench cannot hold more than one project: its tables key work on a path, its root is a single environment variable, and its database is one file for one thesis. Both are assumptions this journey has to build, not seams it can use.",
+  "order": [
+    {
+      "when": "First",
+      "what": "Read a paper (1) and hold more than one (2)",
+      "why": "Everything else assumes a paper can be opened and that two of them do not share each other's marks. Step 2 is also where the thesis proves it did not pay for this."
+    },
+    {
+      "when": "Then",
+      "what": "Sections name their work (3), and the steps come from the sections (4)",
+      "why": "The projection needs a section to already know what delivers it, or a projected step arrives with no refs. Step 4 is the one that changes how the roadmap is used, so it goes after the thing it depends on and before the things that assume it."
+    },
+    {
+      "when": "Then",
+      "what": "Question a passage (5), and read what a change did (6)",
+      "why": "Editing a paper from the page is only safe once there is one account of what changed — which is the question git and the edit log both answer, and must stop answering differently."
+    },
+    {
+      "when": "Last",
+      "what": "Overtaken sections (7), quizzes (8), the PDF (9)",
+      "why": "Three independent finishes. None blocks the others, and each is worth having alone — so they are last by cost, not by dependency."
+    }
+  ],
+  "open": [
+    "Steps are hand-written today; making them a projection of the paper retires set_step for a papered epic, and something has to say what happens to the eight journeys already written by hand",
+    "The workbench's anchors are byte offsets into a file with no git in the directory — the roadmap's papers will be in a repo, so the edit log and git will both claim to be the undo",
+    "One agent at a time per paper is a design constraint of the workbench, and the roadmap runs several agents at once",
+    "Nothing yet says what an architecture paper is: a chapter, a page, or a section per step"
+  ],
+  "quizzes": [],
+  "vocabulary": [
+    {
+      "term": "paper",
+      "means": "The target architecture of one epic, written as LaTeX and kept in the roadmap repo beside the journey it belongs to. It says what the thing is meant to be when it is finished — not what is true today, which is read from the trackers, and not a design doc nobody opens again, because the steps are read out of it."
+    },
+    {
+      "term": "projected step",
+      "means": "A step read out of a paper's section rather than typed into the journey: its title is the section heading, its refs are the work the section names, and its body is the section's own opening. Editing it means editing the paper, which is the point — one place where what was decided is written."
+    },
+    {
+      "term": "the reading desk",
+      "means": "What the thesis workbench is, taken out of the thesis: a page that renders a document as it will read, with a margin rail beside it where every mark, question and agent answer sits level with the passage it concerns. It moves into the roadmap as a tab, not as a second application."
+    }
+  ],
+  "blockedBy": {
+    "gh#69": [
+      "gh#68"
+    ],
+    "gh#70": [
+      "gh#69"
+    ],
+    "gh#72": [
+      "gh#70"
+    ],
+    "gh#71": [
+      "gh#72"
+    ],
+    "gh#73": [
+      "gh#69"
+    ],
+    "gh#68": [
+      "gh#66"
+    ]
+  },
+  "settledBy": {},
+  "containers": [],
+  "people": [
+    "Jaakko Rajala"
+  ],
+  "owners": {},
+  "groups": [],
+  "watch": [],
+  "repo": "jaakkorajalasol/roadmap",
+  "branches": null
+}

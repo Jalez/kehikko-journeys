@@ -1,0 +1,78 @@
+{
+  "slug": "page-is-components",
+  "title": "Every surface of the page is a component you can run",
+  "lede": "The page is around 7,500 lines of hand-written rendering: one file builds HTML as strings, one is a single template literal of browser JavaScript that the compiler never looks inside, and one is hand-written CSS. Every surface becomes a component instead — rendered on the server so the first paint is the page, hydrated so it answers, typed by the compiler, and drivable in a test against a real DOM. One surface at a time, behind the tests that already exist, so the page never stops working while it happens.",
+  "umbrella": "gh#35",
+  "written": "2026-08-26",
+  "tab": "Components",
+  "project": "Roadmap",
+  "callout": "The seam is the whole design. A big-bang rewrite would throw away every render test and the recent work in these same three files, so the page converts one surface at a time and the two halves are made to coexist: a converted panel is an island React owns, and every vanilla painter asks whether a node is inside one before writing to it. That guard is what lets a panel stop being painted the moment it converts, with no edit to the painter, and it is why twenty conversions can be twenty small changes rather than one enormous one. The scaffolding has a defined end — when the last panel has moved, the islands collapse into a single root and the machinery that made them possible is deleted.",
+  "steps": [],
+  "stepsFrom": {
+    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "where": "data/papers/page-is-components/main.tex",
+    "why": "The steps of this journey are the sections of its paper. Nothing is stored here because nothing was ever written here — they are projected out of LaTeX at read time by a program this app is not. This app cannot parse a paper and will not learn how, so it says so rather than showing an empty journey."
+  },
+  "exists": [
+    "The floor: server-rendered markup with hydration over it, so the first paint is the page rather than an empty root, and islands, so one panel can move while the ones beside it carry on unchanged.",
+    "The skip guard — every vanilla painter asks whether a node is inside a React subtree before writing into it, at more than twenty call sites. A converted panel stops being painted with no edit to the painter.",
+    "The bridge: the vanilla half fetches and publishes, React reads. One activity poll and one stream on the page, not two, so the two halves can never hold different answers to who is running.",
+    "Seventeen shadcn primitives and a token layer that keeps this page's own palette, including the four things a row is allowed to say — ok, warn, stop, info — which no library has a token for.",
+    "A dialog primitive that renders in place rather than through a portal, because four of these panels hold the page's own explanation of itself.",
+    "A real DOM in the tests, so a panel is driven rather than described, and helpers that read built markup back into the words a person would search for.",
+    "A guard that fails the build when a component writes a class the stylesheet never defined, and another that fails when the utility scan mints a name the old page already uses."
+  ],
+  "missing": "What is easy to lose here is not the styling — it is the honesty rules, which are the product. A control whose input is missing says which input rather than rendering empty. \"Cannot tell\" is never printed as \"no\". Reserved space must never read as a value. A component library makes it EASIER to draw a disabled control with a reason, but only if somebody is holding the requirement while doing it, and a library's defaults are all in the other direction: a muted grey that flattens four different answers into one. Nothing in the render tests may be deleted without an equivalent that runs the component — and roughly thirty-five that only asserted the browser source CONTAINED a sentence have already been replaced, because a grep passes for as long as the sentence is present, including long after it has stopped being true. That failure mode is not hypothetical here: it is how a dead button survived in this page for weeks.",
+  "order": [
+    {
+      "when": "First",
+      "what": "The floor, and the panels that hold the page's own explanation",
+      "why": "Least coupled, and the proving ground. A dialog nobody else writes into is where the seam gets tested before anything load-bearing depends on it."
+    },
+    {
+      "when": "Then",
+      "what": "What the journey teaches, and what it is wired to",
+      "why": "Self-contained, one endpoint each, and the first real use of prose the builder produced — which is where the reset was found quietly erasing builder-made markup."
+    },
+    {
+      "when": "Then",
+      "what": "The lists and the settings",
+      "why": "Larger, but each is answered by one endpoint and read by nobody else. The settings shell has to come after the panels inside it, so the badge stops being written across a root boundary."
+    },
+    {
+      "when": "After those",
+      "what": "The live column, and the step bodies under it",
+      "why": "The highest single seam: the run control empties and rebuilds the block below it, so those two move together. The step bodies are where three foreign painters still write."
+    },
+    {
+      "when": "Last",
+      "what": "The agents column",
+      "why": "Both the biggest unit and the one that writes into six others. It cannot go until every one of those writes is already a React data flow."
+    },
+    {
+      "when": "The end of the scaffolding",
+      "what": "One root, and the old sheet deleted",
+      "why": "The islands become a single tree, the machinery that made them possible is removed, and the reset stops being scoped. Not a cleanup — it is the step that makes the arrangement true rather than half-true."
+    }
+  ],
+  "open": [
+    "Does the agents column convert as one very large step, or is it promoted to the front? It writes into six other units, and every one of those writes has to be a React data flow before it can go. The order chosen puts it last; the alternative was costed and not taken, and it can still be revisited.",
+    "What is left of the hand-written stylesheet when the utility framework's reset is allowed in? The reset is deliberately scoped to islands today and the scan is narrowed to component sources, both only until the old sheet is gone. Neither is a design.",
+    "The conversation chips on a reference serve two surfaces that are not islands: the epic panel's own prose, and the paper. Prose reaches the page through dangerouslySetInnerHTML, so there is no node for a component to be placed beside. Three answers are on the table -- accept the loss, keep the one loop in the browser half wired to the bridge, or wait. A test pins the current behaviour so the choice fails loudly rather than disappearing.",
+    "An open stage tooltip that grows while a poll lands no longer re-places itself under its badge. The painter called the placement hook after rewriting its rows; a component re-renders and calls nothing.",
+    "Nothing here says what happens to the browser half's one remaining job -- the poll, the stream and the toast -- when the last panel is a component. They are global concerns rather than a panel, and the plan names them without deciding them."
+  ],
+  "quizzes": [],
+  "vocabulary": [],
+  "blockedBy": {},
+  "settledBy": {},
+  "containers": [],
+  "people": [
+    "Jaakko Rajala"
+  ],
+  "owners": {},
+  "groups": [],
+  "watch": [],
+  "repo": "jaakkorajalasol/roadmap",
+  "branches": null
+}

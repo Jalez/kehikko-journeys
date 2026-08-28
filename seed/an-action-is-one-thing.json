@@ -1,0 +1,55 @@
+{
+  "slug": "an-action-is-one-thing",
+  "title": "One thing the app can do, one place it is recorded",
+  "lede": "A teko is one concept whoever fires it — a practice, a member pressing a button, a schedule, the assistant — and every firing lands in one ledger the community can read. Today it is two: the `action` table and `broadcast_types` both mean \"action\", nothing outside migration 0254 has ever written an action row, and three call sites deliver without recording a run at all. The practices journey assumes this catalog works; it does not yet.",
+  "umbrella": "gh#1198",
+  "written": "2026-08-26",
+  "tab": "Actions",
+  "project": "Community portal",
+  "callout": "",
+  "steps": [],
+  "stepsFrom": {
+    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "where": "data/papers/an-action-is-one-thing/main.tex",
+    "why": "The steps of this journey are the sections of its paper. Nothing is stored here because nothing was ever written here — they are projected out of LaTeX at read time by a program this app is not. This app cannot parse a paper and will not learn how, so it says so rather than showing an empty journey."
+  },
+  "exists": [],
+  "missing": "",
+  "order": [],
+  "open": [],
+  "quizzes": [],
+  "vocabulary": [
+    {
+      "term": "action",
+      "means": "A catalog entry (fi teko): a behaviour plus its configuration, owned by a community, that can be pointed at and fired. Not the thing a member did to an item — that is the operation. One action whoever fires it: a practice, a member pressing a button, a schedule, the assistant."
+    },
+    {
+      "term": "behaviour",
+      "means": "The kind an action is — deliver, enforce_rule, moderate, ai_review. A column on the action row, never a category of concept: adding a behaviour must not add anything the member has to learn. It is also bounded — an action decides and performs, it does not rewrite the member's content (gh#1399)."
+    },
+    {
+      "term": "seeded action",
+      "means": "A built-in the platform writes into each community as an ordinary row keyed by system_key, so code can point at a behaviour without pointing at an editable name. Today they are written by migration 0254 and nothing else, so a community founded since has none (gh#1692) — which is why seeding must become application code that runs at provisioning."
+    }
+  ],
+  "blockedBy": {
+    "gh#1693": [
+      "gh#1694",
+      "gh#1692"
+    ],
+    "gh#2021": [
+      "gh#2009"
+    ]
+  },
+  "settledBy": {},
+  "containers": [],
+  "people": [],
+  "owners": {},
+  "groups": [],
+  "watch": [],
+  "repo": "Jalez/resident_committee_portal",
+  "branches": {
+    "development": "development",
+    "prod": "prod"
+  }
+}

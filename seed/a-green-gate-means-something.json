@@ -1,0 +1,254 @@
+{
+  "slug": "a-green-gate-means-something",
+  "title": "A green gate means the code is good",
+  "lede": "The pipeline is deliberate and documented: the full suite runs once per commit on the self-hosted runner when development is pushed, the promotion PR inherits that commit's `gates` check, and the gate-watch loop merges it — which deploys. That design is only worth anything if the result means what it claims — and right now the gate host miscompares memory, a dead test worker drops whole files from the count, and a job that never started is indistinguishable from one that failed.",
+  "repo": "Jalez/resident_committee_portal",
+  "branches": {
+    "development": "development",
+    "prod": "prod"
+  },
+  "written": "2026-08-21",
+  "tab": "The gate",
+  "callout": "gh#1850 is the one that undermines all the others: a single-bit memory fault reproduced in userspace on the gate host. Every gate result — and, per docs/RELEASE_PIPELINE.md, the production image the boot smoke builds — comes off that machine.",
+  "vocabulary": [
+    {
+      "term": "the gate",
+      "means": "The full suite — lint, types, unit, integration, e2e, container boot smoke — run as one workflow whose check is named `gates`, on the self-hosted runner. Not the cheap unit.yml check a PR gets: the gate proper runs on the push to development, AFTER the merge."
+    },
+    {
+      "term": "development vs prod",
+      "means": "development is where all work integrates; prod is what deploys — protected, and accepting nothing but a promotion PR. Neither is `main`, which is a dormant pre-cutover branch outside the pipeline entirely."
+    },
+    {
+      "term": "promotion",
+      "means": "Moving development's tested commit to prod via a PR — and it is NOT a re-run. The gate runs once per commit, on the push to development, and the promotion PR inherits that commit's `gates` check because checks attach to the commit. That single fact is why re-running the workflow by hand (workflow_dispatch) cannot unblock a promotion: the new run lands in its own check suite the PR never reads."
+    },
+    {
+      "term": "the self-hosted runner",
+      "means": "One machine the project owns that executes the gate, chosen because GitHub-hosted minutes are a paid budget that ran dry. Every verdict — and the production image the boot smoke builds — comes off this single host, which is why its hardware being trustworthy is itself a step."
+    },
+    {
+      "term": "gate-watch",
+      "means": "A cron loop on the runner machine, four ticks a day, that opens the promotion PR when development is ahead and merges it when the `gates` check is green — which deploys. Not a passive monitor: it is the thing that releases, so anything it cannot see (a wedged runner, an invisible re-run) silently stops all promotion."
+    },
+    {
+      "term": "boot smoke",
+      "means": "The gate's last step: build the real production image and run its real CMD twice — against an empty database, then the already-migrated one. It exists because compiling is not booting; two outages shipped through green builds nothing ever booted. Its green means boots-migrates-serves, not that the app renders."
+    },
+    {
+      "term": "a dropped test file",
+      "means": "A file whose vitest worker died mid-run: its tests neither pass nor fail — they vanish from the count. The summary line still reads like thousands passed; only the file arithmetic betrays the loss, so the red looks like flake, and re-running until green accepts unknown missing coverage."
+    },
+    {
+      "term": "\"job never started\"",
+      "means": "A workflow run in which zero steps executed — billing refused the machine, the runner class cannot exist, the runner is wedged. GitHub paints it with the same red X as a failing test, so an infrastructure no-show reads as a verdict on the code. It is not one."
+    }
+  ],
+  "steps": [
+    {
+      "title": "The machine computes the right answer",
+      "body": "gh#1850: the gate runner miscompares memory — a single-bit fault, reproduced from userspace. Until the hardware is trusted, no result from it means anything: a red could be a flipped bit and a green could be a flipped bit. docs/RELEASE_PIPELINE.md makes the stakes concrete: the boot smoke builds the real production image on this host, and everything after biome check — types, unit, integration, e2e, boot — runs here too. This is first because every other fix in this epic is verified by that machine.",
+      "refs": [
+        "gh#1850"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A job that never started says so",
+      "body": "GitHub refuses to start any GitHub-hosted job on this account over billing (gh#1741). Per docs/RELEASE_PIPELINE.md, unit.yml is the ONLY pre-merge check on PRs into development — cheap and GitHub-hosted by design, with the full gate reserved for the push after the merge. So gh#1741 kills the entire pre-merge layer: unit.yml failed 30 times in a row with zero steps executed (gh#1750), and every PR since 2026-08-14 merged unchecked, while the self-hosted promotion gate carried on unaffected. gh#1886 is the same cause in e2e.yml and mutation.yml, still on ubuntu-latest — and e2e.yml guards only pushes to `main`, which the doc says is dormant and outside the pipeline, so it is probably redundant, not just mis-targeted. What has to become true: a job that never ran reads as \"did not run\", not as a verdict on the code.",
+      "refs": [
+        "gh#1741",
+        "gh#1750",
+        "gh#1886"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A pass counts every test that was supposed to run",
+      "body": "gh#1767: when a vitest worker fork dies, its test files neither pass nor fail — they vanish. The exit code does go to 1, so the gate turns red, but the summary line still says thousands passed; only the file arithmetic (502 + 2 ≠ 506) betrays the loss. The danger is that this red reads as flake, and re-running until green means accepting a run with unknown missing coverage — which files vanish changes run to run. A follow-up reporter now names the lost files on every run, but the worker crash itself is still unexplained. What has to become true: a pass counts every file in the glob, and a dropped file is a named failure.",
+      "refs": [
+        "gh#1767"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Nothing outside the job can turn it red",
+      "body": "docs/RELEASE_PIPELINE.md already serialises gate-against-gate: exactly one hippos-gate runner per machine, host port 5432 kept free, the queue as the serialiser. What it does not cover is everything else on a shared host. gh#1834: an agent running `pkill -f \"bun run dev\"` kills the gate's e2e web server mid-run, so the gate goes red for a reason that has nothing to do with the code under test. gh#1824 is the same class from the dev side — dev.sh --remove-orphans deletes the e2e database container out from under a running suite. The gate's processes need to be off-limits by construction, not by everyone remembering.",
+      "refs": [
+        "gh#1834",
+        "gh#1824"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The runner stays up, and says so honestly",
+      "body": "gh#1746: the runner can wedge while still reporting itself online, so work queues behind a machine that will never take it. The gate-watch tick (docs/RELEASE_PIPELINE.md) does nothing while the latest run shows queued or in progress — a wedged runner means every tick sees \"no verdict yet\" forever and the loop silently stops promoting. The fix is Restart=always plus gate-watch flagging a run queued too long. gh#1760 is the same story inside a job: the promotion gate's typecheck SIGSEGVs because the gh#1579 heap bump was lost when the gates were folded together, so a crash from memory pressure looks like a code failure.",
+      "refs": [
+        "gh#1746",
+        "gh#1760"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A green run is allowed to promote",
+      "body": "docs/RELEASE_PIPELINE.md: the gate runs once per commit, on the push to development, and the promotion PR inherits that run's `gates` check because checks attach to the commit. gh#1805 found the crack: a re-run started with workflow_dispatch lands in its own check suite, which branch protection and the PR rollup never read — so a genuinely green re-run still blocks the promotion PR. Worse, the doc's own red-gate advice sends you to exactly that trap, and gate-watch's merge condition reads the same invisible run. The gate is right and the release stops anyway — which teaches everyone to route around the gate, the one habit this whole epic exists to prevent. Fix: re-run the original push run, correct the doc, teach gate-watch.",
+      "refs": [
+        "gh#1805"
+      ],
+      "notes": []
+    },
+    {
+      "title": "You can tell which build is live",
+      "body": "The pipeline already watches production: after the merge deploys, gate-watch polls the site (180s settle, ten polls at 30s intervals, at least 8 healthy) and escalates to an agent with the documented rollback brief on failure. docs/RELEASE_PIPELINE.md is explicit about that check's limit: it proves the site is serving, not that the NEW build is the one serving — prod answers from the old container while the new one builds, and nothing the app exposes names the deployed commit, so a deploy that never happened looks exactly like one that worked. The doc itself names gh#1742 as the fix: a health endpoint carrying the build SHA. This step finishes the chain the doc already points at.",
+      "refs": [
+        "gh#1742"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The laptop stops being the gate",
+      "body": "gh#1612 shifts the push gate from \"run everything locally\" to \"relevant tests locally, CI is the gate\". It belongs last: telling people to trust CI is only honest once CI is trustworthy. gh#1883 is the housekeeping half. docs/RELEASE_PIPELINE.md describes runner-maintenance as built — it runs as the gate's last step, prunes docker leftovers, and opens a reviewable PR removing docs/ui screenshot directories no open PR still shows, failing closed. In practice the PR half has never worked once: Actions is not permitted to open PRs, leaving 42 deletion branches and zero PRs. A documented duty that silently never fires is exactly the shape this epic is about.",
+      "refs": [
+        "gh#1612",
+        "gh#1883"
+      ],
+      "notes": []
+    }
+  ],
+  "stepsFrom": {
+    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "where": "data/papers/a-green-gate-means-something/main.tex",
+    "why": "This journey has a paper as well as the steps stored here. Where a roadmap is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
+  },
+  "exists": [
+    "The pipeline shape is decided and documented in docs/RELEASE_PIPELINE.md: development integrates; prod is protected, accepts only a promotion PR, and Coolify deploys it on push. The full gate runs ONCE per commit on the push to development, and the promotion PR inherits that commit's `gates` check — it is never run twice.",
+    "Promoting 2–4× a day is the design, not a guideline — small releases stay reasoned-about and cheap to roll back. The gate-watch loop (cron, 4 ticks/day) opens AND merges the promotion PR on a green `gates` check (owner decision 2026-08-15), with prod's branch protection as an independent backstop, and only ever promotes the commit the gate actually tested.",
+    "The gate itself is ordered cheap-first (biome, tsc, unit, integration/db, e2e, boot smoke), and the boot smoke boots the real production image twice — empty DB, then migrated — asserting the second boot applied zero migrations. Known documented limit: it reaches only public pages, so green means \"boots, migrates, serves\", not \"the app renders\".",
+    "The fixer agent is deliberately separate from the runner, so a broken agent can never turn a gate green; it is forbidden from editing the gate or weakening tests to get there.",
+    "Post-deploy observation and rollback exist on paper: gate-watch polls prod after every merge and escalates rather than rolling back itself, and the doc names two supported rollback routes (redeploy the previous image from Coolify, or revert on development and promote again — never touch prod directly)."
+  ],
+  "missing": "Nothing distinguishes \"the gate judged this code\" from \"the gate never actually ran it\". A never-started job (gh#1750, gh#1886) shows the same red X as a failing test, and a dead worker's dropped files (gh#1767) show up only as arithmetic in the summary. Each was diagnosed by a person reading logs, not reported by the pipeline. And two things docs/RELEASE_PIPELINE.md presents as built are not: the post-merge watch cannot tell WHICH build is serving (the doc admits it and names gh#1742), and the screenshot-prune PR the housekeeping section describes has never once been opened (gh#1883).",
+  "order": [
+    {
+      "when": "First",
+      "what": "gh#1850 the hardware",
+      "why": "Every other result on this list — and the production image itself — is produced by that machine."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1741, gh#1750, gh#1886 jobs that never start",
+      "why": "Cheap, and they restore the only pre-merge signal the pipeline has: unit.yml is all a PR into development gets."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1767 dropped test files",
+      "why": "A red that reads as flake trains people to re-run, and every re-run accepts unknown missing coverage."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1834, gh#1824, gh#1746, gh#1760 stability",
+      "why": "Removes the noise that trains people to re-run without reading — and unwedges the loop that does the promoting."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1805, gh#1742",
+      "why": "Matches the doc's own chain: a green check must actually satisfy the merge, and the post-merge watch must be able to confirm the deploy it just released."
+    },
+    {
+      "when": "Last",
+      "what": "gh#1612, gh#1883",
+      "why": "Move the burden off the laptop only once CI has earned it."
+    }
+  ],
+  "open": [
+    "Is gh#1850 a too-aggressive memory profile (drop DOCP to JEDEC), a bad DIMM, or a case for ECC hardware? Until one of those settles it, every gate result carries an asterisk.",
+    "Should a job that fails to START page someone, given the same symptom has now come from billing (gh#1741), from workflows targeting a runner class that cannot start (gh#1886), and from a wedged runner (gh#1746)?",
+    "e2e.yml guards only pushes to `main`, which docs/RELEASE_PIPELINE.md calls dormant and outside the pipeline — is the right fix for its half of gh#1886 moving it to the runner, or deleting it?"
+  ],
+  "quizzes": [
+    {
+      "question": "Why is gh#1850 first, ahead of the failing workflows?",
+      "options": [
+        "A host that miscompares memory makes every green and every red on it unreliable, including the fixes for everything else",
+        "It is the newest issue",
+        "The other jobs cannot start until the runner is rebuilt"
+      ],
+      "answer": 0,
+      "why": "The production image is built on the same machine — the boot smoke builds and boots it there. Fixing a workflow and verifying it there is verifying it with the instrument that is in question."
+    },
+    {
+      "question": "A vitest worker fork dies mid-run. What does the gate show?",
+      "options": [
+        "A red run whose summary still counts everything that completed as passed — the dropped files are simply absent",
+        "A green run, since no assertion failed",
+        "A retry of the dead worker's files, then a clean pass"
+      ],
+      "answer": 0,
+      "why": "That is gh#1767. The exit code goes to 1, but the summary line reads like success and which files vanished changes run to run — the red looks like flake, and treating it as flake accepts unknown missing coverage."
+    },
+    {
+      "question": "The gate is red on development. You re-run it green with `gh workflow run`. What happens to the promotion PR?",
+      "options": [
+        "It stays blocked — a workflow_dispatch run lives in its own check suite, which branch protection never reads",
+        "It merges, because the newest `gates` check is green",
+        "It waits for gate-watch's next tick, then merges"
+      ],
+      "answer": 0,
+      "why": "gh#1805. Checks attach to the commit via push and pull_request suites only; the doc's own re-run advice sends you into the trap. Re-run the original push run instead."
+    }
+  ],
+  "blockedBy": {
+    "gh#1612": [
+      "gh#1741"
+    ],
+    "gh#1750": [
+      "gh#1741"
+    ]
+  },
+  "settledBy": {},
+  "containers": [],
+  "people": [
+    "Jaakko"
+  ],
+  "owners": {},
+  "groups": [
+    {
+      "heading": "The machine",
+      "refs": [
+        "gh#1850",
+        "gh#1746",
+        "gh#1760"
+      ]
+    },
+    {
+      "heading": "Signals that lie",
+      "refs": [
+        "gh#1741",
+        "gh#1750",
+        "gh#1886",
+        "gh#1767"
+      ]
+    },
+    {
+      "heading": "Interference",
+      "refs": [
+        "gh#1834",
+        "gh#1824"
+      ]
+    },
+    {
+      "heading": "Reaching production",
+      "refs": [
+        "gh#1805",
+        "gh#1742",
+        "gh#1612",
+        "gh#1883"
+      ]
+    }
+  ],
+  "watch": [
+    "gh#1835",
+    "gh#1867"
+  ],
+  "project": "Community portal"
+}

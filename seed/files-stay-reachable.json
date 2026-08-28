@@ -1,0 +1,235 @@
+{
+  "slug": "files-stay-reachable",
+  "title": "A file that was uploaded stays reachable, and belongs to someone",
+  "lede": "Uploads are stored on a filesystem, addressed by a URL baked at write time, metered by one table and owned by nobody in particular. Each of those four facts has produced a live bug: files that cannot be served, files nobody can prove they own, files deleted by anyone, and files nothing points at any more. And because those files ARE personal data (docs/data-inventory.md), ownership is not just a UX question — it is what erasure and retention hang off.",
+  "written": "2026-08-21",
+  "tab": "Files",
+  "project": "Community portal",
+  "callout": "gh#1802 is a P0: /api/files/delete-temp deletes any community's file with no ownership check, which puts every avatar within reach of any signed-in user.",
+  "steps": [
+    {
+      "title": "Deleting a file requires owning it",
+      "body": "The P0, and it needs nothing else to land first. gh#1802: /api/files/delete-temp checks only that the path starts with the entity prefix — no community bound, no ownership check. A member with a write permission in their own community can delete another community's live minutes, receipts or attachments; and avatar paths are guessable and gated on a permission every signed-in user has, so anyone can delete anyone's avatar. Everything below is about files being findable; this one is about them still existing.",
+      "refs": [
+        "gh#1802"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A stored URL is relative, always",
+      "body": "The recurring shape. A media URL that bakes in a host is a permanent 404 the moment the host changes — old rows only survived by a 301 accident. Migration 0312 (drizzle/0312_strip_baked_host_from_managed_media_urls.sql) rewrote the stored absolute URLs, and two issues are the leaks around it: gh#1785, where reverting a snapshot can re-introduce an absolute URL the migration already removed, and gh#1786, where spot and place images point at /media/news/<prefix>/… which serves nothing at all, and community_emoji is missing from the upload switches entirely.",
+      "refs": [
+        "gh#1786",
+        "gh#1785"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Ownership is looked up, not inferred",
+      "body": "gh#1798: the file gallery works out who owns a file from a 500-newest-rows window, so anything older reads as unowned — flagged \"Unlinked\", shown without a link, and offered for deletion even though its row exists. Its fix is a cross-tenant batch lookup by the paths actually on disk. gh#1806 is the structural version: promote stored_files from a write-only usage meter to a lookup index, so \"whose file is this\" is answered by the ledger instead of five per-table lookups hardcoding column names. This is a GDPR requirement, not just UX: docs/data-inventory.md records the uploaded files (receipts, minutes, avatars, invite PDFs) as personal data with per-category retention and erasure rules — and lists stored_files itself among the tables its Article 30 record does not yet enumerate. A file layer that cannot say whose a file is cannot honour erasure or retention for it.",
+      "refs": [
+        "gh#1798",
+        "gh#1806"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Deleting the row deletes the file, and the ledger agrees",
+      "body": "gh#1809: deleting a receipt or a minute drops only the row — the file stays on disk and its ledger row keeps counting against the community's quota until the weekly reconcile prunes it. Under docs/data-inventory.md those files are personal data with defined retention (receipts: 6y after year-end, legal obligation), so the orphan is a retention breach, not just clutter — and the moment authorisation moves to the ledger it becomes an exposure, which is why gh#1809 must land before gh#1806's ledger-only flip. The mirror image is gh#1808 — signed meeting minutes are never persisted at all: signature_signed_file_url and its key are only ever set to null, so the UI silently serves the unsigned original wherever it means to offer the signed copy. One keeps the file it should have lost, the other loses the file it should keep.",
+      "refs": [
+        "gh#1809",
+        "gh#1808"
+      ],
+      "notes": []
+    },
+    {
+      "title": "A refused read says it was refused",
+      "body": "gh#1790: a denied /media/* read returns something the browser reports as ERR_INVALID_RESPONSE, so a single permission decision looks like the entire site is down. A refusal is a legitimate answer and has to be legible as one.",
+      "refs": [
+        "gh#1790"
+      ],
+      "notes": []
+    },
+    {
+      "title": "Nothing fetches a URL just because it was stored",
+      "body": "gh#1727: readManagedBlob will fetch any URL for a GDPR export, with no host allowlist. That is the egress-chokepoint rule applied to the file layer — one fail-closed gate on the way out, refusing anything not on the list. It sits in this epic because the export path is where a stored URL is trusted the most.",
+      "refs": [
+        "gh#1727"
+      ],
+      "notes": []
+    },
+    {
+      "title": "The files survive the machine",
+      "body": "More already exists than a cron job: docs/BACKUP_RESTORE_RUNBOOK.md documents a daily encrypted pull-backup (pg_dump plus a tar of /data/hippos/uploads, streamed through zstd into gpg — nothing plaintext ever touches a disk) that verifies every snapshot it writes, keeps bounded 7/4/6 retention for GDPR storage limitation, and ships a --restore-test. What the runbook names as its own gaps is exactly this pair: gh#1814 adds the off-machine copy (one copy on one workstation is a single point of failure — and the GPG passphrase lives only there too) and failure alerting (failures land in last-status and the journal; nothing pages anyone). gh#1815 surfaces the last backup's age at /admin/backups and lets one be queued — without handing prod a credential, because the pull design's whole point is that prod cannot reach the backup store.",
+      "refs": [
+        "gh#1814",
+        "gh#1815"
+      ],
+      "notes": []
+    }
+  ],
+  "stepsFrom": {
+    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "where": "data/papers/files-stay-reachable/main.tex",
+    "why": "This journey has a paper as well as the steps stored here. Where a roadmap is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
+  },
+  "exists": [
+    "Receipts and minutes storage is filesystem-only and single-adapter — there is no blob provider to reconcile against any more.",
+    "Migration 0312 already rewrote stored absolute media URLs to relative ones; the remaining work is stopping new ones appearing.",
+    "stored_files exists as a table — gh#1806 changes what it is FOR, rather than introducing it.",
+    "A daily encrypted pull-backup already runs and verifies itself every run — it decrypts what it just wrote, reads the Postgres TOC, lists the archive, and deletes a snapshot that fails (docs/BACKUP_RESTORE_RUNBOOK.md). gh#1814/gh#1815 are about copy count, alerting and visibility, not about creating backups.",
+    "Backup retention is already bounded (7 daily / 4 weekly / 6 monthly, locked by tests/unit/backup-prod-retention.test.ts) precisely so personal data does not live in backups indefinitely, and ~/backups/hippos/last-status is a machine-readable ok|fail hook gh#1814's alerting can build on."
+  ],
+  "missing": "The weekly reconcile keeps the ledger and the store in step, but nothing checks entity rows against files: a row pointing at a path that serves nothing (gh#1786) is invisible until a user hits the dead link, and a personal-data file whose row was deleted (gh#1809) sits orphaned for up to a week. Both directions of that mismatch are shipping bugs today. docs/BACKUP_RESTORE_RUNBOOK.md adds two more it names itself: the GPG passphrase exists only on the same workstation as the backups, and verification proves an archive readable, not that it contains everything prod had. And docs/data-inventory.md concedes stored_files is not in the Article 30 record at all — gh#1806's ownership work is what would make that entry writable.",
+  "order": [
+    {
+      "when": "Now",
+      "what": "gh#1802",
+      "why": "P0 — deletion with no ownership check."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1786, gh#1785 URL shape",
+      "why": "Independent of everything else; stops new unservable rows."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1798, gh#1809, gh#1808 lifecycle",
+      "why": "Each has a self-contained fix; gh#1809 must precede the ledger flip."
+    },
+    {
+      "when": "Then",
+      "what": "gh#1806 lookup index",
+      "why": "The structural change; its ledger-only slice waits on gh#1809."
+    },
+    {
+      "when": "Alongside",
+      "what": "gh#1814, gh#1815 backups",
+      "why": "Unblocked by any of the above and the worst thing to leave undone."
+    }
+  ],
+  "open": [
+    "Should an orphan sweep delete, or only report? Deleting on a mismatch is how a bug in the index becomes data loss.",
+    "Does gh#1806's lookup index also become the seat for per-file permission checks, or does that stay with the owning row?",
+    "When anonymizeMember() clears users.picture on erasure, does the avatar file on disk go with it? docs/data-inventory.md says the URL is cleared; nothing here yet proves the blob follows."
+  ],
+  "quizzes": [
+    {
+      "question": "Why does storing an absolute media URL eventually break the file?",
+      "options": [
+        "The host is baked in at write time, so it 404s permanently once the host changes",
+        "Absolute URLs bypass the CDN cache",
+        "The filesystem adapter rejects them on read"
+      ],
+      "answer": 0,
+      "why": "Older rows only kept working through a 301 accident. Store the path, resolve the host at read time — that is what migration 0312 corrected and what gh#1785 can undo."
+    },
+    {
+      "question": "Why must gh#1815's queue-a-backup button not give prod a credential into the workstation?",
+      "options": [
+        "The backup is pull-based so a compromised prod host cannot touch backup history; a prod-side credential would undo that",
+        "Prod has no outbound network access",
+        "The workstation's SSH daemon only accepts one key"
+      ],
+      "answer": 0,
+      "why": "docs/BACKUP_RESTORE_RUNBOOK.md: prod holds no credential for the backup store and no route to it — that is the ransomware defence the pull design exists for."
+    }
+  ],
+  "vocabulary": [
+    {
+      "term": "managed media",
+      "means": "A file the portal itself stores and serves — an avatar, a receipt, a minute, a place photo. Not a link somebody pasted in: for these, the portal is the one responsible for the file still existing and still being reachable tomorrow."
+    },
+    {
+      "term": "absolute media URL",
+      "means": "A stored file address with the host baked in at write time. It sounds more complete than a bare path, but the host is the one part that changes — so absolute here means permanently 404 the day the domain moves. The rule is the opposite: store the relative path, add the host when serving."
+    },
+    {
+      "term": "the ledger (stored_files)",
+      "means": "One row per stored file. Today it is a write-only usage meter — bytes counted against a community's quota, never read back — so the name promises an accountability the table does not yet deliver. Promoting it to a lookup index means it becomes the place that answers whose a file is."
+    },
+    {
+      "term": "orphan",
+      "means": "A file still on disk that no row points at any more. Not a deleted file — deletion is the thing that failed to happen; the community keeps paying for storage nothing can reach, and personal data keeps being retained past the rule that should have ended it."
+    },
+    {
+      "term": "erasure",
+      "means": "The GDPR right to be forgotten as built here: anonymizeMember() scrubs a person's fields but keeps the row for referential integrity. For files it is not done when a URL column is cleared — the blob on disk has to go with it, or nothing was erased."
+    },
+    {
+      "term": "egress",
+      "means": "Data leaving the app for an external host. The house rule — one fail-closed gate on the way out, a host not on the allowlist refused — is the connected-apps journey's egress chokepoint; this journey applies the same rule to the file layer: nothing is fetched or sent merely because a stored URL says to."
+    },
+    {
+      "term": "pull backup",
+      "means": "The backup workstation reaches into prod and takes the copy; prod holds no credential for the backup store and no route to it. The direction IS the security property — a compromised prod host cannot read, alter or delete backup history — which is why giving prod any backup credential would undo the design."
+    }
+  ],
+  "blockedBy": {
+    "gh#1806": [
+      "gh#2102 (the fix for gh#1913, open — merging it clears the ownership-transfer landmine)",
+      "gh#2070: a staged path with NO ledger row still renames whatever it names, so an entity row can still end up on another community's bytes — S6 would make the ledger authoritative over a key the ledger never saw",
+      "backfill-stored-files.ts must run in prod and the shadow read show zero ledger-extra before ownership can be answered from the ledger alone (S6)"
+    ],
+    "gh#1790": [
+      "gh#1962"
+    ],
+    "gh#1815": [
+      "gh#1979"
+    ],
+    "gh#1808": [
+      "roadmap question #25 — what a signed set of minutes IS here is a product and legal decision; nothing in the shipped flow produces a signed document at all"
+    ]
+  },
+  "settledBy": {
+    "gh#1802": [
+      "gh#1914"
+    ]
+  },
+  "containers": [],
+  "people": [
+    "Jaakko"
+  ],
+  "owners": {},
+  "groups": [
+    {
+      "heading": "Stop the bleeding",
+      "refs": [
+        "gh#1802",
+        "gh#1727"
+      ]
+    },
+    {
+      "heading": "Addressing",
+      "refs": [
+        "gh#1786",
+        "gh#1785",
+        "gh#1790"
+      ]
+    },
+    {
+      "heading": "Ownership and lifecycle",
+      "refs": [
+        "gh#1806",
+        "gh#1798",
+        "gh#1809",
+        "gh#1808"
+      ]
+    },
+    {
+      "heading": "Durability",
+      "refs": [
+        "gh#1814",
+        "gh#1815"
+      ]
+    }
+  ],
+  "watch": [
+    "gh#1797"
+  ],
+  "repo": "Jalez/resident_committee_portal",
+  "branches": {
+    "development": "development",
+    "prod": "prod"
+  }
+}
