@@ -188,7 +188,21 @@ export function connect(id: string, events: HostEvents = {}, source: MessageSour
     if (ev.source !== host) return
 
     if (message.type === MESSAGE.CONTEXT) {
-      events.onContext?.({ epic: message.epic, project: message.project, theme: message.theme })
+      /* Rebuilt field by field rather than handed on whole, because a context
+         message is flat on the wire — `epic` sits beside `type` — while what
+         the page wants is the same `ModuleContext` object the greeting carries.
+         The listing has to be complete, and completeness here is not obvious to
+         look at: a field left out does not fail, it quietly becomes the page's
+         idea that the host said nothing about it. That is exactly what happened
+         to `selection`, which arrived on the wire and was dropped one line
+         before anybody could act on it. The type says so now; it could not
+         before the protocol made the field required. */
+      events.onContext?.({
+        epic: message.epic,
+        project: message.project,
+        theme: message.theme,
+        selection: message.selection,
+      })
       return
     }
 

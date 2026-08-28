@@ -4,6 +4,7 @@ import { BODY_WORDS } from '../limits.ts'
 import { ID } from '../manifest.ts'
 import { connect, type Host } from '../wire/host.ts'
 import { GET_LIVE } from '../wire/methods.ts'
+import { REF_IN_PROSE, firstShown, isTracked, samePick } from './refs.ts'
 
 /**
  * The browser half of the app.
@@ -227,24 +228,16 @@ let host: Host | null = null
 /* ------------------------------------------------------------------ *
  * References
  *
- * The same four shapes the roadmap parses, because they are how people write
- * them out loud: '#2274' a GitLab issue, '!1800' a change, 'gh#41' a GitHub
- * issue in the journey's own repo, 'gh:org/repo#41' one anywhere else.
- * Anything matching none of them is a gate outside every tracker, which nothing
- * can ever tick off for us, and it is shown as the prose it is rather than as a
- * link to nowhere.
+ * The grammar itself lives in `refs.ts`, along with the question a broadcast
+ * selection asks — "which of these references is this page showing?" — and the
+ * note at the top of that file says why it left this one. What stays here is the half that needs the host's reading:
+ * whether a reference is a change is a fact about which bag the last refresh
+ * filed it in, and nothing outside a running page knows that.
  * ------------------------------------------------------------------ */
-
-const REF_IN_PROSE = /(local#[0-9a-z]+|gh(?::[\w.\-]+\/[\w.\-]+)?#\d+|#\d+|![0-9]+)/g
-const IS_TRACKED = /^(local#[0-9a-z]+|gh(?::[\w.\-]+\/[\w.\-]+)?#[0-9]+|#[0-9]+|![0-9]+)$/
 
 function isChange(ref: string): boolean {
   if (/^![0-9]+$/.test(ref)) return true
   return Boolean(live?.ghPrs && ref in live.ghPrs)
-}
-
-function isTracked(ref: string): boolean {
-  return IS_TRACKED.test(ref)
 }
 
 /**
@@ -895,7 +888,18 @@ async function fill(): Promise<void> {
 /** Somewhere to go once whatever is loading has loaded. */
 let wanted: Target | null = null
 
-async function goTo(what: Target | null): Promise<{ found: boolean; why: string }> {
+/**
+ * How a walk was asked for, which decides only one thing: whether a miss is
+ * said out loud.
+ *
+ * `quiet` is for a walk nobody asked THIS pane for — a selection the canvas
+ * broadcast, which reaches every framed module at once. See `showSelection`.
+ */
+interface Walk {
+  quiet?: boolean
+}
+
+async function goTo(what: Target | null, how: Walk = {}): Promise<{ found: boolean; why: string }> {
   if (!what) return { found: false, why: 'that walk named nothing to walk to' }
 
   if (what.slug && journey?.slug !== what.slug) {
@@ -914,12 +918,38 @@ async function goTo(what: Target | null): Promise<{ found: boolean; why: string 
 
   let target: Element | null = null
   if (what.ref) {
-    for (const anchor of document.querySelectorAll('[data-card] a.ref')) {
-      if (anchor.getAttribute('data-ref') === what.ref) {
-        target = anchor.closest('[data-card]') ?? anchor
+    /*
+     * Every anchor, not only the ones inside a card — but a card wins over a
+     * sentence wherever there is one, even a sentence higher up the page.
+     *
+     * A reference reaches this page two ways. It is listed as a step's work, in
+     * which case it becomes a card with the tracker's state, its labels and a
+     * rail; or it is written into a paragraph, in which case `prose` turns it
+     * into a bare link and nothing more. This used to look only inside cards,
+     * and a journey that discusses a reference in its callout without listing
+     * it against a step answered "nothing here names that" — false, and false
+     * in the direction that makes a host give up and open an ordinary link.
+     *
+     * The order is the reason this is a loop with a memory rather than one
+     * `querySelector`. Document order would hand back the callout's mention of
+     * `gh#1802` and scroll a reader to a sentence about the reference when the
+     * card for it — the thing with the state on it, the thing they clicked in
+     * the other pane — is four steps further down. Measured: on
+     * `files-stay-reachable` the page draws 21 cards and 37 anchors naming 23
+     * distinct references, so two of them exist only in prose and several
+     * appear in a sentence before the card that carries their state.
+     */
+    let anywhere: Element | null = null
+    for (const anchor of document.querySelectorAll('a.ref[data-ref]')) {
+      if (anchor.getAttribute('data-ref') !== what.ref) continue
+      const inCard = anchor.closest('[data-card]')
+      if (inCard) {
+        target = inCard
         break
       }
+      anywhere ??= anchor
     }
+    target ??= anywhere
   } else if (what.step) {
     target = document.querySelector(`[data-step="${String(Number(what.step) || 0)}"]`)
   } else {
@@ -929,7 +959,7 @@ async function goTo(what: Target | null): Promise<{ found: boolean; why: string 
 
   if (!target) {
     const why = what.ref ? `Nothing in this journey names ${what.ref}.` : `This journey has no step ${what.step}.`
-    say(why)
+    if (!how.quiet) say(why)
     return { found: false, why }
   }
 
@@ -988,7 +1018,51 @@ function grow(): void {
 }
 
 /**
- * Which epic the host says is open, taken as which journey to show.
+ * Which journey this pane is standing on, as the last context named it.
+ *
+ * Three values and not two. A slug is a journey; `null` is the host saying no
+ * epic is open; `undefined` is no context having been read at all. Collapsing
+ * the last two would make the first context of a conversation that names no
+ * epic look like a repeat of a state this page was already in, and the picker
+ * belonging to that state would never be drawn.
+ */
+let standingOn: string | null | undefined = undefined
+
+/**
+ * What the canvas last said was picked, exactly as it arrived.
+ *
+ * Kept so that a context can be told apart from the context before it. See
+ * `context` below for why that comparison is the whole design.
+ */
+let picked: string[] = []
+
+/**
+ * What the host says this canvas is looking at.
+ *
+ * ## A context is no longer a synonym for "the reader moved"
+ *
+ * It used to be, and this function was written on that assumption: any context
+ * for the journey already open meant "you were hidden and are visible again",
+ * so it re-asked `live.get` and redrew. That was defensible when the only
+ * things in a context were the epic and the theme.
+ *
+ * It is now wrong, because the canvas broadcasts a context after every
+ * `selection.set` — including ones this pane did nothing to cause, a few
+ * milliseconds after somebody clicked a row in another pane. Re-asking on each
+ * of those would throw away the reading and redraw the whole journey every time
+ * a reference was clicked: the steps would vanish and come back, and the
+ * reader's scroll position — the very thing the click was about to move — would
+ * be reset out from under the walk. References met this first and its
+ * `use-roadmap.ts` carries the long version; the failure looks like a bug in
+ * whichever pane was clicked, which is the wrong pane to go and read.
+ *
+ * So each field is acted on when IT changes, and a context that changed nothing
+ * this page draws is a normal, frequent, silent event.
+ *
+ * The cost, stated plainly: this pane no longer refetches when a host re-sends
+ * the same epic to mean "you are visible again". That was never a promise the
+ * protocol made, and the fix if it is ever wanted is a context field saying so
+ * — not a refetch on every tick of somebody else's list.
  *
  * `context.epic` is the protocol-2 spelling; it was `slug` in protocol 1, and
  * this one field is the whole of the rename as this app experiences it. It is
@@ -1001,19 +1075,105 @@ function context(next: ModuleContext): void {
   framed = true
   refused = null
   applyTheme(next.theme)
-  const slug = next.epic ?? ''
-  if (!/^[a-z0-9-]{1,80}$/.test(slug)) {
-    journey = null
+
+  const named = next.epic ?? ''
+  const slug = /^[a-z0-9-]{1,80}$/.test(named) ? named : null
+  const moved = standingOn !== slug
+  standingOn = slug
+
+  const chosen = next.selection ?? []
+  const repicked = !samePick(chosen, picked)
+  picked = [...chosen]
+
+  if (!slug) {
+    /* Only when it changed. A repeated "nothing is open" is the host talking
+       about something else — a theme, a selection in a canvas with no epic —
+       and redrawing an empty pane on each of those is work nobody sees except
+       as a flicker. */
+    if (moved) {
+      journey = null
+      live = null
+      draw()
+    }
+    return
+  }
+
+  if (moved) {
     live = null
-    draw()
+    /* The selection is applied AFTER the journey is on screen, not beside the
+       request for it. A walk into a document that has not been fetched finds
+       nothing, and `goTo` would honestly report so; the reader would see the
+       right journey arrive with no indication of where the thing they clicked
+       is. `open` already awaits its own fetch, so chaining is the whole fix. */
+    void open(slug).then(() => {
+      if (repicked) showSelection()
+    })
     return
   }
-  if (journey?.slug === slug) {
-    void fill()
-    return
+
+  if (repicked) showSelection()
+}
+
+/**
+ * Somebody picked a reference somewhere on this canvas. Show it, if it is here.
+ *
+ * ## Why this is three lines and not a feature
+ *
+ * Everything hard about "show me this reference" was already solved for
+ * `roadmap.goto`: finding the anchor, preferring the card over a bare link,
+ * scrolling it to the middle, flashing it, and doing all of that only once the
+ * journey is loaded. A second path that meant the same thing would drift from
+ * that one, and the one that drifted would be this one — because `goto` is the
+ * path a host exercises and this one only fires when two panes are open at
+ * once. So this decides WHICH reference and hands the walking to `goTo`.
+ *
+ * ## When the journey does not name any of them
+ *
+ * Nothing happens. Not an error, not a message, not a cleared highlight — the
+ * page simply stays where it is. This is the ordinary case rather than the
+ * exceptional one: the canvas broadcasts to every framed module, most
+ * selections are about a reference some other pane is showing, and a journey
+ * that does not mention it has been told a fact that is true and not about it.
+ *
+ * Saying so was considered and rejected. `#said` is this app's line for
+ * answering the reader — "no such journey here", "the host refused live.get" —
+ * and filling it with "nothing in this journey names gh#131" every time
+ * somebody clicks a row in another pane would turn the one place this app talks
+ * to a person into a running commentary on other panes' clicks. Worse, it would
+ * be blaming this journey for a click that was never aimed at it. That is why
+ * `goTo` is asked for a quiet walk here and a loud one for `roadmap.goto`: one
+ * of the two was aimed at this pane.
+ *
+ * A quiet miss is also what makes an empty selection free: clearing a pick
+ * sends `[]`, `firstShown` answers `null`, and the page stands still rather
+ * than un-highlighting something the reader may still be reading.
+ *
+ * The highlight from a previous selection is deliberately not cleared either.
+ * It fades on its own timer inside `goTo`, and yanking it away early would mean
+ * a selection about another pane visibly editing this one.
+ */
+function showSelection(): void {
+  /* What this page is showing, read off the page. Every reference on screen is
+     an anchor `refLink` built, whether it came from a step's own list, from a
+     sentence `prose` split, from a blocker, or from a change the tracker
+     attaches to an issue — and that last kind is only knowable here, because it
+     comes out of the host's reading rather than out of the journey on disk. The
+     alternative was to scan the journey document, which is what this did first
+     and which quietly answered "not here" about ten of the twenty-one cards on
+     a real epic. */
+  const shown = new Set<string>()
+  for (const anchor of document.querySelectorAll('a.ref[data-ref]')) {
+    const ref = anchor.getAttribute('data-ref')
+    if (ref) shown.add(ref)
   }
-  live = null
-  void open(slug)
+
+  const ref = firstShown(shown, picked)
+  if (!ref) return
+  /* No `slug`: a selection says what was picked and never which epic it was
+     picked in, on purpose — see the protocol's essay on `selection`. Walking to
+     a bare ref searches the journey that is open, which is the only journey
+     this pane could honestly be talking about. */
+  void goTo({ ref }, { quiet: true })
 }
 
 /**
