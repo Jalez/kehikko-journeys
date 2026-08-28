@@ -119,6 +119,20 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   name: 'Journeys',
   version: VERSION,
   summary: 'What has to become true for a user, step by step, and where every piece of it stands.',
+  /**
+   * What an agent should do about this module, given that it is here.
+   *
+   * Not the summary: that says what this IS, for a person deciding whether to
+   * place it. This says what its PRESENCE OBLIGES, and a host composes it into
+   * the prompt every agent on the canvas is handed — attributed to this module,
+   * because it is this module's claim rather than the host's.
+   */
+  guidance:
+    'This epic has a journey: an ordered account, written by a person, of what has to become true ' +
+    'for a user. Read it before proposing work — the order is deliberate, and a step taken out of ' +
+    'order is usually a step taken twice. Do not invent steps to match what you have already ' +
+    'built. If the journey is wrong, name the step that is wrong and say why, and leave the ' +
+    'rewriting to whoever wrote it.',
   entry: '/app',
   modes: [{ id: 'journeys', label: 'Journeys', scope: 'epic' }],
   mcp: {

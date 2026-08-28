@@ -188,21 +188,25 @@ export function connect(id: string, events: HostEvents = {}, source: MessageSour
     if (ev.source !== host) return
 
     if (message.type === MESSAGE.CONTEXT) {
-      /* Rebuilt field by field rather than handed on whole, because a context
-         message is flat on the wire — `epic` sits beside `type` — while what
-         the page wants is the same `ModuleContext` object the greeting carries.
-         The listing has to be complete, and completeness here is not obvious to
-         look at: a field left out does not fail, it quietly becomes the page's
-         idea that the host said nothing about it. That is exactly what happened
-         to `selection`, which arrived on the wire and was dropped one line
-         before anybody could act on it. The type says so now; it could not
-         before the protocol made the field required. */
-      events.onContext?.({
-        epic: message.epic,
-        project: message.project,
-        theme: message.theme,
-        selection: message.selection,
-      })
+      /* Handed on whole, with only the envelope removed — and the previous
+         version of this comment is worth keeping in mind, because it argued
+         carefully for the wrong thing.
+
+         It said the listing "has to be complete", having just been burned by
+         `selection` arriving on the wire and being dropped one line before
+         anybody could act on it. That diagnosis was right and the remedy was
+         not: a list that has to be kept complete is a list that will be
+         incomplete again at the next protocol release, and it was — `prompt`
+         and `pinned` were both missing here within a day.
+
+         The failure has no symptom. A field left out does not error; it quietly
+         becomes the page's belief that the host said nothing about it. So the
+         fix is to stop listing. `type` and `protocol` are the only two things a
+         `ModuleContext` does not have, and removing exactly those means every
+         field the protocol grows arrives here whether or not this file has
+         heard of it. */
+      const { type: _envelope, protocol: _spoken, ...context } = message
+      events.onContext?.(context)
       return
     }
 
