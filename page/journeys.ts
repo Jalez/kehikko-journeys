@@ -421,7 +421,13 @@ function card(ref: string, under: boolean): HTMLElement {
 
   const top = el('div', 'card-top')
   top.appendChild(refLink(ref))
-  top.appendChild(el('span', 'title', seen?.title ?? ''))
+  const title = el('span', 'title', seen?.title ?? '')
+  /* The whole title again, as a tooltip. Nothing on this page truncates and
+     this is not a fallback for clipping — it is for the 220px pane, where a
+     tracker's own sentence wraps across five very short lines and reading it as
+     one is genuinely easier. */
+  if (seen?.title) title.title = seen.title
+  top.appendChild(title)
 
   const state = el('span', 'state')
   if (!isTracked(ref)) {
@@ -1038,6 +1044,23 @@ function applyTheme(theme: 'light' | 'dark'): void {
  * ------------------------------------------------------------------ */
 
 export function start(): void {
+  /* The app's own name comes off the page the moment it is clear this page is
+     not standing alone. The host draws the module's name in the pane header and
+     puts the manifest summary behind it as a tooltip, so printing "Journeys"
+     here as well says the name twice and costs a heading's worth of a pane that
+     is often 340 pixels tall — the most expensive line on the page, spent on
+     the one thing the reader already knows.
+
+     `window.parent !== window` rather than the `framed` flag on purpose: the
+     flag is only true once a host has greeted us, which is a message and a tick
+     of the event loop after first paint, and a heading that appears and then
+     vanishes is worse than one that stays. Being inside a frame is knowable
+     synchronously, and a frame that is not a roadmap host still has a header of
+     its own to blame. Only the identity goes: `#where` names the project of the
+     open journey and `#sight` says what can be seen from here, and neither is
+     this app introducing itself. */
+  if (window.parent !== window) document.getElementById('who')?.remove()
+
   host = connect(ID, {
     onHello: (heard) => {
       context(heard)

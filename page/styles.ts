@@ -37,6 +37,57 @@
  * element and wins where it is set. Where nothing has set it, which is what
  * standing alone looks like, the media query decides, because then the reader's
  * system is the only opinion available.
+ *
+ * ## Why the page paints its own background instead of borrowing one
+ *
+ * The palette above was already switching correctly and the page was still a
+ * white rectangle in a dark roadmap, which is worth writing down because the
+ * mechanism is invisible from inside this file. `--bg` used to be
+ * `transparent`, on the reasonable-sounding theory that a module which paints
+ * nothing borrows whatever the host has painted behind it. Measured in the real
+ * frame, the host's own `<iframe>` element computes to
+ * `background-color: rgb(255, 255, 255)` — a white sheet between this document
+ * and the host's near-black page. So "transparent" did not mean "the roadmap's
+ * background"; it meant white, in both themes, forever, with #ece8e3 text on
+ * top of it in the dark one. That is not a subtle mis-shade; it is unreadable.
+ *
+ * So the decision, deliberately: this module paints its own opaque surface, and
+ * matches the numbers its neighbours use rather than inventing warm ones —
+ * `#ffffff` light and `#0a0a0a` dark are what the References and Atlas panes
+ * compute to in the same roadmap. Sharing a surface with the panes either side
+ * is worth more than a background that agrees with this page's own warm ink.
+ *
+ * It is set on `html` as well as `body`, rather than leaning on the propagation
+ * of a body background up to the canvas. Body-to-canvas propagation is real and
+ * would work, but it is conditional on the root having no background of its own
+ * and it interacts with containment — and `html` is a container now, for the
+ * reason the next section gives. A background that depends on two other rules
+ * staying absent is the same class of bug as the one above.
+ *
+ * ## Why the small-pane rules are container queries
+ *
+ * This module is framed in panes that are routinely 220 to 400 pixels wide
+ * inside a window that is a couple of thousand. A viewport breakpoint asked the
+ * wrong question here every single time: the window is never narrow, and the
+ * pane usually is. So `html` carries `container-type: inline-size` and the
+ * narrow rules below query `pane`, which is the box this page is actually
+ * given.
+ *
+ * The measured failure was not the obvious one. Nothing was styled too wide;
+ * the layout had a MIN-CONTENT FLOOR of 492px at every pane size, which is a
+ * different bug with the same symptom. Two things built it: `.card .title` held
+ * a hard `min-width: 12rem` while being a flex item, and long unbreakable
+ * strings in the prose — file paths, `docs/data-inventory.md`, tracker titles
+ * written by somebody else — could not break at all, so each one set a floor
+ * under its own paragraph. Hence `overflow-wrap: anywhere` inherited from the
+ * body and `min-width: 0` on every flex item that holds text. `anywhere`
+ * rather than `break-word` on purpose: only `anywhere` lowers the min-content
+ * contribution, and lowering it is the entire fix.
+ *
+ * Nothing here truncates. There is no `text-overflow` and no `overflow: hidden`
+ * on anything holding words, because a clipped tracker title in a 220px pane is
+ * a reader who cannot tell which issue they are looking at, and this app's whole
+ * argument is against a screen that quietly says less than it knows.
  */
 export const STYLES = `
 :root {
@@ -44,7 +95,7 @@ export const STYLES = `
   --ink: #1c1917;
   --muted: #6b6560;
   --line: #e0dcd7;
-  --bg: transparent;
+  --bg: #ffffff;
   --card: rgba(0,0,0,.02);
   --open: #1f6feb;
   --merged: #6f42c1;
@@ -58,6 +109,7 @@ export const STYLES = `
     --ink: #ece8e3;
     --muted: #a29a92;
     --line: #35302b;
+    --bg: #0a0a0a;
     --card: rgba(255,255,255,.03);
     --open: #6ea8ff;
     --merged: #b98cff;
@@ -71,6 +123,7 @@ export const STYLES = `
   --ink: #ece8e3;
   --muted: #a29a92;
   --line: #35302b;
+  --bg: #0a0a0a;
   --card: rgba(255,255,255,.03);
   --open: #6ea8ff;
   --merged: #b98cff;
@@ -81,6 +134,16 @@ export const STYLES = `
 }
 
 * { box-sizing: border-box; }
+
+/* The pane, named, so the rules at the bottom can ask how wide THIS is rather
+   than how wide the window is. The background lives here as well as on body:
+   see the essay above on why it is not left to propagate. */
+html {
+  container-type: inline-size;
+  container-name: pane;
+  background: var(--bg);
+}
+
 body {
   font: 15px/1.6 ui-sans-serif, -apple-system, system-ui, "Segoe UI", sans-serif;
   margin: 0;
@@ -88,6 +151,10 @@ body {
   color: var(--ink);
   background: var(--bg);
   max-width: 60rem;
+  /* Inherited by everything, and the reason a 220px pane can lay this page out
+     at all. Tracker titles and file paths are somebody else's strings and one
+     unbreakable token in one of them used to widen the whole document. */
+  overflow-wrap: anywhere;
 }
 
 .head { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; margin-bottom: .2rem; }
@@ -144,7 +211,7 @@ h2 { font-size: .95rem; margin: 1.6rem 0 .6rem; letter-spacing: .02em; text-tran
   font-variant-numeric: tabular-nums; color: var(--muted); font-size: .8rem;
   min-width: 1.6rem; padding-top: .12rem;
 }
-.step h3 { font-size: 1rem; margin: 0; font-weight: 600; flex: 1; }
+.step h3 { font-size: 1rem; margin: 0; font-weight: 600; flex: 1; min-width: 0; }
 .step .body { margin: .35rem 0 .5rem 2.1rem; }
 .step .notes { margin: 0 0 .5rem 2.1rem; display: flex; gap: .3rem; flex-wrap: wrap; }
 .note {
@@ -163,7 +230,7 @@ h2 { font-size: .95rem; margin: 1.6rem 0 .6rem; letter-spacing: .02em; text-tran
   border: 1px solid var(--line); background: transparent; color: inherit;
 }
 .editor textarea { min-height: 7rem; }
-.editor .row { display: flex; gap: .4rem; align-items: center; }
+.editor .row { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
 .editor .count { color: var(--muted); font-size: .78rem; }
 .editor button[type="submit"] { font: inherit; font-size: .8rem; padding: .2rem .7rem; cursor: pointer; }
 
@@ -180,7 +247,13 @@ a.ref {
   color: var(--open); text-decoration: none; border-bottom: 1px solid transparent;
 }
 a.ref:hover { border-bottom-color: currentColor; }
-.card .title { flex: 1; min-width: 12rem; }
+/* Twelve rems is what this wants, not what it demands. It was a min-width,
+   which in a flex row is a floor the pane cannot argue with: at 220px the row
+   simply stuck out, and every card in the document did it at once. As a
+   flex-basis with the floor released, the title still claims 12rem wherever
+   there is 12rem to claim and wraps down to whatever the pane has where there
+   is not. */
+.card .title { flex: 1 1 12rem; min-width: 0; }
 .state {
   font-size: .74rem; border-radius: 999px; padding: .05rem .45rem;
   border: 1px solid currentColor;
@@ -204,7 +277,7 @@ a.ref:hover { border-bottom-color: currentColor; }
 .waits { display: flex; gap: .3rem; flex-wrap: wrap; align-items: baseline; margin-top: .3rem; font-size: .78rem; color: var(--muted); }
 
 /* The rail. Seven dots, and the last one is hollow on purpose. */
-.rail { display: flex; align-items: center; gap: .3rem; margin-top: .35rem; }
+.rail { display: flex; align-items: center; gap: .3rem; margin-top: .35rem; flex-wrap: wrap; }
 .rail .word { font-size: .74rem; color: var(--muted); margin-right: .2rem; }
 .dot {
   width: .5rem; height: .5rem; border-radius: 50%;
@@ -217,4 +290,42 @@ a.ref:hover { border-bottom-color: currentColor; }
 
 .said { color: var(--muted); font-size: .82rem; min-height: 1.4em; }
 .found { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+
+/* ------------------------------------------------------------------ *
+ * The pane, when it is narrow
+ *
+ * Everything above already FITS a 220px pane — the rules here are about what
+ * is left once it fits, which is mostly the indentation. A step's body, its
+ * notes, its cards and its editor all hang off a 2.1rem gutter that lines them
+ * up under the step's title. In a 900px pane that gutter is the thing that
+ * makes the page readable; in a 220px one it is fifteen per cent of every line
+ * of prose spent on an alignment nobody can see, because the number it aligns
+ * to has long since wrapped. So below 26rem the gutter goes and the page
+ * padding comes in, and both come back the moment there is room for them.
+ *
+ * @container pane rather than @media: the window is a laptop and the pane
+ * is a column in it, and only one of those two has ever been the reason this
+ * page was cramped.
+ * ------------------------------------------------------------------ */
+@container pane (max-width: 26rem) {
+  body { padding: .7rem .7rem 3rem; }
+  /* A step's head is its number, its title, sometimes a "done", and the edit
+     button. Releasing the title's min-width made the row fit, and fitting was
+     the wrong thing for it to do: the flex algorithm happily squeezed the
+     title to about fifty pixels and set it one word to a line, with the button
+     sitting comfortably beside six lines of vertical text. So the head is
+     allowed to wrap here, and the title asks for enough of the row that the
+     controls cannot share it — they drop underneath, the title gets the line,
+     and the number still sits beside its first word. */
+  .step-head { flex-wrap: wrap; }
+  .step h3 { flex-basis: 60%; }
+  .step .body,
+  .step .notes,
+  .cards,
+  .editor { margin-left: 0; }
+  .card.under { margin-left: .6rem; }
+  .sight { margin: .6rem 0 .9rem; }
+  .picker { margin-bottom: .9rem; }
+  h2 { margin-top: 1.1rem; }
+}
 `

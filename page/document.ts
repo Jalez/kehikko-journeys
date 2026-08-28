@@ -21,6 +21,19 @@ import { STYLES } from './styles.ts'
  * every journey, step and card is built by the client from what this program's
  * own store answers, because all of it depends on what is in that store.
  *
+ * The heading is in the markup but does not always survive: `journeys.ts`
+ * removes `#who` when this page is inside a frame. The host now prints the
+ * module's name in the pane header and hangs the manifest's `summary` off it as
+ * a tooltip, so a page that also printed "Journeys" at the top of itself would
+ * be saying the name twice and spending a fixed strip of a 340px-tall pane on
+ * the repetition. Unframed there is no pane header and nothing else would ever
+ * say what this app is, so the heading stays — the test is `window.parent !==
+ * window`, which is answerable before first paint and therefore does not blink.
+ * What goes is the app's IDENTITY only. `#where` beside it names the project
+ * the open journey belongs to and `#sight` says what this page can currently
+ * see, and both are statements about what is open rather than about what this
+ * program is called.
+ *
  * The one exception is the sentence under the heading, and it is the exception
  * for a reason: it is the only statement on this page that is true before any
  * fetch has returned, true if the store is empty, and true if nothing ever
@@ -46,7 +59,7 @@ const PAGE_SHELL = `<!doctype html>
 </head>
 <body>
 <div class="head">
-  <h1>Journeys</h1>
+  <h1 id="who">Journeys</h1>
   <span class="where" id="where"></span>
 </div>
 
