@@ -26,11 +26,23 @@ import { mailbox, type MessageSource } from './mailbox.ts'
  *
  * ## Binding to the window, not to the origin
  *
- * This page has no `declares.storage`, so a host frames it on an opaque origin:
- * it has no origin string of its own, every message it sends arrives at the
- * host with an origin of `"null"`, and every message it receives may arrive
- * with one too. `"null"` is a string that every sandboxed frame in every tab
- * shares, so it can never be an identity.
+ * This page declares storage, so a host frames it WITH `allow-same-origin` and
+ * it keeps a real origin of its own. That is a recent change, and the obvious
+ * conclusion to draw from it — that origins are now usable as identity here —
+ * is wrong.
+ *
+ * It used to run opaque, where the argument was easy: an opaque frame has no
+ * origin string, every message it sends arrives with an origin of `"null"`, and
+ * `"null"` is shared by every sandboxed frame in every tab, so it could never
+ * be an identity.
+ *
+ * Having a real one changes nothing, because an origin says which SERVER a
+ * document came from, and any number of documents can come from one server — a
+ * second frame of this same app, a tab somebody opened at this address, a page
+ * that navigated itself here. None of those is the host and every one of them
+ * would pass an origin check. The origin was regained so that this app's own
+ * `/api` calls stop being cross-origin (see `manifest.ts`), which is a fact
+ * about fetching and says nothing about who is on the other end of the frame.
  *
  * What IS an identity is the window handle. The greeting arrives from exactly
  * one `MessageEvent.source`, and nothing in this page or any other page can
