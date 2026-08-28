@@ -71,14 +71,36 @@ export const VERSION = '1.0.0'
  * note at the top of `page/journeys.ts` on why the wire's vocabulary is
  * translated at the wire rather than pushed down into the store.
  *
- * ## No storage, and therefore an opaque origin
+ * ## Storage, and why THIS module asks for it when the others do not
  *
- * The page keeps its ticket and its open journey in memory and forgets both on
- * reload, so there is nothing to store, so asking for an origin back would be
- * asking for a thing it has no use for. The consequence is the one every module
- * here has been bitten by: the frame has no origin of its own, module scripts
- * inside it are fetched in CORS mode against an origin that matches nothing,
- * and the server has to say so. See `server.cors` in `vite.config.ts`.
+ * `storage: true` makes the host frame this page with `allow-same-origin`, so
+ * it keeps its real origin instead of running opaque. Atlas and References
+ * declare `false` and are right to: they hold nothing, they ask the host for
+ * everything, and an origin would be a thing they had no use for.
+ *
+ * This module is different in the one way that matters — it OWNS its journeys,
+ * serves them from its own `/api`, and takes writes. Opaque, that combination
+ * has a hole in it that took a while to see:
+ *
+ *   - An opaque page's fetches to its own `/api` are CROSS-origin, because its
+ *     origin is `null` and matches nothing. So the server has to answer with
+ *     permissive CORS or the app cannot read its own journeys.
+ *   - Permissive CORS means any page anywhere can read this origin. Including
+ *     `/app`. Including the write ticket embedded in it. A page somebody
+ *     happened to visit could take that ticket off loopback and write here.
+ *
+ * That is not a weakness in the ticket; the ticket was never an authorization
+ * check. It is what happens when a program that holds data is given no origin
+ * to hold it under. Declaring storage closes it at the root: with a real origin
+ * this page's scripts and its `/api` calls are ordinary same-origin requests,
+ * no CORS header is sent at all, and a stranger reading `/app` gets nothing
+ * back.
+ *
+ * The sandbox is weakened by exactly what that costs, which is little here. The
+ * origin this page regains is `127.0.0.1:7840`; the host is on
+ * `127.0.0.1:4181`. Different ports are different origins, so the page still
+ * cannot reach into the host — it can only reach itself, which is all it asked
+ * for.
  */
 export const MANIFEST: Manifest = manifestSchema.parse({
   kind: MANIFEST_KIND,
@@ -108,7 +130,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     uses: ['live:read'],
-    storage: false,
+    storage: true,
   },
   health: '/healthz',
 })

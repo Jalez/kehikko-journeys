@@ -171,33 +171,31 @@ async function body(request: IncomingMessage): Promise<Record<string, unknown> |
  * The dev server, and the one line in it that decides whether this app can be
  * framed at all.
  *
- * ## `server.cors`, which is not optional for a module
+ * ## No `server.cors` — this module declares storage instead
  *
- * A host frames a module WITHOUT `allow-same-origin` unless its manifest
- * declares storage, and this one does not. That puts the page on an opaque
- * origin: it has no origin of its own, and every request it makes carries
- * `Origin: null`. Fine for the document, which the browser navigates to — and
- * fatal for the scripts inside it, because `<script type="module">` is ALWAYS
- * fetched in CORS mode. There is no same-origin shortcut for a module script,
- * and an opaque origin matches nothing, so without a permissive header the
- * browser refuses every one of them.
+ * Every other module here sets `cors: true` and has to. A host frames a module
+ * WITHOUT `allow-same-origin` unless its manifest declares storage, which puts
+ * the page on an opaque origin — and `<script type="module">` is ALWAYS fetched
+ * in CORS mode, so with no permissive header not one script in the page runs.
+ * The document loads, `load` fires, the host greets it, and nothing answers.
+ * `curl` cannot see it, being unsubject to CORS; only the browser console can.
+ * That has cost this codebase days.
  *
- * What that looks like from outside is worth knowing, because it has cost this
- * codebase days: the document loads, its `load` event fires, the host greets
- * it, and nothing answers — because no script in it ever ran. The host reports
- * a page that "loaded its page and did not answer the host's greeting", which
- * is true and explains nothing. `curl` cannot see it either, since curl is not
- * subject to CORS, so every door answers 200 with exactly the right bytes while
- * the app is dead in the frame. The browser console is the only place it shows.
+ * This module went that way first and it was wrong, for a reason the others do
+ * not have: this one OWNS data and takes writes, gated on a ticket printed into
+ * `/app`. A permissive `Access-Control-Allow-Origin` means any page in any tab
+ * can read that document, and therefore that ticket, off loopback — and then
+ * write here. Measured rather than theorised:
  *
- * It is not free here, and that is worth saying plainly rather than repeating
- * the sentence the other modules use. Atlas and References serve a public page
- * and hold no write path; this app has one, gated on a ticket printed into the
- * document, and a permissive `Access-Control-Allow-Origin` means any page in
- * any tab can now read that document and therefore that ticket. The ticket
- * still does its stated job — a program that guessed the port and posted blind
- * is refused — and it is not, and never was, an authorization check. The essay
- * on `TICKET` in `doors.ts` says the same thing from the other end.
+ *     $ curl -H 'Origin: https://evil.example' http://127.0.0.1:7840/app
+ *     Access-Control-Allow-Origin: *
+ *     ...ticket" type="application/json">"e75d4d01-…
+ *
+ * So the manifest declares `storage: true` and this line is gone. With a real
+ * origin, this page's scripts and its `/api` calls are ordinary same-origin
+ * requests: no CORS is involved at all, nothing is offered to strangers, and
+ * the ticket is unreadable from anywhere but inside. The essay in `manifest.ts`
+ * says why this module asks for an origin and why the others should not.
  *
  * ## No alias for `roadmap-module-protocol`
  *
@@ -217,6 +215,5 @@ export default defineConfig({
    */
   base: './',
   plugins: [doors()],
-  server: { cors: true },
   build: { outDir: 'dist', emptyOutDir: true },
 })

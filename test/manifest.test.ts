@@ -56,7 +56,25 @@ describe('the manifest a host reads', () => {
    */
   test('asks for nothing it holds itself', () => {
     expect(MANIFEST.declares.uses).toEqual(['live:read'])
-    expect(MANIFEST.declares.storage).toBe(false)
+  })
+
+  /**
+   * Storage, which the other modules must not ask for and this one must.
+   *
+   * It is the only module here that owns data and takes writes. Opaque, its own
+   * `/api` calls are cross-origin — an origin of `null` matches nothing — so
+   * the server would have to answer every origin permissively, and a permissive
+   * `Access-Control-Allow-Origin` lets any page in any tab read `/app` off
+   * loopback, take the write ticket printed into it, and post here. Declaring
+   * storage gives this page its real origin back, which makes those calls
+   * ordinary same-origin requests and removes CORS from the picture entirely.
+   *
+   * If this ever flips to `false`, `server.cors` has to come back in
+   * `vite.config.ts` and the ticket is readable by strangers again. The two
+   * belong together, and this test is where that is said out loud.
+   */
+  test('asks for an origin, because it owns what it serves', () => {
+    expect(MANIFEST.declares.storage).toBe(true)
   })
 
   test('is the id the registration file is named after', () => {
