@@ -7,8 +7,8 @@
  * The grammar was four lines in `journeys.ts`, and it could have stayed there
  * until the canvas started broadcasting a selection. What changed is that
  * "which of these refs is this page showing" became a decision made on somebody
- * else's behalf — the reader clicked in another pane, and if this one chooses
- * wrong the symptom is a pane that sits still and says nothing. That is the
+ * else's behalf — the reader clicked in another container, and if this one chooses
+ * wrong the symptom is a container that sits still and says nothing. That is the
  * kind of decision that has to be checkable without a browser, and
  * `journeys.ts` cannot be imported outside one: it pulls in `wire/mailbox.ts`,
  * which reaches for `window` at import time on purpose.
@@ -45,7 +45,7 @@ export function isTracked(ref: string): boolean {
  * screen is not only a reference somebody wrote into the journey — for every
  * issue a step names, the page also draws a card for each CHANGE the tracker
  * attaches to that issue, which the host read and this app never stored. Click
- * one of those in another pane and the document-reading version answered "this
+ * one of those in another container and the document-reading version answered "this
  * journey does not name that", about a card the reader was looking at. Measured
  * in a real canvas: of twenty-one cards drawn for `files-stay-reachable`, ten
  * were carried in by the tracker's own links and none of them are in the
@@ -60,9 +60,9 @@ export function isTracked(ref: string): boolean {
  * A selection can name several references, and this app has exactly one scroll
  * position. Scrolling to each in turn would end on the last one, which is the
  * least likely to be what the reader meant; refusing to move because there are
- * two is a pane that goes still for a person who did something perfectly
+ * two is a container that goes still for a person who did something perfectly
  * ordinary. So the first one this page holds wins, and the others are not
- * marked in any way — no second outline, no list, no "3 more". The pane the
+ * marked in any way — no second outline, no list, no "3 more". The container the
  * reader clicked in already shows the whole selection; this one shows where the
  * selection touches the journey, and picking a place to stand is the whole job.
  *

@@ -104,7 +104,7 @@ describe('reading a project’s journeys', () => {
 /**
  * The state the whole move is about. No project is not an empty project, and it
  * is not an error either — it is somewhere a person can legitimately be, and
- * the pane has to be able to say so without claiming anything about a store.
+ * the container has to be able to say so without claiming anything about a store.
  */
 describe('when no project is open', () => {
   test('the index is empty and says it is nowhere, not that the project has none', () => {

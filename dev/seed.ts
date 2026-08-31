@@ -12,7 +12,7 @@ import { migrate } from './migrate.ts'
  * `store.ts` used to seed an empty store from `seed/` on the first request. The
  * long version of why that had to go is in `store.ts`; the short version is
  * that "the store" is now a folder inside somebody else's repository, so an
- * automatic seed means opening the pane on any project puts thirteen journeys
+ * automatic seed means opening the container on any project puts thirteen journeys
  * about the roadmap's own codebase inside it, writes them to disk there, and
  * makes them that project's answer forever — with nothing on screen looking
  * wrong.

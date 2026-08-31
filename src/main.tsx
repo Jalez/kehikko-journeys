@@ -11,7 +11,7 @@ import './index.css'
  * `load` event, and effects run strictly after that, so a listener installed in
  * `useEffect` is installed after the greeting has already been posted and thrown
  * away. See the essay in `mailbox.ts`; it is a bug that costs an afternoon and
- * whose only symptom is a pane reporting a module that will not speak.
+ * whose only symptom is a container reporting a module that will not speak.
  */
 import '../wire/mailbox.ts'
 import { App } from './app.tsx'
@@ -22,7 +22,7 @@ import { seed } from './theme.ts'
  * The theme before the first paint, then the conversation, then React.
  *
  * `seed` first because a page that renders light and turns dark one tick later
- * is a flash somebody sees every time they open the pane. `start` before
+ * is a flash somebody sees every time they open the container. `start` before
  * `createRoot` for the reason above: it subscribes to the mailbox, and a
  * greeting that has already arrived is replayed to it rather than lost — which
  * cannot be true of anything that first runs in an effect.

@@ -670,7 +670,7 @@ export function answer(
     return ok({
       ok: true,
       journeys: listJourneys(store).map(brief),
-      /* Said out loud rather than inferred from an empty list. A pane that saw
+      /* Said out loud rather than inferred from an empty list. A container that saw
          `journeys: []` and drew "no journeys yet" over a project whose file
          will not parse would be reporting somebody's work as absent. */
       nowhere: store.nowhere,

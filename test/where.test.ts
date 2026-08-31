@@ -60,7 +60,7 @@ describe('where this project’s journeys live', () => {
     expect(dataFile(project).path).toBe(join(project, KEHIKOT_DIR, MINE, 'journeys.json'))
   })
 
-  /* A read must not change the thing being read. Opening a pane against a
+  /* A read must not change the thing being read. Opening a container against a
      project the reader is only looking at should not leave a folder in their
      repository they never asked for. */
   test('reading creates nothing at all', () => {

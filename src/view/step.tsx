@@ -16,17 +16,17 @@ import { useReading } from './reading.tsx'
  * ## The gutter, and why it is a container query
  *
  * The body, the notes, the cards and the editor all hang off a 2.1rem gutter
- * that lines them up under the step's title. In a 900px pane that gutter is
+ * that lines them up under the step's title. In a 900px container that gutter is
  * what makes the page readable. In a 220px one it is fifteen per cent of every
  * line of prose spent on an alignment nobody can see, because the number it
  * aligns to wrapped four lines ago. So the gutter is added ABOVE 26rem rather
  * than removed below it — mobile-first, in a component whose commonest case
  * genuinely is the narrow one.
  *
- * `@min-[26rem]/pane` and not `md:`. This module is framed in panes 220 to 400
+ * `@min-[26rem]/container` and not `md:`. This module is framed in containers 220 to 400
  * pixels wide inside a window two thousand across, so every viewport breakpoint
  * Tailwind ships is true here and every one of them is answering a question
- * nobody asked. The pane is the only box that has ever been the reason this page
+ * nobody asked. The container is the only box that has ever been the reason this page
  * was cramped.
  *
  * ## The head is allowed to wrap, and the title takes the line
@@ -63,9 +63,9 @@ export function StepBlock({ step, index, editing }: { step: Step; index: number;
 
   return (
     <section data-step={index + 1} className="border-t pt-3.5 pb-1">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 @min-[26rem]/pane:flex-nowrap">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 @min-[26rem]/container:flex-nowrap">
         <span className="w-6 shrink-0 text-xs tabular-nums text-muted-foreground">{index + 1}.</span>
-        <h3 className="min-w-0 flex-[1_1_60%] text-[1.02rem] leading-snug font-semibold @min-[26rem]/pane:flex-1">
+        <h3 className="min-w-0 flex-[1_1_60%] text-[1.02rem] leading-snug font-semibold @min-[26rem]/container:flex-1">
           <Prose text={step.title} />
         </h3>
         {settled && (
@@ -78,7 +78,7 @@ export function StepBlock({ step, index, editing }: { step: Step; index: number;
         <Button
           type="button"
           variant="ghost"
-          size="pane"
+          size="container"
           className="text-muted-foreground"
           aria-expanded={editing}
           onClick={() => setEditing(index)}
@@ -91,14 +91,14 @@ export function StepBlock({ step, index, editing }: { step: Step; index: number;
         <Editor step={step} position={index + 1} />
       ) : (
         step.body && (
-          <p className="mt-1.5 text-[0.95rem] leading-7 @min-[26rem]/pane:ml-[2.1rem]">
+          <p className="mt-1.5 text-[0.95rem] leading-7 @min-[26rem]/container:ml-[2.1rem]">
             <Prose text={step.body} />
           </p>
         )
       )}
 
       {notes.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1 @min-[26rem]/pane:ml-[2.1rem]">
+        <div className="mt-2 flex flex-wrap gap-1 @min-[26rem]/container:ml-[2.1rem]">
           {notes.map((note) => (
             <Badge key={note} variant="outline">
               {note}
@@ -108,7 +108,7 @@ export function StepBlock({ step, index, editing }: { step: Step; index: number;
       )}
 
       {drawn.length > 0 && (
-        <div className="mt-2.5 grid gap-1.5 @min-[26rem]/pane:ml-[2.1rem]">
+        <div className="mt-2.5 grid gap-1.5 @min-[26rem]/container:ml-[2.1rem]">
           {drawn.map(({ ref, under }) => (
             <Card key={`${ref}:${under ? 'under' : 'own'}`} refName={ref} under={under} />
           ))}

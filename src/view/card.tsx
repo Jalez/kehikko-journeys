@@ -49,21 +49,21 @@ export function Card({ refName, under }: { refName: string; under?: boolean }) {
       data-card={refName}
       className={cn(
         'rounded-md border px-2.5 py-2',
-        under ? 'ml-2 bg-transparent @min-[26rem]/pane:ml-5' : 'bg-card',
+        under ? 'ml-2 bg-transparent @min-[26rem]/container:ml-5' : 'bg-card',
       )}
     >
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <Ref refName={refName} />
         {/*
           Twelve rems is what the title WANTS, not what it demands. It was a
-          `min-width` once, which in a flex row is a floor the pane cannot argue
+          `min-width` once, which in a flex row is a floor the container cannot argue
           with: at 220px the row simply stuck out, and every card in the
           document did it at once. As a basis with the floor released it still
           claims twelve rems wherever there are twelve rems to claim, and wraps
-          down to whatever the pane has where there are not.
+          down to whatever the container has where there are not.
 
           The whole title again as a tooltip. Nothing on this page truncates and
-          this is not a fallback for clipping — it is for the 220px pane, where
+          this is not a fallback for clipping — it is for the 220px container, where
           a tracker's own sentence wraps across five very short lines and
           reading it as one is genuinely easier.
         */}
@@ -124,7 +124,7 @@ export function Card({ refName, under }: { refName: string; under?: boolean }) {
         journeys this app ships, blockers run to 407 characters, and one of them
         is a paragraph about a production data question. Those are prose and are
         drawn as prose: a chip that long is not a chip, and as an unbreakable
-        one it took the whole document 1187 pixels wide inside a 220-pixel pane.
+        one it took the whole document 1187 pixels wide inside a 220-pixel container.
       */}
       {gates.length > 0 && (
         <div className="mt-1.5 text-xs leading-5 text-muted-foreground">

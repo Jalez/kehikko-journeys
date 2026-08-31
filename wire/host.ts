@@ -220,7 +220,7 @@ export function connect(id: string, events: HostEvents = {}, source: MessageSour
       /* Answered exactly once, whatever the listener does — including nothing,
          including throwing. The host is waiting on this and will time out into
          "not found"; a module that leaves it to the timeout has turned a
-         hundred milliseconds into a reader watching a pane do nothing. */
+         hundred milliseconds into a reader watching a container do nothing. */
       let answered = false
       const answer = (found: boolean, why = '') => {
         if (answered) return

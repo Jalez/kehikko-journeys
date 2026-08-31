@@ -18,7 +18,7 @@ import { StepBlock } from './view/step.tsx'
  * of what has to become true for a user, and the state of the work is drawn
  * BESIDE that account rather than in place of it. The layout is the only thing
  * that can keep saying so. So this is a single column with a measure — prose
- * width, not pane width — the steps are sections with an ordinal and a
+ * width, not container width — the steps are sections with an ordinal and a
  * sentence, and the tracker's material sits underneath each one in boxes that
  * are deliberately quieter than the prose above them.
  *
@@ -29,9 +29,9 @@ import { StepBlock } from './view/step.tsx'
  *
  * ## The measure is capped, and the cap is not a breakpoint
  *
- * `max-w-[44rem]` on the column, always. A pane 1200 pixels wide given the
+ * `max-w-[44rem]` on the column, always. A container 1200 pixels wide given the
  * whole of itself sets prose at about 150 characters to the line, which is
- * roughly twice what anybody reads comfortably; the pane being wide is not a
+ * roughly twice what anybody reads comfortably; the container being wide is not a
  * reason to make the sentences longer. Below the cap nothing applies, so the
  * narrow case — which is the common one — is untouched by it.
  */
@@ -52,7 +52,7 @@ export function App() {
 
   return (
     <ReadingProvider value={{ live: state.live, journey: state.journey }}>
-      <div className="mx-auto w-full max-w-[44rem] px-3 pt-3 pb-12 @min-[26rem]/pane:px-4 @min-[26rem]/pane:pt-4">
+      <div className="mx-auto w-full max-w-[44rem] px-3 pt-3 pb-12 @min-[26rem]/container:px-4 @min-[26rem]/container:pt-4">
         <Head journey={state.journey} />
         <Sight framed={state.framed} refused={state.refused} journey={state.journey} live={state.live} />
         {!state.framed && <Picker index={state.index} journey={state.journey} />}
@@ -63,7 +63,7 @@ export function App() {
          * "No project is open", "that project's file will not read" and "this
          * project has none yet" are three different things to do next, and the
          * page they replace — an empty column with a picker over it — said the
-         * same nothing about all three. A pane that quietly drew empty while a
+         * same nothing about all three. A container that quietly drew empty while a
          * file it could not parse sat on disk would be reporting somebody's
          * work as absent.
          */}
@@ -96,9 +96,9 @@ const INSIDE_A_FRAME = typeof window !== 'undefined' && window.parent !== window
  * The app's own name comes off the page the moment it is clear this page is not
  * standing alone.
  *
- * The host draws the module's name in the pane header and hangs the manifest's
+ * The host draws the module's name in the container header and hangs the manifest's
  * summary off it as a tooltip, so printing "Journeys" here as well says the
- * name twice and costs a heading's worth of a pane that is often 340 pixels
+ * name twice and costs a heading's worth of a container that is often 340 pixels
  * tall — the most expensive line on the page, spent on the one thing the reader
  * already knows. Only the IDENTITY goes: the project the open journey belongs
  * to is a statement about what is open rather than about what this program is
@@ -118,7 +118,7 @@ function Head({ journey }: { journey: JourneyView | null }) {
 /**
  * Why there is no journey on screen, when there is not one.
  *
- * Draws nothing at all in the ordinary case — a journey is open, or this pane
+ * Draws nothing at all in the ordinary case — a journey is open, or this container
  * is standing alone with a picker and one selected. It only speaks when the
  * absence needs explaining, which is exactly the three states `state.nowhere`,
  * `state.trouble` and an empty index describe and an empty column does not.

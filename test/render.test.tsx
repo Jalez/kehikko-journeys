@@ -18,7 +18,7 @@ import { ReadingProvider } from '../src/view/reading.tsx'
  *     step's note and a blocker are sentences people write — measured to 110
  *     and 407 characters across the journeys this app ships — and one of them
  *     in a `whitespace-nowrap` box put a 1187-pixel min-content floor under the
- *     whole document inside a 220-pixel pane. That is the bug this file exists
+ *     whole document inside a 220-pixel container. That is the bug this file exists
  *     to keep from coming back.
  */
 
@@ -93,7 +93,7 @@ describe('nothing but a verdict refuses to wrap', () => {
     const long = JOURNEY.blockedBy['gh#1'][1] as string
     expect(box.textContent).toContain(long)
     /* If this ever becomes a badge again, it will be a nowrap one, and one
-       sentence will widen the whole pane. */
+       sentence will widen the whole container. */
     for (const badge of box.querySelectorAll('[data-slot=badge]')) {
       expect(badge.textContent ?? '').not.toContain(long)
     }

@@ -209,9 +209,9 @@ export async function open(slug: string | null): Promise<void> {
  * Read the index for whichever project this page is standing in.
  *
  * Separate from `start` because it now happens more than once: on the first
- * load, and again every time the host moves this pane to a different project.
+ * load, and again every time the host moves this container to a different project.
  * The second is the whole reason the reply carries `nowhere`, `trouble` and
- * `from` rather than just a list — a pane that switched into a project whose
+ * `from` rather than just a list — a container that switched into a project whose
  * file will not parse must say so, and an empty array cannot.
  */
 async function readIndex(): Promise<void> {
@@ -368,7 +368,7 @@ let wanted: Target | null = null
  * How a walk was asked for, which decides only one thing: whether a miss is
  * said out loud.
  *
- * `quiet` is for a walk nobody asked THIS pane for — a selection the canvas
+ * `quiet` is for a walk nobody asked THIS container for — a selection the canvas
  * broadcast, which reaches every framed module at once. See `showSelection`.
  */
 interface Walk {
@@ -413,7 +413,7 @@ export async function goTo(what: Target | null, how: Walk = {}): Promise<{ found
      * `querySelector`. Document order would hand back the callout's mention of
      * `gh#1802` and scroll a reader to a sentence about the reference when the
      * card for it — the thing with the state on it, the thing they clicked in
-     * the other pane — is four steps further down. Measured: on
+     * the other container — is four steps further down. Measured: on
      * `files-stay-reachable` the page draws 21 cards and 37 anchors naming 23
      * distinct references, so two of them exist only in prose and several
      * appear in a sentence before the card that carries their state.
@@ -525,7 +525,7 @@ export function grow(): void {
 }
 
 /**
- * Which journey this pane is standing on, as the last context named it.
+ * Which journey this container is standing on, as the last context named it.
  *
  * Three values and not two. A slug is a journey; `null` is the host saying no
  * epic is open; `undefined` is no context having been read at all. Collapsing
@@ -544,7 +544,7 @@ let standingOn: string | null | undefined = undefined
 let picked: string[] = []
 
 /**
- * Which project this pane is standing in, as the last context named it.
+ * Which project this container is standing in, as the last context named it.
  *
  * Three values for the same reason `standingOn` has three. A path is a project;
  * `null` is the host saying it has no folder to point at; `undefined` is no
@@ -566,19 +566,19 @@ let standingIn: string | null | undefined = undefined
  * things in a context were the epic and the theme.
  *
  * It is now wrong, because the canvas broadcasts a context after every
- * `selection.set` — including ones this pane did nothing to cause, a few
- * milliseconds after somebody clicked a row in another pane. Re-asking on each
+ * `selection.set` — including ones this container did nothing to cause, a few
+ * milliseconds after somebody clicked a row in another container. Re-asking on each
  * of those would throw away the reading and redraw the whole journey every time
  * a reference was clicked: the steps would vanish and come back, and the
  * reader's scroll position — the very thing the click was about to move — would
  * be reset out from under the walk. References met this first and its
  * `use-roadmap.ts` carries the long version; the failure looks like a bug in
- * whichever pane was clicked, which is the wrong pane to go and read.
+ * whichever container was clicked, which is the wrong container to go and read.
  *
  * So each field is acted on when IT changes, and a context that changed nothing
  * this page draws is a normal, frequent, silent event.
  *
- * The cost, stated plainly: this pane no longer refetches when a host re-sends
+ * The cost, stated plainly: this container no longer refetches when a host re-sends
  * the same epic to mean "you are visible again". That was never a promise the
  * protocol made, and the fix if it is ever wanted is a context field saying so
  * — not a refetch on every tick of somebody else's list.
@@ -590,7 +590,7 @@ let standingIn: string | null | undefined = undefined
  * disappeared would leave the last journey on screen under a heading that no
  * longer applies.
  *
- * ## `projectPath` is the field that changes WHICH STORE this pane is reading
+ * ## `projectPath` is the field that changes WHICH STORE this container is reading
  *
  * Every other field in a context changes what is drawn out of one store. This
  * one changes the store: the journeys live in `<projectPath>/.kehikot/`, so a
@@ -633,7 +633,7 @@ function context(next: ModuleContext): void {
     /* Everything read out of the old store goes, before anything is fetched
        from the new one. A journey left on screen while its replacement is in
        flight is the previous project's material under the current project's
-       name, which is a worse half-second than an empty pane. */
+       name, which is a worse half-second than an empty container. */
     set({ index: [], journey: null, live: null, said: '' })
     void standIn(project)
       .then(async (issued) => {
@@ -661,7 +661,7 @@ function context(next: ModuleContext): void {
   if (!slug) {
     /* Only when it changed. A repeated "nothing is open" is the host talking
        about something else — a theme, a selection in a canvas with no epic —
-       and redrawing an empty pane on each of those is work nobody sees except
+       and redrawing an empty container on each of those is work nobody sees except
        as a flicker. */
     if (moved) set({ journey: null, live: null })
     return
@@ -693,7 +693,7 @@ function context(next: ModuleContext): void {
  * scrolling it to the middle, marking it, and doing all of that only once the
  * journey is loaded. A second path that meant the same thing would drift from
  * that one, and the one that drifted would be this one — because `goto` is the
- * path a host exercises and this one only fires when two panes are open at
+ * path a host exercises and this one only fires when two containers are open at
  * once. So this decides WHICH reference and hands the walking to `goTo`.
  *
  * ## When the journey does not name any of them
@@ -701,17 +701,17 @@ function context(next: ModuleContext): void {
  * Nothing happens. Not an error, not a message, not a cleared mark — the page
  * simply stays where it is. This is the ordinary case rather than the
  * exceptional one: the canvas broadcasts to every framed module, most
- * selections are about a reference some other pane is showing, and a journey
+ * selections are about a reference some other container is showing, and a journey
  * that does not mention it has been told a fact that is true and not about it.
  *
  * Saying so was considered and rejected. The line under the page is this app's
  * way of answering the reader — "no such journey here", "the host refused
  * live.get" — and filling it with "nothing in this journey names gh#131" every
- * time somebody clicks a row in another pane would turn the one place this app
- * talks to a person into a running commentary on other panes' clicks. Worse, it
+ * time somebody clicks a row in another container would turn the one place this app
+ * talks to a person into a running commentary on other containers' clicks. Worse, it
  * would be blaming this journey for a click that was never aimed at it. That is
  * why `goTo` is asked for a quiet walk here and a loud one for `roadmap.goto`:
- * one of the two was aimed at this pane.
+ * one of the two was aimed at this container.
  *
  * A quiet miss is also what makes an empty selection free: clearing a pick
  * sends `[]`, `firstShown` answers `null`, and the page stands still rather
@@ -719,7 +719,7 @@ function context(next: ModuleContext): void {
  *
  * The mark from a previous selection is deliberately not cleared either. It
  * fades on its own timer inside `goTo`, and yanking it away early would mean a
- * selection about another pane visibly editing this one.
+ * selection about another container visibly editing this one.
  */
 function showSelection(): void {
   /* What this page is showing, read off the page. Every reference on screen is
@@ -741,7 +741,7 @@ function showSelection(): void {
   /* No `slug`: a selection says what was picked and never which epic it was
      picked in, on purpose — see the protocol's essay on `selection`. Walking to
      a bare ref searches the journey that is open, which is the only journey
-     this pane could honestly be talking about. */
+     this container could honestly be talking about. */
   void goTo({ ref }, { quiet: true })
 }
 

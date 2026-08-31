@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils.ts'
  * `field-sizing-content` with a floor and a ceiling: a step's body is anywhere
  * between one sentence and two hundred words, and a fixed seven-rem box is
  * either a scrollbar around a paragraph or an empty half-screen. The ceiling is
- * there because a pane is not a document editor and an unbounded box pushes the
+ * there because a container is not a document editor and an unbounded box pushes the
  * Save button off the bottom of it.
  */
 function Textarea({ className, ...props }: React.ComponentProps<'textarea'>) {

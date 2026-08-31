@@ -147,7 +147,7 @@ export const FILE = 'journeys'
  *   under it. The sentence is for a person, and it says what was refused.
  *
  * Reading does not create anything. `makeDir()` is what creates, and it is
- * called on the write path only, so opening a pane against a project never
+ * called on the write path only, so opening a container against a project never
  * leaves a folder in somebody's repository they did not ask for.
  */
 export function dataFile(projectPath: string | null | undefined): { path: string | null; trouble: string | null } {
@@ -593,12 +593,12 @@ export type Document = z.infer<typeof documentSchema>
  * program ships with was a program furnishing its own house. The store is now a
  * folder inside SOMEBODY ELSE'S REPOSITORY, and "empty" is a fact about their
  * project rather than about this installation. An automatic seed would mean:
- * open the pane on any project on the machine, and thirteen of the roadmap's
+ * open the container on any project on the machine, and thirteen of the roadmap's
  * own journeys — `the-roadmap-tracks-itself`, `modes-are-modules`, fifty
  * kilobytes of somebody's narrative about a different codebase — appear inside
  * it, get written to `.kehikot/journeys/journeys.json` there, and are then the answer
  * this app gives about that project forever. Nothing would have gone wrong on
- * screen. The pane would look full and correct, and every journey in it would
+ * screen. The container would look full and correct, and every journey in it would
  * be about another repository.
  *
  * So: a project with no journeys has no journeys, and the page says exactly
@@ -643,7 +643,7 @@ export type Document = z.infer<typeof documentSchema>
  *
  * The old code threw instead, which was the right instinct with the wrong blast
  * radius: it threw out of a request handler, so one unparseable journey took
- * the pane down rather than explaining itself. A sentence saying the file is
+ * the container down rather than explaining itself. A sentence saying the file is
  * recoverable is what stops somebody deleting the directory.
  */
 export interface Held {

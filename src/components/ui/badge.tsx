@@ -38,7 +38,7 @@ import { cn } from '@/lib/utils.ts'
  * 110 characters. In a nowrap badge that is a 700-pixel token that nothing can
  * break, and one of them sets a min-content floor under the entire document —
  * which is exactly how the page ended up 1187 pixels wide inside a 220-pixel
- * pane. So the base wraps, breaks anywhere, and may shrink; the verdicts opt
+ * container. So the base wraps, breaks anywhere, and may shrink; the verdicts opt
  * out of all three because they are short enough to be able to afford it.
  */
 const badgeVariants = cva(

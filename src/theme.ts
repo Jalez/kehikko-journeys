@@ -38,7 +38,7 @@ export function apply(theme: Theme): void {
  *
  * Before first paint and not in an effect: a page that renders light and then
  * turns dark one tick later is a flash somebody sees every single time they
- * open the pane, and the fix for it is to not be light first.
+ * open the container, and the fix for it is to not be light first.
  */
 export function seed(): void {
   const dark = typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches

@@ -29,7 +29,7 @@ import type { Step } from '../kinds.ts'
  * ## Why the fields are not labelled on screen
  *
  * They are labelled to a screen reader, through `aria-label`, and not in ink.
- * Four visible labels in a pane 220 pixels wide is four lines spent saying
+ * Four visible labels in a container 220 pixels wide is four lines spent saying
  * "Title", "Body", "References", "Notes" above four boxes that already contain
  * a title, a body, references and notes. The placeholder carries the grammar
  * that is not guessable — that refs are separated by spaces and notes by commas
@@ -45,7 +45,7 @@ export function Editor({ step, position }: { step: Step; position: number }) {
 
   return (
     <form
-      className="mt-2 grid gap-2 @min-[26rem]/pane:ml-[2.1rem]"
+      className="mt-2 grid gap-2 @min-[26rem]/container:ml-[2.1rem]"
       onSubmit={(event) => {
         event.preventDefault()
         void saveStep(position, {
@@ -74,7 +74,7 @@ export function Editor({ step, position }: { step: Step; position: number }) {
         onChange={(e) => setNotes(e.target.value)}
       />
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="submit" size="pane">
+        <Button type="submit" size="container">
           Save
         </Button>
         <span className={words > BODY_WORDS ? 'text-xs text-draft' : 'text-xs text-muted-foreground'}>

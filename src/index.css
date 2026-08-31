@@ -25,28 +25,28 @@
  *
  * ## Container queries, not viewport breakpoints
  *
- * This page's normal case is a pane 220 to 400 pixels wide inside somebody's
+ * This page's normal case is a container 220 to 400 pixels wide inside somebody's
  * canvas, on a monitor two thousand pixels across. Every viewport breakpoint
  * Tailwind ships would therefore fire — `lg:` is true, `xl:` is true — and the
  * page would lay itself out for a screen it has three per cent of. So the
- * `<body>` is a container named `pane`, every responsive class in this app is a
+ * `<body>` is a container named `container`, every responsive class in this app is a
  * `@container` class, and the only thing any of them ever measures is the box
  * this page was actually given.
  *
  * ## Nothing overflows sideways, ever
  *
- * A pane that scrolls horizontally is a pane where half a sentence is behind an
+ * A container that scrolls horizontally is a container where half a sentence is behind an
  * edge nobody thinks to drag. `overflow-x: hidden` would HIDE that rather than
  * fix it, so it is not here. What is here is `overflow-wrap: anywhere` on the
  * prose and `min-width: 0` on the flex children — the two things that actually
  * stop a tracker's title, a file path or an unbroken URL setting a min-content
  * floor under the whole document. `anywhere` and not `break-word`: only
  * `anywhere` lowers the min-content contribution, and lowering it is the entire
- * fix. Measured before it existed: a 492px floor at every pane size.
+ * fix. Measured before it existed: a 492px floor at every container size.
  *
  * Nothing truncates, either. There is no `text-overflow` and no `overflow:
  * hidden` on anything holding words, because a clipped tracker title in a 220px
- * pane is a reader who cannot tell which issue they are looking at — and this
+ * container is a reader who cannot tell which issue they are looking at — and this
  * app's whole argument is against a screen that quietly says less than it knows.
  */
 
@@ -168,11 +168,11 @@
 
   /*
    * The container every responsive class in this app measures. Named, so a
-   * `@md/pane:` class cannot accidentally attach itself to some nested
+   * `@md/container:` class cannot accidentally attach itself to some nested
    * container a component introduces later.
    */
   body {
-    container: pane / inline-size;
+    container: container / inline-size;
     font-synthesis-weight: none;
     text-rendering: optimizeLegibility;
   }
@@ -192,7 +192,7 @@
  * Where the reader was sent.
  *
  * A ring rather than an outline, and a keyframed one, because this fires when a
- * host walks somebody here from another pane and the question it answers is
+ * host walks somebody here from another container and the question it answers is
  * "which of these did I just click?" — a question a static outline left on the
  * page for two and a half seconds answers just as well right up until there are
  * two of them. The animation ends on a plain ring so the mark is still there

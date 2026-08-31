@@ -39,7 +39,7 @@ describe('the manifest a host reads', () => {
   /**
    * The entry has to be a path on this app's own origin, and it has to be the
    * path `vite.config.ts` claims before Vite's resolver sees it. A manifest
-   * naming a path nothing answers on is a pane that loads a 404 and reports a
+   * naming a path nothing answers on is a container that loads a 404 and reports a
    * module that would not speak.
    */
   test('names the page door this app actually serves', () => {

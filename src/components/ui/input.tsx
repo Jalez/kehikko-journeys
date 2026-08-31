@@ -3,9 +3,9 @@ import type * as React from 'react'
 import { cn } from '@/lib/utils.ts'
 
 /**
- * shadcn's input, sized for a pane rather than for a page.
+ * shadcn's input, sized for a container rather than for a page.
  *
- * `h-8` and not `h-9`: the editor puts four of these in a column inside a pane
+ * `h-8` and not `h-9`: the editor puts four of these in a column inside a container
  * that is often 340 pixels tall, and a control sized for a settings screen
  * spends the whole of it on the chrome around somebody's sentence.
  */

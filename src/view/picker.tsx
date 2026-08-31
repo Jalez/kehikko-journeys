@@ -9,7 +9,7 @@ import type { Brief, JourneyView } from '../kinds.ts'
  *
  * Drawn only when this page is standing alone. Framed, the host owns which
  * epic is open and draws a tab strip for it, and a second picker beside that
- * strip would be two controls answering one question — with the pane's own
+ * strip would be two controls answering one question — with the container's own
  * answer losing every time a context arrives.
  *
  * The tooltip is the honest half of the row: how many steps this app holds for
@@ -29,7 +29,7 @@ export function Picker({ index, journey }: { index: Brief[]; journey: JourneyVie
             key={row.slug}
             type="button"
             variant="outline"
-            size="pane"
+            size="container"
             aria-current={current ? 'true' : undefined}
             className={cn(
               'rounded-full',

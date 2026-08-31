@@ -42,13 +42,13 @@ export function NoProject({ unhosted }: { unhosted: boolean }) {
           ? 'Opened directly, this page has no canvas to tell it which project it is standing in. The journeys are '
             + 'not missing — they are kept inside each project, in .kehikot/journeys/journeys.json, and which project to open '
             + 'is a question only a host can answer.'
-          : 'A host may know a project’s name and have no folder to point at. This pane will not guess: a journey is '
+          : 'A host may know a project’s name and have no folder to point at. This container will not guess: a journey is '
             + 'kept inside the project it is about, so guessing means writing somebody’s narrative into a repository '
             + 'they never pointed at — and saying it saved.'}
       </p>
       <p className="text-[0.82rem] leading-6 text-muted-foreground">
         Nothing can be read or written until a project is open. Nothing has been lost by that; there is simply nowhere
-        yet for this pane to look.
+        yet for this container to look.
       </p>
     </section>
   )

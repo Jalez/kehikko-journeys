@@ -7,7 +7,7 @@ import { firstShown, isTracked, samePick } from '../src/refs.ts'
  *
  * The scroll itself needs a page and is measured in one. This is the decision
  * taken before the scroll: given what the canvas says was picked and what this
- * page is showing, which reference — if any — is this pane's to walk to.
+ * page is showing, which reference — if any — is this container's to walk to.
  * Getting it wrong has no visible failure to report it. A miss looks exactly
  * like a selection about another journey, which is the case this deliberately
  * treats as ordinary, so nothing on screen would ever say the choosing was
