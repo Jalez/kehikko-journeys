@@ -10,8 +10,9 @@
  * else's behalf — the reader clicked in another container, and if this one chooses
  * wrong the symptom is a container that sits still and says nothing. That is the
  * kind of decision that has to be checkable without a browser, and
- * `journeys.ts` cannot be imported outside one: it pulls in `wire/mailbox.ts`,
- * which reaches for `window` at import time on purpose.
+ * `journeys.ts` cannot be imported outside one: it pulls in
+ * `roadmap-module-protocol/client`, whose mailbox reaches for `window` at
+ * import time on purpose.
  *
  * So the grammar and the choosing moved here, and `journeys.ts` imports them
  * back rather than keeping a second copy. Two regexes that both claim to know

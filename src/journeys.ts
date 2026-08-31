@@ -1,8 +1,8 @@
 import { flushSync } from 'react-dom'
 import type { Goto, ModuleContext } from 'roadmap-module-protocol'
+import { connect, type Connection } from 'roadmap-module-protocol/client'
 
 import { ID } from '../manifest.ts'
-import { connect, type Host } from '../wire/host.ts'
 import { GET_LIVE } from '../wire/methods.ts'
 import type { Brief, JourneyView, Live, Target } from './kinds.ts'
 import { firstShown, samePick } from './refs.ts'
@@ -332,7 +332,7 @@ async function fill(): Promise<void> {
  * protocol names that exact bug: answering `found: true` there is a guess, and
  * the host acts on it by NOT falling back to an ordinary link, so a wrong guess
  * is a press that lands nowhere and says nothing. So `goTo` is async and the
- * answer waits for the load, with `wire/host.ts` holding a backstop shorter
+ * answer waits for the load, with the client holding a 900ms backstop shorter
  * than the host's own timeout.
  *
  * ## The walk still reads the DOM, and still should
@@ -509,7 +509,7 @@ window.addEventListener('hashchange', () => {
  * The host, when there is one
  * ------------------------------------------------------------------ */
 
-let host: Host | null = null
+let host: Connection | null = null
 
 /**
  * Say how tall we would like to be.
@@ -753,8 +753,8 @@ function showSelection(): void {
  * whole.
  *
  * `connect` is called BEFORE the first fetch, and that ordering is the whole
- * point of `wire/mailbox.ts`: the greeting arrives on the frame's `load` event
- * and is replayed to whoever subscribes, so the only way to lose it is to
+ * point of the client's `mailbox`: the greeting arrives on the frame's `load`
+ * event and is replayed to whoever subscribes, so the only way to lose it is to
  * subscribe from inside something that resolves later than a network call. It
  * is also why this is called from `main.tsx` before `createRoot`, rather than
  * from an effect — an effect runs after the first commit, which is after the
@@ -762,16 +762,43 @@ function showSelection(): void {
  * ------------------------------------------------------------------ */
 
 export function start(): void {
-  host = connect(ID, {
-    onHello: (heard) => {
-      context(heard)
-      grow()
+  const live = connect(
+    ID,
+    {
+      /**
+       * The greeting, and the second thing it carries.
+       *
+       * `state` is whatever the host is keeping for this module. The copy of
+       * the wire that used to stand in this repository declared `onHello` with
+       * one parameter, so the value was parsed off the greeting and then had
+       * nowhere to go — this page could not read what the host was holding for
+       * it even if it wanted to. The parameter is back, named and ignored:
+       * this app keeps its journeys in its own store and declares no
+       * `state:keep`, and the point is that the plumbing is here rather than
+       * waiting to be rediscovered.
+       */
+      onHello: (heard, _kept) => {
+        context(heard)
+        grow()
+      },
+      onContext: (heard) => context(heard),
+      onGoto: (goto: Goto, answer) => {
+        void goTo({ ref: goto.ref, step: goto.step, slug: goto.epic }).then((out) => answer(out.found, out.why))
+      },
     },
-    onContext: (heard) => context(heard),
-    onGoto: (goto: Goto, answer) => {
-      void goTo({ ref: goto.ref, step: goto.step, slug: goto.epic }).then((out) => answer(out.found, out.why))
-    },
-  })
+    /* 900ms, this module's own number rather than the client's 500, because
+       `goTo` above is async: it may have to load a journey before it can
+       honestly say whether the reference is in it. The client takes the option
+       so that adoption keeps each module's timing instead of unifying it by
+       accident. */
+    { gotoBackstop: 900 },
+  )
+  /* Stored BEFORE it is told to listen. The mailbox replays synchronously
+     inside `listen()`, and `onHello` calls `grow()`, which reaches for this
+     module's own state — so the assignment has to have happened. See `listen`
+     in the client. */
+  host = live
+  live.listen()
 
   const where = fromHash()
   /*
