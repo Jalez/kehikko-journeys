@@ -82,6 +82,24 @@ export interface State {
   index: Brief[]
   /** The one being read, whole. */
   journey: JourneyView | null
+  /**
+   * Which epic the last context named, whether or not this app holds one.
+   *
+   * `journey` is what was FOUND; this is what was ASKED FOR, and the two are
+   * different facts the page has to be able to tell apart. The module already
+   * knew this — `standingOn` below has held it since the container learned to
+   * follow the canvas — but it held it privately, so nothing that draws could
+   * consult it, and `journey === null` was left standing for two unrelated
+   * situations: no epic on the canvas at all, and an epic named that this
+   * project has no journey for. `sight.tsx` said both of them in one sentence
+   * with an "or" in the middle, which sent a reader who could see the epic
+   * open on the canvas off to look for a host that had stopped naming it.
+   *
+   * Null means the host said no epic is open, or named something that is not a
+   * slug. It is not "not yet known": before any context arrives `framed` is
+   * false and the page is saying something else entirely.
+   */
+  epic: string | null
   /** What the host's last refresh saw, or null. */
   live: Live | null
   framed: boolean
@@ -116,6 +134,7 @@ export interface State {
 let state: State = {
   index: [],
   journey: null,
+  epic: null,
   live: null,
   framed: false,
   refused: null,
@@ -189,6 +208,43 @@ export async function open(slug: string | null): Promise<void> {
     set({ journey: null })
     return
   }
+  /*
+   * The index is consulted before the journey is asked for, and a miss is not
+   * a request.
+   *
+   * `GET /api/journey` answers 404 for a slug this project has no journey for,
+   * which is the right answer for that door to give: it is a named resource
+   * and it is not there. What was wrong was asking. A canvas standing on an
+   * epic this project has never written a journey about produced that 404 on
+   * every load, for as long as the epic stayed open — a red line in the
+   * network tab, a counter in whatever is watching the port, and an error
+   * class in a log, all for the ordinary and expected state of "this app does
+   * not cover that epic". Somebody reading any of those goes looking for a
+   * broken fetch, and there isn't one.
+   *
+   * `/api/journeys` is already fetched, holds every journey this project has,
+   * and is the answer to the question. So it is asked instead, and the journey
+   * door is only knocked on when the index says there is somebody in.
+   *
+   * The re-read on a miss is not belt-and-braces. This index can be stale by
+   * seconds: an agent on the MCP door or a second container can write a
+   * journey into the same store while this page is open, and a guard that
+   * trusted a list read before that write would refuse to load a journey that
+   * is on disk — turning a noisy 404 into a silent wrong answer, which is the
+   * worse trade. One list request in the miss case buys the guard back.
+   *
+   * `nowhere` and `trouble` are not special-cased here. Both leave the index
+   * empty, both make this a miss, and both are already drawn by `Nothing` with
+   * their own sentence — a second fetch to be told 409 would add nothing to
+   * what the page is about to say.
+   */
+  if (!listed(slug)) {
+    await readIndex()
+    if (!listed(slug)) {
+      set({ journey: null, editing: -1, said: '' })
+      return
+    }
+  }
   const out = await get<{ ok: boolean; error?: string; journey?: JourneyView }>(
     '/api/journey',
     `slug=${encodeURIComponent(slug)}`,
@@ -203,6 +259,11 @@ export async function open(slug: string | null): Promise<void> {
     said: out.ok || state.nowhere ? '' : (out.error ?? 'no such journey here'),
   })
   await fill()
+}
+
+/** Whether the index this page last read names that journey. */
+function listed(slug: string): boolean {
+  return state.index.some((row) => row.slug === slug)
 }
 
 /**
@@ -613,10 +674,20 @@ let standingIn: string | null | undefined = undefined
  */
 function context(next: ModuleContext): void {
   applyTheme(next.theme)
-  set({ framed: true, refused: null })
 
   const named = next.epic ?? ''
   const slug = /^[a-z0-9-]{1,80}$/.test(named) ? named : null
+
+  /* `epic` goes into state beside `framed`, in the same patch, because the two
+     are one fact about this context and a page rendered between them would be
+     framed by a host that had not yet said what it was looking at. It is kept
+     here as well as in `standingOn` below because the page has to be able to
+     say WHICH epic it holds no journey for, and `standingOn` is private to
+     this module. A slug that failed the shape test above is recorded as
+     nothing named: it is not a name this app could hold a journey under, and
+     quoting somebody else's malformed field back at a reader who can do
+     nothing with it is not information. */
+  set({ framed: true, refused: null, epic: slug })
 
   const project = typeof next.projectPath === 'string' && next.projectPath.trim() ? next.projectPath : null
   const relocated = standingIn !== project

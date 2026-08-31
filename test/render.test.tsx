@@ -4,6 +4,7 @@ import { render } from '@testing-library/react'
 import type { JourneyView, Live } from '../src/kinds.ts'
 import { Card } from '../src/view/card.tsx'
 import { ReadingProvider } from '../src/view/reading.tsx'
+import { Sight } from '../src/view/sight.tsx'
 
 /**
  * The two claims this app makes with pixels, asserted in words.
@@ -115,5 +116,51 @@ describe('nothing but a verdict refuses to wrap', () => {
     const box = draw(null, 'gh#1').container
     expect(box.querySelector('[data-card="gh#1"]')).not.toBeNull()
     expect(box.querySelector('a[data-ref="gh#1"]')).not.toBeNull()
+  })
+})
+
+/**
+ * The sentence at the top of the page, which is the only thing on it when
+ * there is nothing else to draw.
+ *
+ * `Sight` had four branches and five things to say, so two of them shared one
+ * sentence with an "or" in the middle: "No epic is open, or the host named one
+ * this app does not hold." With an epic open on the canvas — the common case,
+ * and the one that gets reported — that leads with the false clause and sends
+ * the reader off to check the host's context for a fault that is not there.
+ *
+ * These tests hold the two apart by their words, because the words ARE the
+ * fix. A component that renders without throwing is no evidence at all that it
+ * said the right thing, and the wrong thing here rendered perfectly for months.
+ */
+describe('what the page says when it is framed and has no journey to draw', () => {
+  const say = (epic: string | null) =>
+    render(<Sight framed refused={null} epic={epic} journey={null} live={null} />).container.textContent ?? ''
+
+  test('no epic named: says nothing is open, and claims nothing about this app’s store', () => {
+    const text = say(null)
+    expect(text).toContain('nothing open')
+    expect(text).toContain('no epic on the canvas')
+    expect(text).not.toContain('holds none')
+  })
+
+  test('an epic named with no journey for it: names the epic, and never says none is open', () => {
+    const text = say('modes-are-modules')
+    expect(text).toContain('modes-are-modules')
+    expect(text).toContain('no journey here')
+    /* The reported bug, written as the thing that must not come back: an epic
+       IS open, so no wording here may suggest that none is. */
+    expect(text).not.toContain('nothing open')
+    expect(text).not.toContain('No epic is open')
+  })
+
+  test('neither offers a picker, because none is drawn while a host is framing us', () => {
+    for (const epic of [null, 'modes-are-modules']) expect(say(epic)).not.toContain('below')
+  })
+
+  test('both fit a 220-pixel rail, where the paragraph they replaced was a wall one word wide', () => {
+    for (const epic of [null, 'modes-are-modules']) {
+      expect(say(epic).trim().split(/\s+/).length).toBeLessThan(13)
+    }
   })
 })
