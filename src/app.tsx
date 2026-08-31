@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 
 import { getSnapshot, grow, subscribe } from './journeys.ts'
 import type { JourneyView } from './kinds.ts'
+import { NoJourneys, NoProject, Trouble } from './view/nowhere.tsx'
 import { Picker } from './view/picker.tsx'
 import { Prose } from './view/prose.tsx'
 import { ReadingProvider } from './view/reading.tsx'
@@ -55,6 +56,18 @@ export function App() {
         <Head journey={state.journey} />
         <Sight framed={state.framed} refused={state.refused} journey={state.journey} live={state.live} />
         {!state.framed && <Picker index={state.index} journey={state.journey} />}
+        {/*
+         * Where the journeys are, before anything about which one is open.
+         *
+         * The order matters and is the point of `Nothing` having three answers.
+         * "No project is open", "that project's file will not read" and "this
+         * project has none yet" are three different things to do next, and the
+         * page they replace — an empty column with a picker over it — said the
+         * same nothing about all three. A pane that quietly drew empty while a
+         * file it could not parse sat on disk would be reporting somebody's
+         * work as absent.
+         */}
+        <Nothing state={state} />
         {state.journey && <Journey journey={state.journey} editing={state.editing} />}
         {/* The one line this app uses to answer the reader. Polite rather than
             assertive: it is an answer to something they just did, not an
@@ -100,6 +113,21 @@ function Head({ journey }: { journey: JourneyView | null }) {
       {where && <span className="text-[0.85rem] text-muted-foreground">{where}</span>}
     </div>
   )
+}
+
+/**
+ * Why there is no journey on screen, when there is not one.
+ *
+ * Draws nothing at all in the ordinary case — a journey is open, or this pane
+ * is standing alone with a picker and one selected. It only speaks when the
+ * absence needs explaining, which is exactly the three states `state.nowhere`,
+ * `state.trouble` and an empty index describe and an empty column does not.
+ */
+function Nothing({ state }: { state: ReturnType<typeof getSnapshot> }) {
+  if (state.trouble) return <Trouble trouble={state.trouble} />
+  if (state.nowhere) return <NoProject unhosted={!state.framed} />
+  if (!state.index.length) return <NoJourneys from={state.from} />
+  return null
 }
 
 /** A section heading, in the muted register the page uses for its own furniture. */

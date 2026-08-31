@@ -1,24 +1,13 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 
-/**
- * This file's own directory, spelled the way every runtime spells it.
- *
- * It used to be `import.meta.dir`, which is Bun's and only Bun's. That was
- * true while this store was loaded by a `Bun.serve` process and stopped being
- * true the moment the store became middleware in front of Vite: `bunx vite`
- * launches the `vite` binary, which runs under NODE, where `import.meta.dir` is
- * undefined. `join(undefined, 'data')` throws, so the failure at least
- * announces itself — but it announces itself as a TypeError inside a request
- * handler, which is a long way from "this app is holding the wrong end of the
- * runtime".
- */
-const HERE = fileURLToPath(new URL('.', import.meta.url))
+import { KEHIKOT_DIR, moduleDir, moduleFile, withKehikotIgnored, within } from 'roadmap-module-protocol'
+
+import { ID } from './manifest.ts'
 
 /**
- * The journeys, on disk, in this app's own directory.
+ * The journeys, on disk, inside the project they are about.
  *
  * ## The departure this file is
  *
@@ -74,73 +63,324 @@ const HERE = fileURLToPath(new URL('.', import.meta.url))
  * ------------------------------------------------------------------ */
 
 /**
- * The app's own store, beside the program.
+ * Where this app keeps what is its own — which is inside the project, now, and
+ * not beside this program.
  *
- * `JOURNEYS_DATA` moves it, and it is deliberately not `ROADMAP_DATA` or
- * `ROADMAP_JOURNEY_DATA`. Those variables belong to a different program:
- * honouring either would make this app's store follow a roadmap that may not be
- * running, may not exist, and certainly never agreed to hold anything of ours.
- * One store, one owner, one name.
+ * ## What moved, and why the user asked for it
  *
- * Resolved at call time rather than at import, so that a test — or a deployment
- * setting the variable in a wrapper — does not depend on which module happened
- * to be loaded first.
+ * There used to be a `data/` directory next to this app holding one JSON file
+ * per journey, for every project at once. The user's sentence retired it:
+ *
+ * > "Each of the modules should hold their data inside the project itself,
+ * > mostly as text files inside a kehikko-folder (or json) … That way
+ * > everything is transparent etc and easily usable by others in the project."
+ *
+ * So: `<projectPath>/.kehikot/journeys/journeys.json`. The folder name and both
+ * joins are `roadmap-module-protocol`'s, deliberately, because four modules
+ * answering "where does my data live" separately is four answers and the
+ * disagreement has no symptom — every module starts, every module saves, and a
+ * person finds half their work in one folder and half in another.
+ *
+ * The middle level is this module's own, derived from its id, and it is what
+ * makes `rm -r .kehikot/journeys` a sentence somebody can say. This app is the
+ * only writer inside it and confines itself to it: the fence below is drawn
+ * around THAT directory rather than around `.kehikot`, so a bug here cannot
+ * reach the notes or the checklists sitting beside it.
+ *
+ * ## The path is the partition
+ *
+ * The store this opens is already one project's. Nothing in the document below
+ * is keyed by project, and nothing needs to be: two projects are two files in
+ * two folders, and switching project is opening a different file rather than
+ * filtering a bigger one. A store that has never heard of a project has no way
+ * to show one project's journeys under another's name.
+ *
+ * ## Null is a place a person can be, and never a guess
+ *
+ * `projectPath` is nullable on the wire — no project open, or a host older than
+ * protocol 0.8. This answers `null` for it and every caller has to say so on
+ * screen. It does not fall back to `process.cwd()`, to this app's own folder,
+ * or to anything else, and `JOURNEYS_DATA` is gone rather than kept as an
+ * escape hatch: a variable naming a directory would be a second answer to a
+ * question that now has one, and the module that honoured it would be the one
+ * whose journeys nobody could find.
+ *
+ * The old `data/` had one more failure recorded on it worth carrying forward.
+ * It was `join(import.meta.dir, 'data')`, and `import.meta.dir` is Bun's and
+ * only Bun's: once the store became middleware inside a Vite config it ran
+ * under Node, the expression evaluated to `undefined`, and `join(undefined,
+ * 'data')` threw from inside a request handler. Throwing was the lucky half.
+ * Had it merely been the wrong string, this app would have started cleanly,
+ * found no journeys, and written new ones into a directory Vite deletes. A
+ * silently wrong location is worse than a loud absent one, and that is why the
+ * answer for "no project" here is a `null` a caller cannot ignore rather than a
+ * path that happens to exist.
+ *
+ * ## The fence, which matters more here than it did before
+ *
+ * This app is about to write files into a path it was handed OVER THE WIRE. So
+ * the path is resolved with `realpathSync` and the folder it lands in is
+ * checked to be under the project it claims to be under — after resolution,
+ * because a `.kehikot/journeys` that is a symlink to somewhere else is exactly
+ * the case a string comparison misses. `within()` is the comparison and not the
+ * check; see its note in the protocol package.
+ *
+ * The file NAME is a constant below and never a string from a request, and so
+ * is the folder — it is derived from this module's own id, which is a constant
+ * in `manifest.ts`. There is no door in this app that takes a filename — see
+ * the note on `documentSchema` for why a slug can no longer become one either —
+ * and `moduleFile` throws rather than returns null if anything ever tries.
  */
-export function dataDir(): string {
-  const dir = process.env.JOURNEYS_DATA ?? join(HERE, 'data')
-  mkdirSync(dir, { recursive: true })
-  return dir
-}
 
-/** Where the journeys this app SHIPS with live. Tracked; never written to. */
-function seedDir(): string {
-  return join(HERE, 'seed')
+/** This app's own file, inside its own folder. A constant, never an argument. */
+export const FILE = 'journeys'
+
+/**
+ * The one file, or a sentence about why there is not one.
+ *
+ * Three answers, and they are three because they mean three different things:
+ *
+ * - `{ path, trouble: null }` — here it is.
+ * - `{ path: null, trouble: null }` — there is no project open. An ordinary
+ *   state and not a fault; the page says so and nothing is written.
+ * - `{ path: null, trouble }` — a project was named and this app will not write
+ *   under it. The sentence is for a person, and it says what was refused.
+ *
+ * Reading does not create anything. `makeDir()` is what creates, and it is
+ * called on the write path only, so opening a pane against a project never
+ * leaves a folder in somebody's repository they did not ask for.
+ */
+export function dataFile(projectPath: string | null | undefined): { path: string | null; trouble: string | null } {
+  const root = projectRoot(projectPath)
+  if (root === null) return { path: null, trouble: null }
+  if ('trouble' in root) return { path: null, trouble: root.trouble }
+
+  /* Both levels, because either can be the symlink. `.kehikot` pointing out of
+     the project takes every module's data with it; `.kehikot/journeys` pointing
+     out takes this one's. Only what exists can be resolved, and only what exists
+     can escape — a folder that is not there yet cannot be a symlink to somewhere
+     else, which is why `makeDir` asks again after creating them. */
+  for (const dir of [join(root.path, KEHIKOT_DIR), moduleDir(root.path, ID)]) {
+    if (dir !== null && existsSync(dir)) {
+      const escaped = escapes(root.path, dir)
+      if (escaped) return { path: null, trouble: escaped }
+    }
+  }
+  const path = moduleFile(root.path, ID, FILE)
+  if (path !== null && existsSync(path)) {
+    const escaped = escapes(root.path, path)
+    if (escaped) return { path: null, trouble: escaped }
+  }
+  return { path, trouble: null }
 }
 
 /**
- * Fill an empty store from the shipped one, once.
+ * Make the folder, and tell the project's `.gitignore` about it — once.
  *
- * An app whose first screen is empty has to be believed about the emptiness,
- * and nobody starting a journeys app for the first time believes it. So the
- * store is seeded on first use with the journeys this app ships with, and
- * seeding is conditional on the store being EMPTY rather than on a marker file:
- * a marker is a second fact to keep in step with the first, and the first is
- * already sitting in the directory in plain sight.
- *
- * It never overwrites. A journey edited here and then re-seeded would be an
- * edit silently undone, which is the one thing a store must not do.
+ * Called before a write and not before a read, so that looking at a project
+ * never changes it.
  */
-export function seedIfEmpty(): number {
-  const dir = dataDir()
-  if (readdirSync(dir).some((f) => f.endsWith('.json'))) return 0
-  const from = seedDir()
-  if (!existsSync(from)) return 0
-  let n = 0
-  for (const file of readdirSync(from)) {
-    if (!file.endsWith('.json')) continue
-    copyFileSync(join(from, file), join(dir, file))
-    n++
+export function makeDir(projectPath: string | null | undefined): { dir: string | null; trouble: string | null } {
+  const root = projectRoot(projectPath)
+  if (root === null) return { dir: null, trouble: null }
+  if ('trouble' in root) return { dir: null, trouble: root.trouble }
+
+  const dir = moduleDir(root.path, ID)
+  if (dir === null) return { dir: null, trouble: null }
+
+  /* Whether the `.kehikot` folder is new decides whether the `.gitignore` is
+     written, and this app's own folder inside it is not the same question: a
+     project where Notes ran first already has `.kehikot` and already has the
+     ignore line, and adding a second copy of it because THIS module's folder is
+     new would be the duplicate the whole idempotence argument is about. */
+  const fresh = !existsSync(join(root.path, KEHIKOT_DIR))
+  mkdirSync(dir, { recursive: true })
+  /* After the mkdir as well as before it. `existsSync` said nothing was there
+     and `mkdirSync` is happy to have followed a symlink somebody put there in
+     between; the only honest moment to ask where a directory actually is, is
+     once it is there. Both levels again, for the reason `dataFile` gives. */
+  for (const made of [join(root.path, KEHIKOT_DIR), dir]) {
+    const escaped = escapes(root.path, made)
+    if (escaped) return { dir: null, trouble: escaped }
   }
-  return n
+
+  /* Only on the run that created it. A project that has removed the ignore rule
+     has said something, and a program that re-added it on every save would be
+     overruling them every few seconds. */
+  if (fresh) ignore(root.path)
+  return { dir, trouble: null }
+}
+
+/**
+ * Append the ignore rule to the project's `.gitignore`, if it has one.
+ *
+ * A project that is not a git repository gets nothing — not a file, and
+ * certainly not a repository. Creating a `.gitignore` in a folder that is not
+ * version-controlled would be this program deciding how somebody keeps their
+ * work. A repository that has simply never needed one is a different case, and
+ * it gets a file holding only this, which is answering a question rather than
+ * editing an answer.
+ *
+ * The text and the idempotence are `withKehikotIgnored`'s — append-only, never
+ * a rewrite, never a reorder, because this file is in the user's own repository
+ * and shows up in their next diff under their name. It ignores the whole
+ * `.kehikot/` folder rather than this module's part of it, so the four modules
+ * write one identical line between them instead of four.
+ *
+ * Every failure here is swallowed on purpose. Not being able to write somebody's
+ * `.gitignore` is not a reason to refuse to save their journeys.
+ */
+function ignore(root: string): void {
+  try {
+    if (!inARepository(root)) return
+    /* Written at the PROJECT root, not at the repository root, even when the
+       repository is somewhere above. Git honours a `.gitignore` in any
+       directory, so a rule placed here covers the folder that was just created
+       and touches nothing else in a repository that may hold a dozen unrelated
+       projects. Writing at the repository root would be this program editing a
+       file about directories it knows nothing about. */
+    const path = join(root, '.gitignore')
+    const before = existsSync(path) ? readFileSync(path, 'utf8') : ''
+    const after = withKehikotIgnored(before)
+    if (after !== before) writeFileSync(path, after)
+  } catch {
+    /* Deliberately silent. See above. */
+  }
+}
+
+/**
+ * Is this project inside a git repository — its own, or one above it?
+ *
+ * ## Why it walks up rather than looking for `<project>/.git`
+ *
+ * Because the case that breaks the simple check is a real project on this
+ * machine, not a hypothetical. The thesis lives at
+ * `…/CS-DEGREE/05_drafts/thesis_latex`, which has no `.git` of its own and sits
+ * several directories inside the CS-DEGREE repository. Under a check that only
+ * looked at the project root, its `.kehikot/` would be written, nothing would
+ * ignore it, and the next `git status` in that repository would offer somebody
+ * else's working material for commit — quietly, in a list of files a person
+ * scrolls past.
+ *
+ * A project that is genuinely not in a repository still gets nothing: no file,
+ * and certainly no repository. Creating an ignore file where there is nothing
+ * to ignore for would be this program deciding how somebody keeps their folder.
+ *
+ * `.git` is tested with `existsSync` rather than as a directory, because a
+ * worktree and a submodule both have a `.git` FILE that points elsewhere, and
+ * both are repositories for every purpose this cares about.
+ *
+ * It stops at the filesystem root, and it stops at the first `.git` it finds:
+ * the nearest repository is the one whose `git status` would show the folder.
+ */
+function inARepository(root: string): boolean {
+  let at = root
+  for (;;) {
+    if (existsSync(join(at, '.git'))) return true
+    const up = dirname(at)
+    if (up === at) return false
+    at = up
+  }
+}
+
+/** The project, resolved — or null for "no project", or a sentence for a refusal. */
+function projectRoot(projectPath: string | null | undefined): { path: string } | { trouble: string } | null {
+  if (typeof projectPath !== 'string') return null
+  const raw = projectPath.trim()
+  if (!raw) return null
+  if (raw.length > 4096) return { trouble: 'that project path is longer than any path on this machine can be.' }
+  for (let i = 0; i < raw.length; i += 1) {
+    const code = raw.charCodeAt(i)
+    if (code < 0x20 || code === 0x7f) {
+      return { trouble: 'that project path has a control character in it, and no real path does.' }
+    }
+  }
+  if (!isAbsolute(raw)) {
+    return {
+      trouble:
+        `"${raw}" is not an absolute path. A project is somewhere on this machine, and a relative path would be `
+        + 'resolved against whatever directory this app happens to have been started in.',
+    }
+  }
+  let resolved: string
+  try {
+    resolved = realpathSync(raw)
+    if (!statSync(resolved).isDirectory()) {
+      return { trouble: `"${raw}" is not a folder, so there is nowhere under it to keep anything.` }
+    }
+  } catch {
+    return { trouble: `there is no folder at "${raw}" on this machine, so nothing can be read or written under it.` }
+  }
+  return { path: resolved }
+}
+
+/**
+ * The project as this app names it to itself: absolute, real, no trailing
+ * slash — or `null` when there is no project, or when the path is refused.
+ *
+ * Exported because the write ticket is derived from it; see `doors.ts`. Two
+ * spellings of one project — `/p`, `/p/`, a symlink that lands on `/p` — have
+ * to produce one ticket, or a page that named its project slightly differently
+ * from the last time would find its writes refused for a reason nobody could
+ * see from either side.
+ */
+export function projectOf(projectPath: string | null | undefined): string | null {
+  const root = projectRoot(projectPath)
+  return root !== null && 'path' in root ? root.path : null
+}
+
+/** The fence: a sentence if `child` is not really under `root`, null if it is. */
+function escapes(root: string, child: string): string | null {
+  let real: string
+  try {
+    real = realpathSync(child)
+  } catch {
+    return `${child} could not be resolved, so this app will not write through it.`
+  }
+  if (within(root, real)) return null
+  return (
+    `${child} resolves to ${real}, which is outside the project it claims to be inside. Nothing has been read or `
+    + 'written: a folder that points somewhere else is how one project’s data ends up in another’s, and it is refused '
+    + 'rather than followed.'
+  )
 }
 
 /* ------------------------------------------------------------------ *
- * A slug is a name, not a path
+ * A slug is a name, not a path — and now it cannot become one
  * ------------------------------------------------------------------ */
 
 const SLUG = /^[a-z0-9-]{1,80}$/
 
 /**
- * The one check every path in this file runs first.
+ * The one check every read and write in this file runs first.
  *
- * A slug names a journey and becomes a filename; it is not a path. The protocol
- * package makes the same check on `epic` at the host's own door and gives the
- * reason: a refusal that distinguished "no such journey" from "not a journey
- * name" would be a way to enumerate what is here, and there is no character in
- * this class that can leave a directory. The same holds inside the app, where
- * the callers are
- * a browser, an agent over MCP, and whatever else on this machine found the
- * port — loopback is a fence around the machine, not around the programs on it.
+ * ## The reason changed; the check did not
+ *
+ * It used to be a fence around the filesystem. A slug became a FILENAME —
+ * `data/<slug>.json` — so `../../etc/passwd` was a traversal waiting for
+ * somebody to forget the check at one new call site, and the class of
+ * characters was chosen for having no way out of a directory.
+ *
+ * A slug is now a KEY in one document. There is no join, no filename, and
+ * nothing a slug can be that would leave the folder — the traversal is not
+ * refused, it is unsayable. That is a strictly stronger position than the one
+ * the old check defended, and it is the main reason one file beat fourteen.
+ *
+ * The check stays, for the three reasons that survive:
+ *
+ *  - A key is a string a caller chose, and a store keyed by strings a caller
+ *    chose is one missing `Object.hasOwn` away from answering with
+ *    `constructor`. The protocol package's essay on `MODULE_ID` is about this
+ *    exact hazard; this pattern refuses those names, and `journeyIn` asks the
+ *    object rather than its prototype anyway.
+ *  - It bounds what goes on screen and into a JSON key before either has to
+ *    carry it.
+ *  - The host's `epic` obeys the same pattern, and a slug this app accepted
+ *    that a host would refuse is a journey nothing can ever point at.
+ *
+ * The callers are still a browser, an agent over MCP, and whatever else on this
+ * machine found the port — loopback is a fence around the machine, not around
+ * the programs on it.
  */
 export function isSlug(value: unknown): value is string {
   return typeof value === 'string' && SLUG.test(value)
@@ -295,56 +535,237 @@ export type Journey = z.infer<typeof journeySchema>
 export type Step = z.infer<typeof stepSchema>
 export type StepsFrom = z.infer<typeof stepsFromSchema>
 
+/**
+ * The whole file: every journey in one project, keyed by slug.
+ *
+ * ## Why one file replaced fourteen
+ *
+ * The convention this app now follows names ONE file per module per project —
+ * `<projectPath>/.kehikot/journeys/journeys.json` — and it is a convention rather than a
+ * preference because four modules each inventing their own layout is four
+ * layouts in a folder a person is meant to be able to open and read. A
+ * directory of fourteen files under `.kehikot/` would also be a directory this
+ * app has to own the contents of: every `readdir` there is a question about
+ * what somebody else's file is doing in it, and the answer "ignore anything
+ * that does not parse" is how a journey with a typo in it silently stops
+ * existing.
+ *
+ * The sharper reason is the one in `isSlug`: with a document, a slug is a KEY.
+ * It never becomes a path, so it cannot leave a directory, so the traversal the
+ * old code refused is not refused but unsayable. Moving a check into the shape
+ * is worth more than the check, because a shape cannot be forgotten at a new
+ * call site.
+ *
+ * The cost is honest and worth naming: a write rewrites the whole document
+ * rather than one journey's file, so two writers in the same millisecond would
+ * have the last one win whole rather than each keeping their own file. This is
+ * a loopback app with one process; `writeJourney` re-reads immediately before
+ * it writes to narrow the window, and if this ever stops being one process the
+ * answer is a lock, not fourteen files.
+ *
+ * `version` is here so the NEXT change to this shape has something to branch
+ * on. It is read loosely on purpose — a document from a future version is
+ * opened rather than refused, because refusing would leave somebody unable to
+ * read their own journeys with the older program they happen to have running,
+ * and every field this version knows about is still where it was.
+ */
+const documentSchema = z.object({
+  version: z.number().int().min(1).default(1),
+  journeys: z.record(z.string(), journeySchema).default({}),
+})
+
+export type Document = z.infer<typeof documentSchema>
+
 /* ------------------------------------------------------------------ *
- * Reading and writing
+ * Nothing seeds itself any more
+ *
+ * There used to be a `seedIfEmpty()` here, called before the first request. It
+ * copied every journey in `seed/` into the store whenever the store was empty,
+ * and the argument for it was decent: an app whose first screen is empty has to
+ * be BELIEVED about the emptiness, and nobody starting a journeys app for the
+ * first time believes it.
+ *
+ * That argument dies with the move, and it is worth spelling out why rather
+ * than just deleting the function.
+ *
+ * The store used to be this app's own directory — one store, on this machine,
+ * belonging to whoever installed the program. Filling it with the journeys the
+ * program ships with was a program furnishing its own house. The store is now a
+ * folder inside SOMEBODY ELSE'S REPOSITORY, and "empty" is a fact about their
+ * project rather than about this installation. An automatic seed would mean:
+ * open the pane on any project on the machine, and thirteen of the roadmap's
+ * own journeys — `the-roadmap-tracks-itself`, `modes-are-modules`, fifty
+ * kilobytes of somebody's narrative about a different codebase — appear inside
+ * it, get written to `.kehikot/journeys/journeys.json` there, and are then the answer
+ * this app gives about that project forever. Nothing would have gone wrong on
+ * screen. The pane would look full and correct, and every journey in it would
+ * be about another repository.
+ *
+ * So: a project with no journeys has no journeys, and the page says exactly
+ * that. It is the honest first screen, and unlike the old empty screen it is
+ * TRUE of the thing the reader is looking at rather than true of an
+ * installation.
+ *
+ * `seed/` stays in the repository — it is tracked, hand-written material and
+ * deleting it would lose it. What it no longer is, is reachable by reading.
+ * `dev/seed.ts` puts it into a project a person names on a command line, which
+ * is the same journeys arriving by somebody's decision instead of by a page
+ * being opened.
  * ------------------------------------------------------------------ */
 
-function pathOf(slug: string): string {
-  return join(dataDir(), `${slug}.json`)
+/* ------------------------------------------------------------------ *
+ * Reading
+ * ------------------------------------------------------------------ */
+
+/**
+ * What this app holds for one project, and why it holds nothing when it does.
+ *
+ * ## Four states, and each of them says something different
+ *
+ * - `nowhere` — no project is open. Not a fault, not an error, and not an empty
+ *   store either: an empty store is a thing you may write into, and this is not
+ *   one. Every write path refuses on it.
+ * - `trouble` — a project was named and this app will not read or write under
+ *   it: the folder is not there, the path is relative, the `.kehikot` resolves
+ *   somewhere else, or the file will not parse.
+ * - neither, and `journeys` empty — a real project with no journeys yet. This
+ *   IS writable, and it is the honest first screen for a project nobody has
+ *   written a journey in.
+ * - neither, and `journeys` full — the ordinary case.
+ *
+ * ## A file that will not parse is not an empty store
+ *
+ * The most important line in this file. Every journey is authored — a person
+ * wrote every step and every sentence around it — so "there is nothing here"
+ * and "this could not be read" must never look the same on screen, and a
+ * program that returned empty for a broken file would WRITE over it on the
+ * first save and destroy the recoverable original.
+ *
+ * The old code threw instead, which was the right instinct with the wrong blast
+ * radius: it threw out of a request handler, so one unparseable journey took
+ * the pane down rather than explaining itself. A sentence saying the file is
+ * recoverable is what stops somebody deleting the directory.
+ */
+export interface Held {
+  /** Every journey in this project, by slug. Empty when there is nowhere to read. */
+  journeys: Record<string, Journey>
+  /** The file they came from, or null when there is none. */
+  from: string | null
+  /** No project is open. Not a fault; see above. */
+  nowhere: boolean
+  /** A project was named and this app will not read or write under it. */
+  trouble: string | null
 }
 
-export function slugs(): string[] {
-  seedIfEmpty()
-  return readdirSync(dataDir())
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => f.replace(/\.json$/, ''))
-    .filter(isSlug)
-    .sort()
+export function held(projectPath: string | null | undefined): Held {
+  const { path, trouble } = dataFile(projectPath)
+  if (trouble) return { journeys: {}, from: null, nowhere: false, trouble }
+  if (path === null) return { journeys: {}, from: null, nowhere: true, trouble: null }
+  if (!existsSync(path)) return { journeys: {}, from: path, nowhere: false, trouble: null }
+
+  try {
+    const parsed = documentSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
+    /* A key that is not a slug is dropped rather than refused, and this is the
+       one place in the read that shrugs. A hand-edited file with a stray key is
+       not a corrupt store, and taking a whole project's journeys away over one
+       is a worse answer than ignoring it — the journey it named could never be
+       opened anyway, because every door asks `isSlug` before it asks for it. */
+    const journeys: Record<string, Journey> = {}
+    for (const [slug, journey] of Object.entries(parsed.journeys)) {
+      if (isSlug(slug)) journeys[slug] = journey
+    }
+    return { journeys, from: path, nowhere: false, trouble: null }
+  } catch (e) {
+    return {
+      journeys: {},
+      from: path,
+      nowhere: false,
+      trouble:
+        `${path} could not be read (${e instanceof Error ? (e.message.split('\n')[0] ?? '') : String(e)}), so no `
+        + 'journey is being shown and nothing will be written over it. Every step and every sentence in that file is '
+        + 'recoverable: fix or move it.',
+    }
+  }
 }
 
-export function exists(slug: string): boolean {
-  return isSlug(slug) && existsSync(pathOf(slug))
+/** Every slug this project holds, sorted, so a list is the same list twice running. */
+export function slugs(store: Held): string[] {
+  return Object.keys(store.journeys).sort()
 }
 
 /**
- * One journey, or null.
+ * One journey out of what was read, or null.
  *
- * Null rather than a throw, and the callers all say something about it. A
- * journey that is not here is an ordinary answer to an ordinary question — the
- * page asks for whichever journey a roadmap says is open, and a roadmap that
- * holds a journey this app has never heard of is a situation with a sentence
- * rather than an exception.
- *
- * A file that will not parse throws, and is meant to: that is a file somebody
- * has to go and look at, and returning null for it would present a broken
- * journey as an absent one.
+ * Takes the `Held` rather than the path on purpose. A version of this that took
+ * a path would answer `null` for "no such journey", for "no project is open"
+ * and for "the file will not parse" alike — three situations that send a reader
+ * to three different places — and every caller would have to go and ask a
+ * second time to find out which of them it was in.
  */
-export function readJourney(slug: string): Journey | null {
-  if (!exists(slug)) return null
-  return journeySchema.parse(JSON.parse(readFileSync(pathOf(slug), 'utf8')))
+export function journeyIn(store: Held, slug: string): Journey | null {
+  if (!isSlug(slug)) return null
+  return Object.hasOwn(store.journeys, slug) ? (store.journeys[slug] ?? null) : null
 }
 
-export function listJourneys(): Journey[] {
-  return slugs()
-    .map((s) => readJourney(s))
+/** Every journey in this project, by title, for a list somebody reads. */
+export function listJourneys(store: Held): Journey[] {
+  return slugs(store)
+    .map((slug) => store.journeys[slug])
     .filter((j): j is Journey => Boolean(j))
     .sort((a, b) => a.title.localeCompare(b.title))
 }
 
-export function writeJourney(journey: Journey): Journey {
+/* ------------------------------------------------------------------ *
+ * Writing
+ * ------------------------------------------------------------------ */
+
+/**
+ * The sentence for "there is no project open", written once.
+ *
+ * One string, because it is said by every write door and drawn on the page, and
+ * a refusal worded three ways reads as three different problems.
+ */
+export const NOWHERE =
+  'no project is open, so there is nowhere to keep this. A journey lives in the project it is about, at '
+  + '.kehikot/journeys/journeys.json inside it, and this app will not guess which project was meant — a guess writes '
+  + 'somebody’s journey into a folder they will never look in, and says it saved. Open a project on this canvas, or '
+  + 'name one.'
+
+export type Written = { ok: true; journey: Journey } | { ok: false; error: string }
+
+/**
+ * Put one journey into this project's document, whole.
+ *
+ * Re-reads immediately before it writes, deliberately. The caller is holding a
+ * `Held` from a moment ago and the document has thirteen other journeys in it;
+ * writing from the caller's copy would mean any change made in between — by the
+ * other door, by an agent — is silently reverted by whoever saved second.
+ *
+ * Refuses on `nowhere` and on `trouble` rather than writing. Writing into
+ * nowhere is the failure this whole file was rearranged to prevent; writing
+ * over a file that would not parse is the one that destroys something.
+ */
+export function writeJourney(projectPath: string | null | undefined, journey: Journey): Written {
   const parsed = journeySchema.parse(journey)
-  writeFileSync(pathOf(parsed.slug), `${JSON.stringify(parsed, null, 2)}\n`)
-  return parsed
+
+  const store = held(projectPath)
+  if (store.nowhere) return { ok: false, error: NOWHERE }
+  if (store.trouble) return { ok: false, error: `nothing was written. ${store.trouble}` }
+
+  const made = makeDir(projectPath)
+  if (made.trouble) return { ok: false, error: `nothing was written. ${made.trouble}` }
+  if (made.dir === null) return { ok: false, error: NOWHERE }
+
+  /* `dataFile` again rather than `store.from`, because `makeDir` has just
+     created the directory and the fence has to be asked about the thing that
+     now exists — not about the absence that was there when the read happened. */
+  const { path, trouble } = dataFile(projectPath)
+  if (trouble) return { ok: false, error: `nothing was written. ${trouble}` }
+  if (path === null) return { ok: false, error: NOWHERE }
+
+  const document: Document = { version: 1, journeys: { ...store.journeys, [parsed.slug]: parsed } }
+  writeFileSync(path, `${JSON.stringify(documentSchema.parse(document), null, 2)}\n`)
+  return { ok: true, journey: parsed }
 }
 
 /* ------------------------------------------------------------------ *

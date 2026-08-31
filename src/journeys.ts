@@ -6,7 +6,7 @@ import { connect, type Host } from '../wire/host.ts'
 import { GET_LIVE } from '../wire/methods.ts'
 import type { Brief, JourneyView, Live, Target } from './kinds.ts'
 import { firstShown, samePick } from './refs.ts'
-import { get, post } from './store/api.ts'
+import { get, post, standIn } from './store/api.ts'
 import { apply as applyTheme } from './theme.ts'
 
 /**
@@ -78,7 +78,7 @@ import { apply as applyTheme } from './theme.ts'
  * ------------------------------------------------------------------ */
 
 export interface State {
-  /** Every journey this app holds, in brief. */
+  /** Every journey this project holds, in brief. */
   index: Brief[]
   /** The one being read, whole. */
   journey: JourneyView | null
@@ -91,6 +91,26 @@ export interface State {
   editing: number
   /** The one line this app uses to answer the reader. */
   said: string
+  /**
+   * Where the journeys on screen are being read from, and why they are not.
+   *
+   * Three states an empty `index` cannot tell apart, and drawing them the same
+   * way is the failure these fields exist to prevent:
+   *
+   * - `nowhere` — no project is open, so there is nowhere to read and nowhere
+   *   to write. Not a fault, and not the same as an empty project: the page
+   *   says so and offers no editor, because there is no file for one to save
+   *   into.
+   * - `trouble` — a project was named and this app will not read under it: the
+   *   folder is gone, the `.kehikot` resolves somewhere else, the file will not
+   *   parse. Somebody has to go and look, and the sentence says at what.
+   * - neither, with `index` empty — a real project with no journeys yet, which
+   *   is a true and ordinary thing to say about a project.
+   */
+  nowhere: boolean
+  trouble: string | null
+  /** The file the journeys came from, for somebody wondering where they went. */
+  from: string | null
 }
 
 let state: State = {
@@ -101,6 +121,13 @@ let state: State = {
   refused: null,
   editing: -1,
   said: '',
+  /* True until a host says otherwise, and true forever if none ever does. A
+     page opened directly has no canvas to tell it which project it is standing
+     in, and inventing one would be this app writing into a repository nobody
+     pointed it at. */
+  nowhere: true,
+  trouble: null,
+  from: null,
 }
 
 const listeners = new Set<() => void>()
@@ -163,14 +190,53 @@ export async function open(slug: string | null): Promise<void> {
     return
   }
   const out = await get<{ ok: boolean; error?: string; journey?: JourneyView }>(
-    `/api/journey?slug=${encodeURIComponent(slug)}`,
+    '/api/journey',
+    `slug=${encodeURIComponent(slug)}`,
   )
   set({
     journey: out.ok && out.journey ? out.journey : null,
     editing: -1,
-    said: out.ok ? '' : (out.error ?? 'no such journey here'),
+    /* Nothing is said when there is nowhere to read. The screen for that is
+       already on the page and says the whole thing; repeating the server's
+       sentence in the answer line underneath would be the same news twice, and
+       the answer line is for answering something the reader just did. */
+    said: out.ok || state.nowhere ? '' : (out.error ?? 'no such journey here'),
   })
   await fill()
+}
+
+/**
+ * Read the index for whichever project this page is standing in.
+ *
+ * Separate from `start` because it now happens more than once: on the first
+ * load, and again every time the host moves this pane to a different project.
+ * The second is the whole reason the reply carries `nowhere`, `trouble` and
+ * `from` rather than just a list — a pane that switched into a project whose
+ * file will not parse must say so, and an empty array cannot.
+ */
+async function readIndex(): Promise<void> {
+  try {
+    const out = await get<{
+      ok: boolean
+      journeys?: Brief[]
+      nowhere?: boolean
+      trouble?: string | null
+      from?: string | null
+    }>('/api/journeys')
+    set({
+      index: out.journeys ?? [],
+      nowhere: out.nowhere === true,
+      trouble: out.trouble ?? null,
+      from: out.from ?? null,
+    })
+  } catch {
+    set({
+      index: [],
+      trouble:
+        'This app could not read its own store. That is this program, not the host — the page is here and the '
+        + 'server behind it is not answering.',
+    })
+  }
 }
 
 /**
@@ -196,6 +262,14 @@ export async function saveStep(
     say(out.error ?? 'that was not kept')
     return
   }
+  /* Dropped if the canvas moved while this was in flight. The server has
+     already refused a write whose ticket belonged to the previous project —
+     that is what the ticket binding is for — but a write that landed just
+     BEFORE the switch can still have its reply arrive just after, and setting
+     the previous project's journey into state here would put it on screen
+     under the new project's index. Same rule as `fill` below: an answer to a
+     question nobody is waiting on is noise with a timestamp. */
+  if (state.journey !== being) return
   set({ editing: -1, journey: out.journey, said: 'kept' })
 }
 
@@ -470,6 +544,18 @@ let standingOn: string | null | undefined = undefined
 let picked: string[] = []
 
 /**
+ * Which project this pane is standing in, as the last context named it.
+ *
+ * Three values for the same reason `standingOn` has three. A path is a project;
+ * `null` is the host saying it has no folder to point at; `undefined` is no
+ * context having been read at all. The first context of a conversation that
+ * names no project has to be told apart from a repeat of it, because the first
+ * one moves this page out of the state it starts in and a repeat must not
+ * re-fetch anything.
+ */
+let standingIn: string | null | undefined = undefined
+
+/**
  * What the host says this canvas is looking at.
  *
  * ## A context is no longer a synonym for "the reader moved"
@@ -503,6 +589,27 @@ let picked: string[] = []
  * a state this app has to be able to move INTO, and a field that simply
  * disappeared would leave the last journey on screen under a heading that no
  * longer applies.
+ *
+ * ## `projectPath` is the field that changes WHICH STORE this pane is reading
+ *
+ * Every other field in a context changes what is drawn out of one store. This
+ * one changes the store: the journeys live in `<projectPath>/.kehikot/`, so a
+ * new project is a different file, a different index, and a different answer to
+ * every question the page has already asked.
+ *
+ * So it is handled first and it invalidates everything. The index is re-read,
+ * the write ticket is taken out again for the new project — awaited, so that a
+ * save cannot go out between the two carrying the ticket for the old one — and
+ * only then is the epic acted on. Doing it in the other order would fetch a
+ * journey by slug from whichever project the page had last been standing in,
+ * and slugs are short, lower-case and hand-picked: `bridge` and `wire` are real
+ * epic slugs, and a second project would plausibly use both. The wrong journey
+ * would be drawn under the right name.
+ *
+ * It is also why `moved` for the epic is forced when the project changes even
+ * if the epic did not. The same slug in a different project is a different
+ * journey, and the comparison that says "you are already showing this" is only
+ * true within one store.
  */
 function context(next: ModuleContext): void {
   applyTheme(next.theme)
@@ -510,12 +617,46 @@ function context(next: ModuleContext): void {
 
   const named = next.epic ?? ''
   const slug = /^[a-z0-9-]{1,80}$/.test(named) ? named : null
-  const moved = standingOn !== slug
+
+  const project = typeof next.projectPath === 'string' && next.projectPath.trim() ? next.projectPath : null
+  const relocated = standingIn !== project
+  standingIn = project
+
+  const moved = relocated || standingOn !== slug
   standingOn = slug
 
   const chosen = next.selection ?? []
   const repicked = !samePick(chosen, picked)
   picked = [...chosen]
+
+  if (relocated) {
+    /* Everything read out of the old store goes, before anything is fetched
+       from the new one. A journey left on screen while its replacement is in
+       flight is the previous project's material under the current project's
+       name, which is a worse half-second than an empty pane. */
+    set({ index: [], journey: null, live: null, said: '' })
+    void standIn(project)
+      .then(async (issued) => {
+        /* A context that arrived while this was in flight has already moved us
+           on. Whatever comes back belongs to a project nobody is standing in. */
+        if (standingIn !== project) return
+        await readIndex()
+        if (standingIn !== project) return
+        if (!issued.ok && !state.nowhere) {
+          /* Reads still work; writes will not. Said rather than swallowed,
+             because the alternative is an editor that saves into a refusal. */
+          say(issued.error ?? 'this app could not take out a write ticket for this project')
+        }
+        if (slug) {
+          await open(slug)
+          if (repicked) showSelection()
+        }
+      })
+      .catch(() => {
+        if (standingIn === project) say('This app could not read its own store. That is this program, not the host.')
+      })
+    return
+  }
 
   if (!slug) {
     /* Only when it changed. A repeated "nothing is open" is the host talking
@@ -633,10 +774,19 @@ export function start(): void {
   })
 
   const where = fromHash()
-  void get<{ journeys?: Brief[] }>('/api/journeys')
-    .then(async (out) => {
-      const index = out.journeys ?? []
-      set({ index })
+  /*
+   * The first read goes out with no project, and that is not a mistake.
+   *
+   * A page standing alone has no canvas to tell it where it is, so the server
+   * answers `nowhere: true` with an empty list and the page draws the screen
+   * that says so. If a host greets us in the meantime, `context` sees a project
+   * it has never been told about, and everything below is replaced by the read
+   * for that project — including this index, which was honestly empty rather
+   * than wrongly full.
+   */
+  void readIndex()
+    .then(async () => {
+      const index = state.index
       const want = where?.slug ?? null
       if (!state.framed && !state.journey) {
         if (want && index.some((row) => row.slug === want)) {

@@ -1,14 +1,20 @@
+import { createHash } from 'node:crypto'
+
 import { tooLong } from './limits.ts'
 import { ID, MANIFEST, VERSION } from './manifest.ts'
 import {
+  type Held,
   type Journey,
+  NOWHERE,
+  dataFile,
+  held,
   isSlug,
+  journeyIn,
   listJourneys,
   planOf,
-  readJourney,
+  projectOf,
   refsOf,
   refusedBecauseElsewhere,
-  seedIfEmpty,
   stepSchema,
   writeJourney,
 } from './store.ts'
@@ -41,10 +47,32 @@ import {
  * ## The store is still this app's own, and that is the whole point
  *
  * Unlike Atlas and References, which draw everything the host hands them, this
- * app HOLDS the journeys. `/api/journeys` and `/api/journey` read this
- * machine's own store; `/api/step` and `/api/dependency` write it. None of it
- * involves a host, and the page is fully drawn before a single bridge message
- * is read. The extraction is only a real extraction if that stays true.
+ * app HOLDS the journeys. `/api/journeys` and `/api/journey` read them; `/api/step`
+ * and `/api/dependency` write them. None of it involves a host, and the page is
+ * fully drawn before a single bridge message is read. The extraction is only a
+ * real extraction if that stays true.
+ *
+ * ## Every door here now names a project, and none of them defaults one
+ *
+ * The journeys live in the project they are about — `<project>/.kehikot/journeys/journeys.json`
+ * — so "which journeys" is not answerable without "whose". Every read takes a
+ * `project` and every write takes one, and NOTHING here supplies a default. The
+ * defaults that were available are each wrong in a way that is silent:
+ *
+ *  - `process.cwd()` is THIS MODULE's directory. Every journey would land in
+ *    `…/kehikko-journeys` and no page would ever show one again.
+ *  - "The only project that has journeys, if there is exactly one" is right up
+ *    to the day there are two, at which point writes start landing in whichever
+ *    was written first and nothing says so.
+ *  - Nothing at all — an unpartitioned bucket — is a place journeys go to be
+ *    invisible.
+ *
+ * The page is told which project by the host, in `roadmap.context.projectPath`.
+ * An agent over MCP is not told anything and must say, and is refused with a
+ * sentence when it does not. This is the argument `quiz/projects.ts` makes in
+ * the Learning module, made again here because the conclusion is the same one
+ * and a second module quietly reaching a different one is how a convention
+ * stops being a convention.
  */
 
 /* ------------------------------------------------------------------ *
@@ -62,6 +90,8 @@ const MAX_BODY = 20_000
 const MAX_REF = 200
 const MAX_NOTE = 200
 const MAX_LIST = 200
+/** As long as a path may be, matching the protocol's own `LIMITS.PATH`. */
+const MAX_PROJECT = 4096
 
 function str(value: unknown, max: number): string {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value).slice(0, max)
@@ -118,6 +148,52 @@ function position(value: unknown): number | undefined {
  */
 export const TICKET = crypto.randomUUID()
 
+/**
+ * The ticket a write has to carry NOW, which is bound to the project it writes
+ * into.
+ *
+ * ## The failure this exists for is a stale ticket, not an attacker
+ *
+ * Say plainly what this does not buy, because the essay above is emphatic that
+ * the ticket is not an authorization check and this does not change that.
+ * Anything holding the process ticket can ask for a write ticket for any
+ * project it likes; the derivation is a fence around confusion, not around
+ * malice.
+ *
+ * What it fences is real and has one shape. This page is loaded ONCE and lives
+ * across many contexts: the host switches project, and every open editor, every
+ * in-flight save and every retry the page had queued is now aimed at a store
+ * that is not the one it was composed against. A save that left project A with
+ * A's slug and arrives while the page believes it is on B would write A's step
+ * into B's file — a real journey, a real step, filed under the wrong project,
+ * with every screen reporting success. Binding the ticket to the project makes
+ * that arrive as a refusal instead: a ticket taken out for A does not redeem
+ * against B, and the page is told to re-open before it saves.
+ *
+ * ## Why it is derived rather than stored
+ *
+ * A map from project to ticket would be state this file has to expire, and a
+ * ticket for a project nobody is on any more is a row that lives forever. A
+ * hash of the process ticket and the RESOLVED project is the same answer every
+ * time, needs no memory, and dies with the process — which is exactly the
+ * lifetime the process ticket already has.
+ *
+ * Resolved is load-bearing. `projectOf` returns the realpath, so `/p`, `/p/`
+ * and a symlink that lands on `/p` are one project and one ticket. Without that
+ * a page that spelled its project a shade differently from the last request
+ * would have its writes refused with nothing on either side able to say why.
+ *
+ * A project this app refuses outright — relative, missing, not a folder — has
+ * no ticket at all rather than a ticket that will not work: `null` here means
+ * the refusal is about the PROJECT and gets the project's own sentence, which
+ * is the one a person can act on.
+ */
+export function writeTicketFor(projectPath: string | null | undefined): string | null {
+  const project = projectOf(projectPath)
+  if (project === null) return null
+  return createHash('sha256').update(`${TICKET}\u0000${project}`).digest('hex').slice(0, 32)
+}
+
 /* ------------------------------------------------------------------ *
  * What the page reads
  * ------------------------------------------------------------------ */
@@ -167,12 +243,18 @@ function brief(journey: Journey) {
  * therefore fills every box from what is stored before anybody types.
  */
 function setStep(
+  project: string | null,
   slug: string,
   at: number | undefined,
   step: { title: string; body: string; refs: string[]; notes: string[] },
 ): { ok: false; error: string } | { ok: true; journey: Journey; where: number } {
   if (!isSlug(slug)) return { ok: false, error: 'that is not a journey name' }
-  const journey = readJourney(slug)
+
+  const store = held(project)
+  const nothing = nothingToReadIn(store)
+  if (nothing) return { ok: false, error: nothing }
+
+  const journey = journeyIn(store, slug)
   if (!journey) return { ok: false, error: `no journey "${slug}" here` }
 
   /* The refusal that has to say where to write instead. A tool that says only
@@ -189,7 +271,51 @@ function setStep(
   if (at && at <= journey.steps.length) journey.steps[at - 1] = parsed
   else journey.steps.push(parsed)
   const where = at && at <= journey.steps.length ? at : journey.steps.length
-  return { ok: true, journey: writeJourney(journey), where }
+
+  const written = writeJourney(project, journey)
+  if (!written.ok) return { ok: false, error: written.error }
+  return { ok: true, journey: written.journey, where }
+}
+
+/**
+ * Why there is nothing to read in this project, or null because there is.
+ *
+ * Two refusals with one shape, kept together because every door needs both and
+ * because the DIFFERENCE between them is the thing a caller has to be told.
+ * "No project is open" is somewhere a person can legitimately be and is fixed
+ * by opening one; "this file will not parse" is a file somebody has to go and
+ * look at, and answering the second as if it were the first would present
+ * material that still exists as material that never did.
+ *
+ * An empty project is neither and returns null: it has nowhere to read FROM and
+ * somewhere to write TO, which is the ordinary state of a project nobody has
+ * written a journey in yet.
+ */
+function nothingToReadIn(store: Held): string | null {
+  if (store.nowhere) return NOWHERE
+  if (store.trouble) return store.trouble
+  return null
+}
+
+/**
+ * The project an MCP caller named, or a refusal saying to name one.
+ *
+ * Refused rather than defaulted. See the head of this file for why each
+ * available default is wrong, and `quiz/projects.ts` in the Learning module for
+ * the same argument made first.
+ */
+function projectArg(value: unknown): { project: string } | { error: string } {
+  const named = str(value, MAX_PROJECT)
+  if (!named) {
+    return {
+      error:
+        'which project? A journey lives in the project it is about, at .kehikot/journeys/journeys.json inside it, so this '
+        + 'tool cannot answer without one. Pass `project` as the absolute path of the project folder — the same path '
+        + 'a host would put in `roadmap.context.projectPath`. Nothing here guesses: a guess writes a journey into a '
+        + 'folder nobody will look in and reports that it saved.',
+    }
+  }
+  return { project: named }
 }
 
 /* ------------------------------------------------------------------ *
@@ -231,13 +357,24 @@ interface ToolCall {
 const TOOLS: Record<string, { description: string; schema: object; run: ToolCall }> = {
   list_journeys: {
     description:
-      'Every journey this app holds, with how many steps each has and how many references it names. Start here. ' +
-      'A journey may report that its steps are kept somewhere this app cannot read — that is not the same as ' +
-      'having none, and the two are said differently on purpose.',
-    schema: { type: 'object', properties: {} },
-    run() {
-      const all = listJourneys()
-      if (!all.length) return 'No journeys here yet.'
+      'Every journey this project holds, with how many steps each has and how many references it names. Start ' +
+      'here. Journeys are kept inside the project they are about, in .kehikot/journeys/journeys.json, so this needs the ' +
+      'project’s absolute path and will not guess one. A journey may report that its steps are kept somewhere ' +
+      'this app cannot read — that is not the same as having none, and the two are said differently on purpose.',
+    schema: {
+      type: 'object',
+      properties: { project: { type: 'string', description: 'Absolute path of the project folder' } },
+      required: ['project'],
+    },
+    run(args) {
+      const named = projectArg(args.project)
+      if ('error' in named) return named.error
+      const store = held(named.project)
+      const nothing = nothingToReadIn(store)
+      if (nothing) return nothing
+
+      const all = listJourneys(store)
+      if (!all.length) return `No journeys in ${named.project} yet.`
       return all
         .map((j) => {
           const plan = planOf(j)
@@ -260,17 +397,26 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
       'says where the steps actually come from.',
     schema: {
       type: 'object',
-      properties: { slug: { type: 'string', description: 'e.g. modes-are-modules' } },
-      required: ['slug'],
+      properties: {
+        project: { type: 'string', description: 'Absolute path of the project folder' },
+        slug: { type: 'string', description: 'e.g. modes-are-modules' },
+      },
+      required: ['project', 'slug'],
     },
     run(args) {
+      const named = projectArg(args.project)
+      if ('error' in named) return named.error
       const slug = str(args.slug, MAX_SLUG)
       if (!isSlug(slug)) return 'that is not a journey name'
-      const journey = readJourney(slug)
+      const store = held(named.project)
+      const nothing = nothingToReadIn(store)
+      if (nothing) return nothing
+      const journey = journeyIn(store, slug)
       if (!journey) {
-        return `no journey "${slug}" here. Known: ${listJourneys()
-          .map((j) => j.slug)
-          .join(', ')}`
+        const known = listJourneys(store).map((j) => j.slug)
+        return known.length
+          ? `no journey "${slug}" in ${named.project}. Known: ${known.join(', ')}`
+          : `no journey "${slug}" in ${named.project}, which holds no journeys at all yet.`
       }
       const plan = planOf(journey)
       const preamble =
@@ -293,6 +439,7 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
     schema: {
       type: 'object',
       properties: {
+        project: { type: 'string', description: 'Absolute path of the project folder' },
         slug: { type: 'string' },
         title: { type: 'string', description: "What becomes true, phrased from the user's side" },
         body: { type: 'string', description: 'Why it matters and where it stands. 150 words at most.' },
@@ -300,17 +447,23 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
         notes: { type: 'array', items: { type: 'string' }, description: 'Chips for work with no ticket' },
         position: { type: 'number' },
       },
-      required: ['slug', 'title'],
+      required: ['project', 'slug', 'title'],
     },
     run(args) {
-      const out = setStep(str(args.slug, MAX_SLUG), position(args.position), {
+      const named = projectArg(args.project)
+      if ('error' in named) return named.error
+      const out = setStep(named.project, str(args.slug, MAX_SLUG), position(args.position), {
         title: str(args.title, MAX_TITLE),
         body: str(args.body, MAX_BODY),
         refs: list(args.refs, MAX_REF),
         notes: list(args.notes, MAX_NOTE),
       })
       if (!out.ok) return out.error
-      return `Set step ${out.where} of ${out.journey.slug}. It is kept in this app's store and nowhere else.`
+      /* The path is asked for rather than spelled here. The folder's name lives
+         in one constant in the protocol package, and a sentence that wrote it
+         out by hand would be the one place that keeps saying `.kehikot` on the
+         day it is called something else. */
+      return `Set step ${out.where} of ${out.journey.slug}, in ${dataFile(named.project).path} and nowhere else.`
     },
   },
 
@@ -321,18 +474,28 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
       "cleanup set_step's refusal creates the need for.",
     schema: {
       type: 'object',
-      properties: { slug: { type: 'string' }, position: { type: 'number' } },
-      required: ['slug', 'position'],
+      properties: {
+        project: { type: 'string', description: 'Absolute path of the project folder' },
+        slug: { type: 'string' },
+        position: { type: 'number' },
+      },
+      required: ['project', 'slug', 'position'],
     },
     run(args) {
+      const named = projectArg(args.project)
+      if ('error' in named) return named.error
       const slug = str(args.slug, MAX_SLUG)
       if (!isSlug(slug)) return 'that is not a journey name'
-      const journey = readJourney(slug)
-      if (!journey) return `no journey "${slug}" here`
+      const store = held(named.project)
+      const nothing = nothingToReadIn(store)
+      if (nothing) return nothing
+      const journey = journeyIn(store, slug)
+      if (!journey) return `no journey "${slug}" in ${named.project}`
       const at = position(args.position)
       if (!at || at > journey.steps.length) return `${slug} has ${journey.steps.length} stored steps`
       const [gone] = journey.steps.splice(at - 1, 1)
-      writeJourney(journey)
+      const written = writeJourney(named.project, journey)
+      if (!written.ok) return written.error
       return `Removed step ${at} ("${gone?.title ?? ''}") from ${slug}.`
     },
   },
@@ -345,23 +508,30 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
     schema: {
       type: 'object',
       properties: {
+        project: { type: 'string', description: 'Absolute path of the project folder' },
         slug: { type: 'string' },
         ref: { type: 'string', description: 'The blocked thing, e.g. "#2274"' },
         blockedBy: { type: 'array', items: { type: 'string' }, description: 'What must land first' },
       },
-      required: ['slug', 'ref', 'blockedBy'],
+      required: ['project', 'slug', 'ref', 'blockedBy'],
     },
     run(args) {
+      const named = projectArg(args.project)
+      if ('error' in named) return named.error
       const slug = str(args.slug, MAX_SLUG)
       if (!isSlug(slug)) return 'that is not a journey name'
-      const journey = readJourney(slug)
-      if (!journey) return `no journey "${slug}" here`
+      const store = held(named.project)
+      const nothing = nothingToReadIn(store)
+      if (nothing) return nothing
+      const journey = journeyIn(store, slug)
+      if (!journey) return `no journey "${slug}" in ${named.project}`
       const ref = str(args.ref, MAX_REF)
       if (!ref) return 'which reference is blocked?'
       const gates = list(args.blockedBy, MAX_REF)
       if (gates.length) journey.blockedBy[ref] = gates
       else delete journey.blockedBy[ref]
-      writeJourney(journey)
+      const written = writeJourney(named.project, journey)
+      if (!written.ok) return written.error
       return gates.length ? `${ref} now waits on ${gates.join(', ')}.` : `${ref} has no blockers.`
     },
   },
@@ -393,8 +563,10 @@ function mcp(rpc: Rpc): Reply {
       serverInfo: { name: ID, version: VERSION },
       instructions:
         'The journeys themselves: what has to become true for a user, step by step, what blocks what, and the ' +
-        'prose around it. This server holds them. It reads no tracker and holds no credential, so nothing here ' +
-        "can tell you whether an issue is open — that is read by a host and handed to this app's page. " +
+        'prose around it. They are kept inside the project they are about, in .kehikot/journeys/journeys.json, so every ' +
+        'tool here takes `project` — the absolute path of the project folder — and refuses without one rather ' +
+        'than guessing which project you meant. This server reads no tracker and holds no credential, so nothing ' +
+        "here can tell you whether an issue is open — that is read by a host and handed to this app's page. " +
         'A journey may say its steps are kept somewhere this app cannot read; an empty steps array on one of ' +
         'those means "not here", never "none".',
     })
@@ -440,15 +612,6 @@ function mcp(rpc: Rpc): Reply {
 }
 
 /**
- * Seed before the first request rather than lazily on one, so that starting
- * this program is when the store comes into existence — and so that whoever
- * started it sees a count printed rather than discovering it later.
- */
-export function openStore(): number {
-  return seedIfEmpty()
-}
-
-/**
  * Every door but the page, as one function.
  *
  * `null` means "this path is not ours", and the caller passes it on to Vite —
@@ -472,8 +635,48 @@ export function answer(
     return mcp(body as Rpc)
   }
 
+  /**
+   * The write ticket for one project, handed only to something that already
+   * holds the process ticket.
+   *
+   * `page/document.ts` argues that `GET /api/ticket` would be "the ticket
+   * abolished with extra steps", and it is right about a GET: an ungated route
+   * that hands over the write credential is the same as not having one. This is
+   * not that route. It is a POST, it is refused without the process ticket
+   * printed into `/app`, and what it returns is not the credential but a
+   * DERIVATION of it bound to one project. Something that can call this could
+   * already write; what it gets back is a ticket that only works for the project
+   * it asked about, which is the whole point — see `writeTicketFor`.
+   *
+   * Answered before the read doors so that a page which has just been told it
+   * moved project can take out its ticket in the same breath as it re-reads.
+   */
+  if (path === '/api/ticket' && method === 'POST') {
+    if (ticket !== TICKET) return bad('that request did not come from this app’s own page', 403)
+    const project = str(body?.project, MAX_PROJECT)
+    const write = writeTicketFor(project)
+    if (write === null) {
+      /* No ticket rather than an unusable one, and the sentence is the
+         project's own: the caller's problem is the path, and telling them their
+         ticket is wrong would send them to look at the wrong thing. */
+      const store = held(project)
+      return bad(nothingToReadIn(store) ?? NOWHERE, 409)
+    }
+    return ok({ ok: true, ticket: write })
+  }
+
   if (path === '/api/journeys' && method === 'GET') {
-    return ok({ ok: true, journeys: listJourneys().map(brief) })
+    const store = held(str(query.get('project'), MAX_PROJECT))
+    return ok({
+      ok: true,
+      journeys: listJourneys(store).map(brief),
+      /* Said out loud rather than inferred from an empty list. A pane that saw
+         `journeys: []` and drew "no journeys yet" over a project whose file
+         will not parse would be reporting somebody's work as absent. */
+      nowhere: store.nowhere,
+      trouble: store.trouble,
+      from: store.from,
+    })
   }
 
   if (path === '/api/journey' && method === 'GET') {
@@ -483,18 +686,37 @@ export function answer(
        to enumerate what is here, and the protocol package makes exactly this
        argument about `epic` at the host's own door. */
     if (!isSlug(slug)) return bad('that is not a journey name')
-    const journey = readJourney(slug)
-    if (!journey) return bad(`this app does not hold a journey called "${slug}"`, 404)
+    const store = held(str(query.get('project'), MAX_PROJECT))
+    const nothing = nothingToReadIn(store)
+    /* 409 rather than 404: there is no answer to "is this journey here" until
+       there is a here. A 404 would say the journey does not exist, which is a
+       claim about a store this app has not opened. */
+    if (nothing) return bad(nothing, 409)
+    const journey = journeyIn(store, slug)
+    if (!journey) return bad(`this project does not hold a journey called "${slug}"`, 404)
     return ok({ ok: true, journey: view(journey) })
   }
 
   if (method === 'POST' && path.startsWith('/api/')) {
-    if (ticket !== TICKET) return bad('that write did not come from this app’s own page', 403)
     if (!body) return bad('that was not a request')
+    const project = str(body.project, MAX_PROJECT)
+    /* The ticket is checked against the PROJECT THIS WRITE NAMES, so a ticket
+       taken out while another project was open does not redeem here. See the
+       essay on `writeTicketFor`: the failure it catches is a save composed
+       against project A arriving after the host moved the page to project B. */
+    const expected = writeTicketFor(project)
+    if (expected === null || ticket !== expected) {
+      return bad(
+        'that write did not come from this app’s own page, on this project. A ticket is taken out for one project '
+          + 'and does not redeem against another: if the canvas has just moved, re-open the journey before saving, '
+          + 'so that what is written is written where it was composed.',
+        403,
+      )
+    }
     const slug = str(body.slug, MAX_SLUG)
 
     if (path === '/api/step') {
-      const out = setStep(slug, position(body.position), {
+      const out = setStep(project, slug, position(body.position), {
         title: str(body.title, MAX_TITLE),
         body: str(body.body, MAX_BODY),
         refs: list(body.refs, MAX_REF),
@@ -506,14 +728,19 @@ export function answer(
 
     if (path === '/api/dependency') {
       if (!isSlug(slug)) return bad('that is not a journey name')
-      const journey = readJourney(slug)
-      if (!journey) return bad(`this app does not hold a journey called "${slug}"`, 404)
+      const store = held(project)
+      const nothing = nothingToReadIn(store)
+      if (nothing) return bad(nothing, 409)
+      const journey = journeyIn(store, slug)
+      if (!journey) return bad(`this project does not hold a journey called "${slug}"`, 404)
       const ref = str(body.ref, MAX_REF)
       if (!ref) return bad('which reference is blocked?')
       const gates = list(body.blockedBy, MAX_REF)
       if (gates.length) journey.blockedBy[ref] = gates
       else delete journey.blockedBy[ref]
-      return ok({ ok: true, journey: view(writeJourney(journey)) })
+      const written = writeJourney(project, journey)
+      if (!written.ok) return bad(written.error)
+      return ok({ ok: true, journey: view(written.journey) })
     }
   }
 

@@ -6,7 +6,7 @@ import react from '@vitejs/plugin-react'
 import { WELL_KNOWN } from 'roadmap-module-protocol'
 import { defineConfig, type Plugin } from 'vite'
 
-import { MANIFEST, TICKET, answer, openStore } from './doors.ts'
+import { MANIFEST, TICKET, answer } from './doors.ts'
 import { page } from './page/document.ts'
 
 /**
@@ -52,11 +52,17 @@ function doors(): Plugin {
   return {
     name: 'journeys-doors',
     configureServer(server) {
-      const seeded = openStore()
-      if (seeded) {
-        server.config.logger.info(`journeys: seeded ${seeded} journeys into this app's own store from seed/.`)
-      }
-
+      /*
+       * Nothing is opened here any more, and the absence is the change.
+       *
+       * This used to seed an empty store from `seed/` before the first request,
+       * so that whoever started the program saw a count. There is no store to
+       * open at startup now: the journeys live inside whichever project a host
+       * says is open, and no host has said anything yet. A line printed here
+       * would be a count of journeys in a project this process has not been
+       * told about — see the note on seeding in `store.ts` for why filling one
+       * automatically is the wrong thing regardless.
+       */
       server.middlewares.use((request, response, next) => {
         const url = new URL(request.url ?? '/', 'http://127.0.0.1')
         const path = url.pathname

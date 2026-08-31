@@ -13,8 +13,12 @@
 #   - `exec`, and the foreground. A script that forks and returns leaves
 #     whoever started it holding a pid that stops nothing, and Stop is only
 #     ever offered for what a host started.
-#   - `cd` to this script's own directory, so the app's store is beside the
-#     program however it was invoked.
+#   - `cd` to this script's own directory, so that `bun install` and Vite find
+#     this repository however the script was invoked. It used to be so that the
+#     app's STORE was beside the program; the store has moved inside whichever
+#     project a host says is open --- `<project>/.kehikot/journeys/journeys.json`
+#     --- so nothing here points at it, and there is deliberately no environment
+#     variable that could. See `store.ts`.
 #
 # It does NOT register. Registration is a deliberate act by a person — see
 # `register.ts` — and a start script that quietly wrote into somebody's home
