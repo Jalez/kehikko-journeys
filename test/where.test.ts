@@ -233,85 +233,32 @@ describe('a journeys.json that will not parse', () => {
  * treated as one: appended once, never rewritten, and never created where there
  * is no repository to ignore anything for.
  */
-describe('the line a project’s .gitignore gains', () => {
-  test('is added when the folder is first created, with a comment saying what it is', () => {
-    const project = tempProject({ git: true })
-    writeJourney(project, journey())
-    const ignore = readFileSync(join(project, '.gitignore'), 'utf8')
-    expect(ignore).toContain(`${KEHIKOT_DIR}/`)
-    expect(ignore).toContain('Remove these lines to')
-  })
-
-  /* The one that would show up in the user's next diff as changes they did not
-     make. Every save creates the folder afresh in a world where somebody
-     deleted it; the rule is that the ignore is written on the run that made the
-     folder and never again. */
-  test('is not added twice, however many times something is written', () => {
-    const project = tempProject({ git: true })
-    writeJourney(project, journey('one'))
-    const after = readFileSync(join(project, '.gitignore'), 'utf8')
-    writeJourney(project, journey('two'))
-    writeJourney(project, journey('three'))
-    expect(readFileSync(join(project, '.gitignore'), 'utf8')).toBe(after)
-    expect(after.split(`${KEHIKOT_DIR}/`).length - 1).toBe(1)
-  })
-
-  test('leaves every byte that was already in it exactly where it was', () => {
-    const project = tempProject({ git: true })
-    const before = '  dist  \n\n\n#   node_modules\n\tbuild'
-    writeFileSync(join(project, '.gitignore'), before)
-    writeJourney(project, journey())
-    expect(readFileSync(join(project, '.gitignore'), 'utf8').startsWith(`${before}\n`)).toBe(true)
-  })
-
-  test('is left alone entirely when the folder is already ignored some other way', () => {
-    const project = tempProject({ git: true })
-    const before = `dist\n**/${KEHIKOT_DIR}/\n`
-    writeFileSync(join(project, '.gitignore'), before)
-    writeJourney(project, journey())
-    expect(readFileSync(join(project, '.gitignore'), 'utf8')).toBe(before)
-  })
-
-  /* A project that is not in a repository at all has nothing to ignore for, and
-     creating a `.gitignore` there would be this program deciding how somebody
-     keeps their folder. The journeys are still written; only the ignore is
-     skipped. `tempProject` is under the system temp directory, which is not
-     inside a repository on any machine this runs on. */
-  test('is not created at all in a project that is in no repository', () => {
-    const project = tempProject()
-    expect(writeJourney(project, journey()).ok).toBe(true)
-    expect(existsSync(join(project, '.gitignore'))).toBe(false)
-    expect(existsSync(join(project, '.git'))).toBe(false)
-  })
-
-  /**
-   * The case that forced the walk up, and it is a real project rather than a
-   * hypothetical: the thesis at `…/CS-DEGREE/05_drafts/thesis_latex` has no
-   * `.git` of its own and sits several directories inside the CS-DEGREE
-   * repository. A check that looked only at the project root would write
-   * `.kehikot/` there with nothing ignoring it, and the next `git status` in
-   * that repository would offer somebody's working material for commit.
+describe('the .gitignore this module no longer writes', () => {
+  /*
+   * This module used to append `.kehikot/` to the project's `.gitignore` the
+   * first time it made the folder, and there were five tests here for how.
+   * They are gone with the behaviour.
+   *
+   * It was four programs writing one line in somebody else's repository —
+   * journeys, notes, checklist and learning's migration — none able to take it
+   * back, none aware of the others. Whether that folder is committed is a
+   * checkbox in the host now, per project, with one writer: `shareKehikot` in
+   * the host's `server/projects.ts`.
+   *
+   * What remains is the assertion that this module keeps its hands off, because
+   * "we removed some code" is not a property, and the way this comes back is
+   * somebody restoring a helper that looks harmless on its own.
    */
-  test('is written for a project nested inside a repository above it', () => {
-    const repo = tempProject({ git: true })
-    const project = join(repo, 'drafts', 'thesis_latex')
-    mkdirSync(project, { recursive: true })
-
-    expect(writeJourney(project, journey()).ok).toBe(true)
-    /* At the PROJECT root, not the repository root. Git honours a `.gitignore`
-       in any directory, so the rule covers the folder that was just created and
-       touches nothing else in a repository that may hold a dozen unrelated
-       projects. */
-    expect(readFileSync(join(project, '.gitignore'), 'utf8')).toContain(`${KEHIKOT_DIR}/`)
-    expect(existsSync(join(repo, '.gitignore'))).toBe(false)
+  test('writing a journey leaves a repository’s .gitignore alone', () => {
+    const project = tempProject({ git: true })
+    writeJourney(project, journey())
+    expect(existsSync(join(project, '.gitignore'))).toBe(false)
   })
 
-  /* A worktree and a submodule both have a `.git` FILE rather than a directory,
-     and both are repositories for every purpose this cares about. */
-  test('counts a .git that is a file, as a worktree and a submodule both have', () => {
-    const project = tempProject()
-    writeFileSync(join(project, '.git'), 'gitdir: /somewhere/else/.git/worktrees/x\n')
-    expect(writeJourney(project, journey()).ok).toBe(true)
-    expect(readFileSync(join(project, '.gitignore'), 'utf8')).toContain(`${KEHIKOT_DIR}/`)
+  test('and does not touch one that is already there', () => {
+    const project = tempProject({ git: true })
+    writeFileSync(join(project, '.gitignore'), 'build/\n')
+    writeJourney(project, journey())
+    expect(readFileSync(join(project, '.gitignore'), 'utf8')).toBe('build/\n')
   })
 })
