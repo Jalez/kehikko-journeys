@@ -1,11 +1,11 @@
 import { flushSync } from 'react-dom'
-import type { Goto, ModuleContext } from 'roadmap-module-protocol'
-import { connect, type Connection } from 'roadmap-module-protocol/client'
+import { LIMITS, type Goto, type ModuleContext } from 'roadmap-module-protocol'
+import { HostRefused, connect, type Connection } from 'roadmap-module-protocol/client'
 
 import { ID } from '../manifest.ts'
 import { GET_LIVE } from '../wire/methods.ts'
 import type { Brief, JourneyView, Live, Target } from './kinds.ts'
-import { firstShown, samePick } from './refs.ts'
+import { bounded, firstShown, samePick, togglePick } from './refs.ts'
 import { get, post, standIn } from './store/api.ts'
 import { apply as applyTheme } from './theme.ts'
 
@@ -102,6 +102,18 @@ export interface State {
   epic: string | null
   /** What the host's last refresh saw, or null. */
   live: Live | null
+  /**
+   * What the canvas has picked out, as the host last said it.
+   *
+   * Never what this page asked for. A press on a step below asks the host to
+   * change the selection and this field is filled in from the `roadmap.context`
+   * that comes back — the same discipline References keeps, and for the same
+   * reason: an optimistic copy would tick a step for a pick the host refused or
+   * clamped, and two containers would disagree about the one thing the round
+   * trip exists to keep them agreed on. Standalone it stays empty forever,
+   * which is true — there is no canvas for anything to be picked on.
+   */
+  selection: string[]
   framed: boolean
   /** The host said no to something we asked. */
   refused: string | null
@@ -136,6 +148,7 @@ let state: State = {
   journey: null,
   epic: null,
   live: null,
+  selection: [],
   framed: false,
   refused: null,
   editing: -1,
@@ -605,6 +618,28 @@ let standingOn: string | null | undefined = undefined
 let picked: string[] = []
 
 /**
+ * The selection this page last ASKED for, until the host has echoed it.
+ *
+ * ## Why a pick made here must not walk here
+ *
+ * Every `selection.set` comes back as a context, and `context` below answers a
+ * changed selection by scrolling to the first reference on this page that is
+ * in it. That is right when the pick was made in another container — it is the
+ * whole of `showSelection` — and wrong when it was made in this one: a person
+ * ticks step six, the host echoes six's references, and the page they are
+ * reading yanks itself up to step six's first card. They were already there.
+ * Worse, ticking step one after step six would scroll them AWAY from what they
+ * had just pressed, because step one's refs are at the front of the list.
+ *
+ * So what was asked for is remembered, and a context carrying exactly that
+ * list is taken as the echo and not walked. Only exactly that list: a host
+ * that clamped or reordered it has changed the pick, and a changed pick is
+ * somebody else's news and is shown. Cleared the moment it is matched, so a
+ * later identical pick from another container is treated as what it is.
+ */
+let asked: string[] | null = null
+
+/**
  * Which project this container is standing in, as the last context named it.
  *
  * Three values for the same reason `standingOn` has three. A path is a project;
@@ -687,7 +722,19 @@ function context(next: ModuleContext): void {
      nothing named: it is not a name this app could hold a journey under, and
      quoting somebody else's malformed field back at a reader who can do
      nothing with it is not information. */
-  set({ framed: true, refused: null, epic: slug })
+  const chosen = next.selection ?? []
+  /* The echo of this page's own pick is still the truth about the canvas and
+     goes into state like any other — it is only the WALK that is skipped. See
+     `asked`. */
+  const echoed = asked !== null && samePick(chosen, asked)
+  if (echoed) asked = null
+  const repicked = !echoed && !samePick(chosen, picked)
+  picked = [...chosen]
+
+  /* The selection rides in the same patch as `framed` and `epic`: all three are
+     one fact about this context, and a page rendered between them would draw a
+     step as picked under a heading the host had not yet named. */
+  set({ framed: true, refused: null, epic: slug, selection: picked })
 
   const project = typeof next.projectPath === 'string' && next.projectPath.trim() ? next.projectPath : null
   const relocated = standingIn !== project
@@ -695,10 +742,6 @@ function context(next: ModuleContext): void {
 
   const moved = relocated || standingOn !== slug
   standingOn = slug
-
-  const chosen = next.selection ?? []
-  const repicked = !samePick(chosen, picked)
-  picked = [...chosen]
 
   if (relocated) {
     /* Everything read out of the old store goes, before anything is fetched
@@ -814,6 +857,78 @@ function showSelection(): void {
      a bare ref searches the journey that is open, which is the only journey
      this container could honestly be talking about. */
   void goTo({ ref }, { quiet: true })
+}
+
+/* ------------------------------------------------------------------ *
+ * Picking, from this side
+ *
+ * The other half of `showSelection`. That one is this page being TOLD what is
+ * picked; these are this page SAYING so — a person ticks a step, and the
+ * references that step carries go to the host, which holds them and tells
+ * every framed module, this one included. It is the act References performs
+ * when a row is picked, arriving here for the reason the protocol's essay on
+ * `selection` gives: a canvas with a list of references in one container and a
+ * journey in another should let a person narrow the first to what the second
+ * is about, and neither module may know the other exists. The host is the only
+ * party that may join them, so the pick goes to the host.
+ *
+ * ## Only ever from a press
+ *
+ * Nothing in this file calls `selection.set` except the two functions below,
+ * and both are reached from a click handler and from nowhere else. Not from a
+ * render, not from `context`, not from `open`, not when the epic changes. That
+ * restriction is the most important line in this section: the selection is the
+ * PERSON'S, and a module that wrote it because it had re-rendered, or because
+ * the canvas moved to another epic, would be overwriting a pick made in another
+ * container with nothing on screen to say why it had gone. An epic switch
+ * leaves the selection alone on purpose — a reference picked in References is
+ * no less picked for this page having turned to a different journey.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Add a step's references to the canvas selection, or take them off it.
+ *
+ * `togglePick` decides which; this decides whether there is anybody to tell.
+ * The list that goes out is what the host last said plus or minus this step,
+ * because the host's word is the only current selection there is — a page
+ * that toggled against a list it remembered from its own last press would
+ * silently drop whatever a neighbouring container picked in between.
+ *
+ * What comes back is a context, not an answer; the tick on the step is drawn
+ * from that context and never from here. A refusal is the one thing said
+ * directly, because its symptom is a checkbox that will not tick and a page
+ * that looks broken. The clipping to `LIMITS.REFS` is explained in `bounded`;
+ * this is where the reader hears how many were left off, since a press that
+ * quietly sent less than it said would be the page inventing a smaller pick.
+ */
+export function pick(refs: readonly string[]): void {
+  send(togglePick(picked, refs))
+}
+
+/** Take everything off the canvas selection — this page's picks and everybody else's. */
+export function clearPick(): void {
+  send([])
+}
+
+function send(wanted: string[]): void {
+  if (!host?.greeted()) {
+    /* Standalone. Not a refusal — there is nobody to refuse — but a press that
+       did nothing needs a sentence, and the controls are hidden when the page
+       knows it is alone, so reaching this means the host has gone quiet. */
+    say('Nothing is framing this page, so there is no canvas to put a pick on.')
+    return
+  }
+  const { refs, dropped } = bounded(wanted, LIMITS.REFS)
+  asked = refs
+  say(dropped ? `A canvas holds at most ${LIMITS.REFS} references at once, so the last ${dropped} were left off.` : '')
+  void host.request('selection.set', { refs }).catch((error: unknown) => {
+    asked = null
+    say(
+      error instanceof HostRefused
+        ? `The host would not record that pick (${error.refusal.error}). Nothing on the canvas has changed.`
+        : 'This app failed while asking the host to record that pick. Nothing on the canvas has changed.',
+    )
+  })
 }
 
 /* ------------------------------------------------------------------ *
