@@ -1,13 +1,16 @@
 import { useEffect, useSyncExternalStore } from 'react'
 
-import { getSnapshot, grow, subscribe } from './journeys.ts'
-import type { JourneyView } from './kinds.ts'
+import { Button } from '@/components/ui/button.tsx'
+
+import { clearPick, getSnapshot, grow, pick, subscribe } from './journeys.ts'
+import type { JourneyView, Live } from './kinds.ts'
+import { pickedState } from './refs.ts'
 import { NoJourneys, NoProject, Trouble } from './view/nowhere.tsx'
 import { Picker } from './view/picker.tsx'
 import { Prose } from './view/prose.tsx'
 import { ReadingProvider } from './view/reading.tsx'
 import { Sight } from './view/sight.tsx'
-import { StepBlock } from './view/step.tsx'
+import { StepBlock, cardsUnder } from './view/step.tsx'
 
 /**
  * The page.
@@ -68,7 +71,15 @@ export function App() {
          * work as absent.
          */}
         <Nothing state={state} />
-        {state.journey && <Journey journey={state.journey} editing={state.editing} />}
+        {state.journey && (
+          <Journey
+            journey={state.journey}
+            live={state.live}
+            editing={state.editing}
+            selection={state.selection}
+            framed={state.framed}
+          />
+        )}
         {/* The one line this app uses to answer the reader. Polite rather than
             assertive: it is an answer to something they just did, not an
             interruption of what they are reading. */}
@@ -137,7 +148,19 @@ function Rubric({ children }: { children: React.ReactNode }) {
   )
 }
 
-function Journey({ journey, editing }: { journey: JourneyView; editing: number }) {
+function Journey({
+  journey,
+  live,
+  editing,
+  selection,
+  framed,
+}: {
+  journey: JourneyView
+  live: Live | null
+  editing: number
+  selection: readonly string[]
+  framed: boolean
+}) {
   const meta = [
     journey.umbrella ? `umbrella ${journey.umbrella}` : '',
     journey.written ? `written ${journey.written}` : '',
@@ -159,8 +182,83 @@ function Journey({ journey, editing }: { journey: JourneyView; editing: number }
       )}
 
       <Rubric>The journey</Rubric>
-      <Plan journey={journey} editing={editing} />
+      {framed && journey.plan === 'stored' && journey.steps.length > 0 && (
+        <Picking journey={journey} live={live} selection={selection} />
+      )}
+      <Plan journey={journey} editing={editing} selection={selection} framed={framed} />
     </article>
+  )
+}
+
+/**
+ * The two presses that act on every step at once: pick them all, and clear.
+ *
+ * ## Why "clear" clears everything, and says so
+ *
+ * The canvas selection is one list, and this page cannot take its own picks
+ * off it without taking off whatever a neighbouring container picked — there
+ * is no record on the wire of who picked what, on purpose. So the press is
+ * labelled with what it does to the CANVAS rather than to this page, and it is
+ * drawn only while there is something on the canvas to clear. A "clear" that
+ * appears with nothing picked is a control that is useless in the state it is
+ * most often seen in, which is the argument References makes for having no
+ * such button at all; here the whole-journey pick earns the pair, because
+ * picking eight steps one tick at a time and unticking them one at a time is
+ * sixteen presses for one idea.
+ *
+ * ## Drawn only with a canvas to reach
+ *
+ * Standalone there is nothing to pick on, and the page already says so in the
+ * box at the top. Framed with a plan kept elsewhere there are no steps of this
+ * app's to pick; `Plan` explains that at length and this stays out of its way.
+ */
+function Picking({
+  journey,
+  live,
+  selection,
+}: {
+  journey: JourneyView
+  live: Live | null
+  selection: readonly string[]
+}) {
+  /* The union of what every step carries, in journey order, computed by the
+     same function each step's own tick uses. Not the union of `step.refs`: the
+     changes a tracker attaches to an issue are cards, are picked by the step's
+     tick, and are in no `refs` array — a press here that sent less than the
+     ticks would leave every such step drawn as partly picked. */
+  const named = [...new Set(journey.steps.flatMap((step) => cardsUnder(live, step.refs ?? []).map((c) => c.ref)))]
+  const all = pickedState(selection, named) === 'all'
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8rem] text-muted-foreground">
+      <Button
+        type="button"
+        variant="outline"
+        size="container"
+        disabled={!named.length}
+        aria-pressed={all}
+        title={
+          named.length
+            ? all
+              ? 'Take every reference this journey’s steps carry off the canvas selection.'
+              : 'Put every reference this journey’s steps carry onto the canvas selection.'
+            : 'No step of this journey names a reference, so there is nothing of it a canvas could hold.'
+        }
+        onClick={() => pick(named)}
+      >
+        {all ? 'unpick every step' : 'pick every step'}
+      </Button>
+      {selection.length > 0 && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="container"
+          title="Clear the canvas selection — everything picked here and in any other container."
+          onClick={clearPick}
+        >
+          clear the {selection.length === 1 ? 'pick' : `${selection.length} picked`}
+        </Button>
+      )}
+    </div>
   )
 }
 
@@ -175,7 +273,17 @@ function Journey({ journey, editing }: { journey: JourneyView; editing: number }
  * the same claim, and it is the same dashed edge the `unseen` badge wears, for
  * the same reason: this is an absence, not a state.
  */
-function Plan({ journey, editing }: { journey: JourneyView; editing: number }) {
+function Plan({
+  journey,
+  editing,
+  selection,
+  framed,
+}: {
+  journey: JourneyView
+  editing: number
+  selection: readonly string[]
+  framed: boolean
+}) {
   if (journey.plan === 'elsewhere' && journey.stepsFrom) {
     const from = journey.stepsFrom
     return (
@@ -217,7 +325,7 @@ function Plan({ journey, editing }: { journey: JourneyView; editing: number }) {
         </div>
       )}
       {journey.steps.map((step, i) => (
-        <StepBlock key={i} step={step} index={i} editing={editing === i} />
+        <StepBlock key={i} step={step} index={i} editing={editing === i} selection={selection} framed={framed} />
       ))}
     </>
   )

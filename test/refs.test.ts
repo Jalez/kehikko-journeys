@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { firstShown, isTracked, samePick } from '../src/refs.ts'
+import { bounded, firstShown, isTracked, pickedState, samePick, togglePick } from '../src/refs.ts'
 
 /**
  * Which reference a broadcast selection lands on, tested without a browser.
@@ -86,6 +86,68 @@ describe('telling one selection from the one before it', () => {
   test('adding to or clearing a pick is a change', () => {
     expect(samePick(['#1'], ['#1', '#2'])).toBe(false)
     expect(samePick(['#1'], [])).toBe(false)
+  })
+})
+
+/**
+ * A press on a step, decided without a browser.
+ *
+ * The failure these guard has no symptom of its own: a toggle that added when
+ * it should have removed looks like a checkbox that will not untick, and a
+ * toggle that dropped a neighbour's pick looks like References forgetting a
+ * row. Both would be blamed on the host, which is the one party that did
+ * nothing.
+ */
+describe('what one step contributes to the canvas selection', () => {
+  const step = ['gh#1802', 'gh#1914']
+
+  test('a step with none of its references picked is unpicked, and a press adds them all, on the end', () => {
+    expect(pickedState([], step)).toBe('none')
+    expect(togglePick(['#2274'], step)).toEqual(['#2274', 'gh#1802', 'gh#1914'])
+  })
+
+  test('a step with all of its references picked is picked, and a press removes exactly them', () => {
+    const selection = ['#2274', 'gh#1802', 'gh#1914', '!1800']
+    expect(pickedState(selection, step)).toBe('all')
+    expect(togglePick(selection, step)).toEqual(['#2274', '!1800'])
+  })
+
+  test('a step with some of its references picked is partly picked, and a press completes it rather than undoing it', () => {
+    /* One of the two was picked in another container. The first press here must
+       not delete that pick — it fills the step in, and the NEXT press clears. */
+    expect(pickedState(['gh#1914'], step)).toBe('some')
+    expect(togglePick(['gh#1914'], step)).toEqual(['gh#1914', 'gh#1802'])
+    expect(togglePick(['gh#1914', 'gh#1802'], step)).toEqual([])
+  })
+
+  test('a step that carries no reference is never picked, and a press on it changes nothing', () => {
+    /* "All of nothing" would be vacuously true and would tick such a step the
+       moment anything at all was picked. */
+    expect(pickedState(['gh#1802'], [])).toBe('none')
+    expect(togglePick(['gh#1802'], [])).toEqual(['gh#1802'])
+  })
+
+  test('the selection handed in is never mutated', () => {
+    const selection = ['#1']
+    togglePick(selection, step)
+    expect(selection).toEqual(['#1'])
+  })
+})
+
+describe('what one selection.set may carry', () => {
+  test('a pick within the bound goes whole', () => {
+    expect(bounded(['#1', '#2'], 32)).toEqual({ refs: ['#1', '#2'], dropped: 0 })
+  })
+
+  test('a pick over the bound keeps the front and says how many were left off', () => {
+    /* The front is what was picked first and what `firstShown` on the other
+       side will land on; cutting from the front would move every neighbour. */
+    const many = Array.from({ length: 40 }, (_, i) => `gh#${i + 1}`)
+    const cut = bounded(many, 32)
+    expect(cut.refs).toHaveLength(32)
+    expect(cut.refs[0]).toBe('gh#1')
+    expect(cut.refs[31]).toBe('gh#32')
+    expect(cut.dropped).toBe(8)
   })
 })
 

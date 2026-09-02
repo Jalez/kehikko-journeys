@@ -55,7 +55,28 @@ describe('the manifest a host reads', () => {
    * reading its own material over a bridge.
    */
   test('asks for nothing it holds itself', () => {
-    expect(MANIFEST.declares.uses).toEqual(['live:read'])
+    expect(MANIFEST.declares.uses).toEqual(['live:read', 'selection:set'])
+    expect(MANIFEST.declares.uses).not.toContain('epics:read')
+    expect(MANIFEST.declares.uses).not.toContain('steps:read')
+  })
+
+  /**
+   * Both ends of the selection, and each is a claim about what the program
+   * does rather than a wish.
+   *
+   * `selection:set` is sent: `pick` in `journeys.ts` calls `selection.set`
+   * when a step is ticked, and the host refuses the call at the wire without
+   * this word — declared or not, the refusal is the same, so the word is here
+   * for the person reading the registry. `reacts: ['selection']` is received:
+   * `showSelection` scrolls to the first picked reference on the page, which
+   * is exactly the "program actually moves" the protocol's essay on `reacts`
+   * asks an author to be able to say before ticking it. Together they are the
+   * pair the host's `relations.ts` draws as "Consumes / Provides to" against
+   * any module declaring the other half.
+   */
+  test('says it both sets the selection and moves when it changes', () => {
+    expect(MANIFEST.declares.uses).toContain('selection:set')
+    expect(MANIFEST.reacts).toEqual(['selection'])
   })
 
   /**

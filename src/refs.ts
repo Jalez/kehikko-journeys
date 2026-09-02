@@ -105,3 +105,101 @@ export function firstShown(
 export function samePick(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((ref, i) => ref === b[i])
 }
+
+/* ------------------------------------------------------------------ *
+ * Picking, from this side
+ *
+ * Everything above is about a selection ARRIVING. What follows is about one
+ * LEAVING: a person presses a step on this page and the step's references go
+ * onto the canvas, where every other framed module is told about them. It is
+ * the same act References performs when a row is picked, and it is pure for
+ * the same reason `firstShown` is — what a press means has to be checkable
+ * without a browser, because the failure has no symptom. A toggle that added
+ * when it should have removed would look like a checkbox that will not untick,
+ * and the module to blame would be the host.
+ *
+ * ## A step is not a ref, and nothing here pretends it is
+ *
+ * The canvas selection carries references — `gh#105`, `!44` — and only those.
+ * A step is a sentence somebody wrote with an ordinal in front of it; there is
+ * no spelling of "step 3 of files-stay-reachable" that the protocol would carry
+ * or that any other module could act on. So a picked step contributes the refs
+ * it CARRIES: the work it names and the changes the tracker attached to that
+ * work, which is what the page draws as cards under it. A step that carries
+ * nothing contributes nothing, and the page says so on the control rather than
+ * inventing a token to send. The day the wire has a spelling for a step, this
+ * is the paragraph that changes; until then a made-up one would be a rumour
+ * with the protocol's name on it.
+ * ------------------------------------------------------------------ */
+
+/** How much of one step's references the canvas selection already holds. */
+export type Picked = 'all' | 'some' | 'none'
+
+/**
+ * Whether a step's references are on the canvas: all of them, some, or none.
+ *
+ * `none` for a step that carries no references at all, deliberately. "All of
+ * nothing" is vacuously true and would draw such a step as picked the moment
+ * anything was — a checkbox ticking itself on a step that can never reach the
+ * wire.
+ */
+export function pickedState(selection: readonly string[], refs: readonly string[]): Picked {
+  if (!refs.length) return 'none'
+  const here = new Set(selection)
+  const held = refs.filter((ref) => here.has(ref)).length
+  if (held === refs.length) return 'all'
+  return held ? 'some' : 'none'
+}
+
+/**
+ * The selection after one press on a step: its references added, or removed.
+ *
+ * ## Removed only when every one of them was there
+ *
+ * A step whose references are partly on the canvas — one of its three picked
+ * in another container — is drawn as partly picked, and a press on it completes
+ * the pick rather than undoing somebody else's. Pressing again then removes
+ * all three. That is the ordinary tri-state a person expects from a checkbox
+ * over a group, and the alternative — remove on any overlap — would have the
+ * first press on a step delete a reference the reader had just picked in
+ * References, with nothing on this page saying it had.
+ *
+ * ## Order is kept, and additions go on the end
+ *
+ * The array is the order things were picked in, which is the only order any
+ * module has information about, and `firstShown` reads it. Sorting it, or
+ * putting this step's references first, would change which card a
+ * neighbouring module scrolls to for reasons the reader did not cause. The
+ * same rule References keeps in its `toggle`.
+ *
+ * Every ref that leaves this function is one this page drew; nothing is
+ * normalised, because `gh#41` and `#41` are two different references.
+ */
+export function togglePick(selection: readonly string[], refs: readonly string[]): string[] {
+  if (!refs.length) return [...selection]
+  const mine = new Set(refs)
+  if (pickedState(selection, refs) === 'all') return selection.filter((ref) => !mine.has(ref))
+  const here = new Set(selection)
+  const added = refs.filter((ref) => !here.has(ref))
+  return [...selection, ...added]
+}
+
+/**
+ * A list cut to the most references one `selection.set` may carry.
+ *
+ * ## Why this is clipped here rather than left to the host
+ *
+ * Every step on a journey picked at once can name more than the wire holds —
+ * measured on a real epic, twenty-one cards, and the bound is thirty-two, so
+ * two such journeys would pass it. A host answers an over-long list with a
+ * refusal of the WHOLE call, and the symptom would be a press that changed
+ * nothing and a sentence blaming the host for a list this page could have
+ * counted. So the list is cut to the bound, from the end, and the caller is
+ * told how many were left off so that the page can say so in words. What is
+ * kept is the FRONT, because the front is what was picked first and what
+ * `firstShown` on the other side will land on.
+ */
+export function bounded(refs: readonly string[], limit: number): { refs: string[]; dropped: number } {
+  if (refs.length <= limit) return { refs: [...refs], dropped: 0 }
+  return { refs: refs.slice(0, limit), dropped: refs.length - limit }
+}

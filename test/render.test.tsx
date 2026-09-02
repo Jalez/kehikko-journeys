@@ -5,6 +5,7 @@ import type { JourneyView, Live } from '../src/kinds.ts'
 import { Card } from '../src/view/card.tsx'
 import { ReadingProvider } from '../src/view/reading.tsx'
 import { Sight } from '../src/view/sight.tsx'
+import { StepBlock } from '../src/view/step.tsx'
 
 /**
  * The two claims this app makes with pixels, asserted in words.
@@ -162,5 +163,62 @@ describe('what the page says when it is framed and has no journey to draw', () =
     for (const epic of [null, 'modes-are-modules']) {
       expect(say(epic).trim().split(/\s+/).length).toBeLessThan(13)
     }
+  })
+})
+
+/**
+ * A picked step looks picked the way a picked container does.
+ *
+ * The host draws a picked-out container with a ring in the primary colour and
+ * a checkbox that is only how the ring is set; a step here wears the same two
+ * things, so that a person who has ticked a container recognises the idea
+ * without being told. And the control is drawn only when there is a canvas
+ * for it to reach — standalone, a checkbox that ticks nothing is a broken
+ * checkbox.
+ */
+describe('a step that can be picked out on the canvas', () => {
+  const STEP = { title: 'Files stay reachable', body: '', refs: ['gh#1', 'gh#2'], notes: [] }
+  const EMPTY = { title: 'Somebody says yes', body: '', refs: [], notes: [] }
+  const block = (selection: string[], framed = true, step = STEP) =>
+    render(
+      <ReadingProvider value={{ live: null, journey: JOURNEY }}>
+        <StepBlock step={step} index={0} editing={false} selection={selection} framed={framed} />
+      </ReadingProvider>,
+    ).container
+
+  test('framed, it offers a tick naming what the step carries', () => {
+    const box = block([]).querySelector('input[type=checkbox]') as HTMLInputElement
+    expect(box).not.toBeNull()
+    expect(box.getAttribute('aria-label')).toContain('2 references')
+    expect(box.checked).toBe(false)
+    expect(box.indeterminate).toBe(false)
+  })
+
+  test('standalone, there is no tick, because there is no canvas to reach', () => {
+    expect(block([], false).querySelector('input[type=checkbox]')).toBeNull()
+  })
+
+  test('wholly picked: ticked, and wearing the host’s ring', () => {
+    const box = block(['gh#2', 'gh#1'])
+    expect((box.querySelector('input[type=checkbox]') as HTMLInputElement).checked).toBe(true)
+    const section = box.querySelector('section')!
+    expect(section.getAttribute('data-picked')).toBe('all')
+    expect(section.className).toContain('ring-2')
+    expect(section.className).toContain('ring-inset')
+  })
+
+  test('partly picked: indeterminate, and a lighter ring', () => {
+    const box = block(['gh#2'])
+    const tick = box.querySelector('input[type=checkbox]') as HTMLInputElement
+    expect(tick.checked).toBe(false)
+    expect(tick.indeterminate).toBe(true)
+    expect(box.querySelector('section')?.getAttribute('data-picked')).toBe('some')
+  })
+
+  test('a step naming no reference says so on the control rather than ticking nothing', () => {
+    const tick = block(['gh#1'], true, EMPTY).querySelector('input[type=checkbox]') as HTMLInputElement
+    expect(tick.disabled).toBe(true)
+    expect(tick.getAttribute('aria-label')).toContain('names no reference')
+    expect(block(['gh#1'], true, EMPTY).querySelector('section')?.getAttribute('data-picked')).toBeNull()
   })
 })

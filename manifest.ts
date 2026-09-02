@@ -35,12 +35,13 @@ export const PREFERRED_PORT = 7840
  * tab to give the page, and which ONE question the app would like to be allowed
  * to ask if there is anybody there to ask.
  *
- * ## Why the list of capabilities is one line long, and what that line means
+ * ## Why the list of capabilities is two words long, and what each means
  *
  * Every other module extracted from this roadmap declares `epics:read` and
  * `steps:read`, because the epics are somebody else's and they need to be
  * handed them. This one declares neither, and the absence is the whole claim of
- * the extraction:
+ * the extraction. What it does declare is one read that only a host can answer
+ * and one write that only a host can carry:
  *
  * - **`epics:read` — not declared.** This app HOLDS the journeys. Asking a host
  *   which epics exist would be asking somebody else to answer a question about
@@ -50,7 +51,16 @@ export const PREFERRED_PORT = 7840
  *   steps are the thing this app is for. A journeys app that read its steps
  *   over a bridge would be a viewer, and a viewer is precisely what the
  *   extraction says this must stop being.
- * - **`live:read` — declared, and it is the only thing declared.** What the
+ * - **`selection:set` — declared, and it is the one write.** A person ticks a
+ *   step and the references it carries become the canvas selection, which the
+ *   host broadcasts to every framed module. It is what lets References narrow
+ *   its list to what a journey's steps are about without either module knowing
+ *   the other exists — the host does the joining, which is the only reason the
+ *   joining can be believed. It is never called except from a press; the essay
+ *   on picking in `src/journeys.ts` says why that is the whole design. The
+ *   receiving half, `reacts: ['selection']`, is declared below beside its own
+ *   reasons.
+ * - **`live:read` — declared, and it is the one read.** What the
  *   last refresh saw of each reference: a state, a title, the tracker's own
  *   labels, who is on it. That is genuinely somebody else's — the host holds
  *   the credentials, reads GitHub and GitLab once, and hands over what it read.
@@ -164,9 +174,35 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     about: 'The journeys and their steps: read one, write a step, say what blocks what.',
   },
   extensions: { emits: [], consumes: [] },
+  /**
+   * What this page DOES with the context it is handed, which is the receiving
+   * half of the selection and a claim rather than a request.
+   *
+   * `selection`, because the program genuinely moves: `showSelection` in
+   * `src/journeys.ts` scrolls to and marks the first picked reference this
+   * page is showing, and has done since the canvas started broadcasting one.
+   * It was not declared before, which left the manifest saying less than the
+   * program did — a registry reading it could name References as a provider
+   * and nobody as the module it provided to, when this one was scrolling on
+   * every pick. The protocol's essay on `reacts` is the test for the word:
+   * tick it only if the program moves, and it does.
+   *
+   * Not `passage`. Nothing here reads one.
+   */
+  reacts: ['selection'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
-    uses: ['live:read'],
+    /**
+     * `selection:set` is the second word here, and it is a SHARED write. A
+     * person ticks a step and the references that step carries go onto the
+     * canvas selection, where every framed module is told — that is what the
+     * protocol's own sentence for the capability says, and it is the reason
+     * the word is spelled out for somebody deciding whether to run this
+     * program. It is sent from a press and from nothing else: not from a
+     * render, not from a context, not when the epic changes. See the essay on
+     * picking in `src/journeys.ts` for why that restriction is the point.
+     */
+    uses: ['live:read', 'selection:set'],
     storage: true,
   },
   health: '/healthz',
