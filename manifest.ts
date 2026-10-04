@@ -35,13 +35,13 @@ export const PREFERRED_PORT = 7840
  * tab to give the page, and which ONE question the app would like to be allowed
  * to ask if there is anybody there to ask.
  *
- * ## Why the list of capabilities is two words long, and what each means
+ * ## Why the list of capabilities is four words long, and what each means
  *
  * Every other module extracted from this roadmap declares `epics:read` and
  * `steps:read`, because the epics are somebody else's and they need to be
  * handed them. This one declares neither, and the absence is the whole claim of
  * the extraction. What it does declare is one read that only a host can answer
- * and one write that only a host can carry:
+ * and three writes that only a host can carry:
  *
  * - **`epics:read` — not declared.** This app HOLDS the journeys. Asking a host
  *   which epics exist would be asking somebody else to answer a question about
@@ -68,6 +68,18 @@ export const PREFERRED_PORT = 7840
  *   answer and four snapshots disagreeing on one screen. Without it the page
  *   still draws every journey, every step and every reference; the cards say,
  *   in words, that their state cannot be seen from here.
+ * - **`filters:set` — declared, for one press.** This page OFFERS a filter
+ *   (`roadmap.filters`, a message that needs no word) built from the shared
+ *   ref facets, and the host holds the choice. The method is for the other
+ *   direction: a `roadmap.goto` aimed at a card the filter is hiding asks the
+ *   host to lift the facets hiding it, because answering `found` for a card
+ *   that is not drawn sends a reader nowhere. It is asked from a walk aimed at
+ *   this container and from nothing else.
+ * - **`disposition:set` — declared, and it is a SHARED write.** On a closed
+ *   reference's card a person can say why it closed — done, won't do,
+ *   duplicate of, superseded by — and the host keeps that per project, for
+ *   every module showing the ref to read. Set from a press and nothing else,
+ *   like the selection.
  * - **`stage:report` — not declared.** Saying where work has got to belongs to
  *   whoever is doing it. This app draws a rail; it does not report onto one.
  *   See the note in `page/journeys.ts` about what the rail can and cannot know.
@@ -187,9 +199,13 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * every pick. The protocol's essay on `reacts` is the test for the word:
    * tick it only if the program moves, and it does.
    *
+   * `dispositions`, because a mark arriving moves this page too: the card
+   * says whose word it is, the rail and the step's "done" are recomputed from
+   * it, and the filter's counts change. See `standing` in `src/live/lookup.ts`.
+   *
    * Not `passage`. Nothing here reads one.
    */
-  reacts: ['selection'],
+  reacts: ['selection', 'dispositions'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     /**
@@ -202,7 +218,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
      * render, not from a context, not when the epic changes. See the essay on
      * picking in `src/journeys.ts` for why that restriction is the point.
      */
-    uses: ['live:read', 'selection:set'],
+    uses: ['live:read', 'selection:set', 'filters:set', 'disposition:set'],
     storage: true,
   },
   health: '/healthz',

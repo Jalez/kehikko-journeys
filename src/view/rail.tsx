@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils.ts'
 
 import { IN_PROD, STAGES, railOf } from '../live/lookup.ts'
-import { useReading } from './reading.tsx'
+import { aroundOf, useReading } from './reading.tsx'
 
 /**
  * The rail: seven words in the roadmap's own order, drawn as seven dots, and a
@@ -23,8 +23,8 @@ import { useReading } from './reading.tsx'
  * pixels across and the word is the only part of this anybody can read.
  */
 export function Rail({ refName }: { refName: string }) {
-  const { live } = useReading()
-  const rail = railOf(live, refName)
+  const reading = useReading()
+  const rail = railOf(reading.live, refName, aroundOf(reading))
 
   if (rail.unseen) {
     return (

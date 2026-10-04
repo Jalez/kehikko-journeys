@@ -1,6 +1,8 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
-import { LIMITS, MESSAGE, PROTOCOL } from 'roadmap-module-protocol'
+import { LIMITS } from 'roadmap-module-protocol'
 import { mailbox } from 'roadmap-module-protocol/client'
+
+import { scrolls, settle, started, stubHost, type Wire } from './host.ts'
 
 /**
  * The selection leaving this page, and — more important — NOT leaving it.
@@ -13,121 +15,23 @@ import { mailbox } from 'roadmap-module-protocol/client'
  * press may, and this is the file that says so with the real client listening
  * on the real `window`.
  *
- * The stand-in host is the same one References uses: an object with a
- * `postMessage`, which is all a host is from inside a frame. The store is a
- * `fetch` that answers the three doors this page knocks on, because `start()`
- * reads the index before anything else and a page with no journey has no
- * steps to press.
- *
- * `journeys.ts` is imported once and `start()` called once: the connection is
- * module state, like the page's. Each case greets afresh, which is what a
+ * The stand-in host and store are in `host.ts`, shared with the filter and
+ * disposition tests: `journeys.ts` is imported once and `start()` called
+ * once, because the connection is module state, like the page's. Each case greets afresh, which is what a
  * host does on every frame load, and the mailbox is emptied between them so
  * that one case's greeting is not replayed into the next.
  */
 
-const JOURNEY = {
-  slug: 'probe',
-  title: 'A journey',
-  lede: '',
-  callout: '',
-  plan: 'stored',
-  blockedBy: {},
-  steps: [
-    { title: 'One', body: '', refs: ['gh#1', 'gh#2'], notes: [] },
-    { title: 'Two', body: '', refs: ['gh#3'], notes: [] },
-  ],
-}
-
-const PROJECT = '/Users/somebody/Projects/probe'
-
-/** The three doors, answered the way the server answers them. */
-function stubStore() {
-  globalThis.fetch = (async (input: string | URL | Request) => {
-    const url = String(input instanceof Request ? input.url : input)
-    const body = url.includes('/api/journeys')
-      ? { ok: true, journeys: [{ slug: 'probe', title: 'A journey', tab: null, plan: 'stored', steps: 2 }] }
-      : url.includes('/api/journey')
-        ? { ok: true, journey: JOURNEY }
-        : url.includes('/api/ticket')
-          ? { ok: true, ticket: 't' }
-          : { ok: false, error: `nothing answers ${url}` }
-    return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } })
-  }) as typeof fetch
-}
-
-/** Something to be greeted by, and to read what the page says back to it. */
-function stubHost() {
-  const said: Record<string, unknown>[] = []
-  const source = { postMessage: (message: Record<string, unknown>) => said.push(message) }
-  const post = (data: unknown) => {
-    const event = new MessageEvent('message', { data, origin: 'http://localhost:7777' })
-    Object.defineProperty(event, 'source', { value: source })
-    window.dispatchEvent(event)
-  }
-  const context = (selection: string[], epic = 'probe') => ({
-    epic,
-    project: 'probe',
-    projectPath: PROJECT,
-    theme: 'light',
-    selection,
-    filters: {},
-  })
-  return {
-    said,
-    /** Every `selection.set` this page asked for, in order, as the refs it sent. */
-    picks: () =>
-      said
-        .filter((m) => m.type === MESSAGE.REQUEST && m.method === 'selection.set')
-        .map((m) => (m.params as { refs: string[] }).refs),
-    greet: (selection: string[] = []) =>
-      post({ type: MESSAGE.HELLO, protocol: PROTOCOL, session: 's', context: context(selection), state: null }),
-    context: (selection: string[], epic = 'probe') =>
-      post({ type: MESSAGE.CONTEXT, protocol: PROTOCOL, ...context(selection, epic) }),
-    /** Answer the newest `selection.set` the way a host does: with a context carrying what it settled on. */
-    echo: () => {
-      const last = newest()
-      post({ type: MESSAGE.RESPONSE, id: last.id, ok: true, data: null })
-      post({ type: MESSAGE.CONTEXT, protocol: PROTOCOL, ...context(last.params.refs) })
-    },
-    /** Refuse the newest `selection.set`, in the host's own words, and send no context. */
-    refuse: (error: string) => {
-      post({ type: MESSAGE.RESPONSE, id: newest().id, ok: false, reason: 'failed', error })
-    },
-  }
-
-  function newest(): { id: string; params: { refs: string[] } } {
-    const last = said.findLast((m) => m.type === MESSAGE.REQUEST && m.method === 'selection.set') as
-      | { id: string; params: { refs: string[] } }
-      | undefined
-    if (!last) throw new Error('nothing asked selection.set')
-    return last
-  }
-}
-
-const settle = () => new Promise((done) => setTimeout(done, 20))
-
-/* The page scrolls to a picked reference it is showing. happy-dom has no
-   layout, so the scroll is counted rather than observed — and counting it is
-   the point: a context that is the echo of this page's own pick must not
-   scroll, and one that is somebody else's must. */
-let scrolled = 0
-Element.prototype.scrollIntoView = () => {
-  scrolled += 1
-}
-
-type Wire = typeof import('../src/journeys.ts')
 let wire: Wire
 
 beforeAll(async () => {
-  stubStore()
-  wire = await import('../src/journeys.ts')
-  wire.start()
+  wire = await started()
 })
 
 afterEach(() => {
   mailbox.forget?.()
   document.body.innerHTML = ''
-  scrolled = 0
+  scrolls.reset()
 })
 
 describe('nothing this page does on its own touches the selection', () => {
@@ -221,7 +125,7 @@ describe('the echo of this page’s own pick does not move the page', () => {
     showing()
     host.context(['gh#1'])
     await settle()
-    expect(scrolled).toBe(1)
+    expect(scrolls.count()).toBe(1)
   })
 
   test('the same selection arriving as the echo of a press here does not', async () => {
@@ -233,7 +137,7 @@ describe('the echo of this page’s own pick does not move the page', () => {
     host.echo()
     await settle()
     expect(wire.getSnapshot().selection).toEqual(['gh#1'])
-    expect(scrolled).toBe(0)
+    expect(scrolls.count()).toBe(0)
   })
 
   test('a host that settled on something other than what was asked is not an echo, and is shown', async () => {
@@ -245,6 +149,6 @@ describe('the echo of this page’s own pick does not move the page', () => {
     /* The host clamped the list. That is a changed pick, and the page walks to it. */
     host.context(['gh#1'])
     await settle()
-    expect(scrolled).toBe(1)
+    expect(scrolls.count()).toBe(1)
   })
 })

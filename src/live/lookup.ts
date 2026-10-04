@@ -1,3 +1,12 @@
+import type { Disposition, DispositionValue } from 'roadmap-module-protocol'
+import {
+  dispositionOf,
+  facetsOf,
+  type DispositionSource,
+  type Facet,
+  type Sighting as RefSighting,
+} from 'roadmap-module-protocol/facets'
+
 import type { Live, Sighting } from '../kinds.ts'
 
 /**
@@ -54,6 +63,36 @@ export function carriedBy(live: Live | null, ref: string): string[] {
 }
 
 /**
+ * The cards a step draws, in the order it draws them.
+ *
+ * An issue first, then the changes the tracker itself attaches to it, then any
+ * change the step named that no issue carried in. A change drawn twice is a
+ * reader counting the same work twice.
+ *
+ * Exported because two things have to agree on it exactly: the cards this
+ * block draws, and the references a pick of this step puts on the canvas.
+ * `Picking` in `app.tsx` picks every step at once and must send the same list
+ * each step's own tick would, or the whole-journey press would leave half the
+ * steps drawn as partly picked — the union of `step.refs` is not it, because
+ * the tracker's carried-in changes are cards and are in no `refs` array.
+ */
+export function cardsUnder(live: Live | null, refs: readonly string[]): { ref: string; under: boolean }[] {
+  const issues = refs.filter((ref) => !isChange(live, ref))
+  const loose = refs.filter((ref) => isChange(live, ref))
+  const claimed = new Set<string>()
+  const drawn: { ref: string; under: boolean }[] = []
+  for (const issue of issues) {
+    drawn.push({ ref: issue, under: false })
+    for (const change of carriedBy(live, issue)) {
+      claimed.add(change)
+      drawn.push({ ref: change, under: true })
+    }
+  }
+  for (const change of loose) if (!claimed.has(change)) drawn.push({ ref: change, under: false })
+  return drawn
+}
+
+/**
  * Which of the badge's five faces a sighting wears, as one word.
  *
  * `unseen` is not a state and is returned for the absence of a sighting, which
@@ -101,49 +140,233 @@ export interface Rail {
   unseen?: boolean
 }
 
-export function railOf(live: Live | null, ref: string): Rail {
-  const seen = stateOf(live, ref)
-  if (!seen) {
+/**
+ * What else the page knows that a reading does not carry, for the answers that
+ * depend on it. Every field is optional and its absence is the standalone
+ * answer: not framed, nothing withheld, nobody has marked anything.
+ */
+export interface Around {
+  /** Whether a host is framing this page at all. */
+  framed?: boolean
+  /** What the host said when it would not hand over a reading, word for word. */
+  withheld?: string | null
+  /** People's marks on why things closed: `context.dispositions`, whole. */
+  marks?: readonly Disposition[]
+  /** The journey's own `settledBy`: decisions answered by changes rather than closed by them. */
+  settledBy?: Readonly<Record<string, readonly string[]>>
+}
+
+/**
+ * Why there is no reading, in the three ways there can be none.
+ *
+ * Shared by the badge and the rail so that the two cannot disagree with each
+ * other, and written to agree with `Sight` at the top of the page. They used to
+ * look only at `live`, and `live` is null both when nothing frames this page
+ * and when a host frames it and refused `live.get` — so a page framed inside
+ * the host said "Framed, and refused" in its banner and "Nothing is framing
+ * this page" on every card underneath it.
+ */
+export function absenceOf(live: Live | null, around: Around = {}): { word: string; why: string } {
+  if (live) {
     return {
-      now: -1,
-      word: live ? 'not in the last refresh' : 'not seen from here',
-      unseen: true,
-      why: live
-        ? 'The host handed over what its last refresh read, and there was nothing about this reference in it.'
-        : 'Nothing is framing this page, so no tracker reading has reached this app. This is the absence of a reading, not a state.',
+      word: 'not in the last refresh',
+      why: 'The host handed over what its last refresh read, and there was nothing about this reference in it.',
     }
   }
+  if (around.framed) {
+    return {
+      word: 'no reading from the host',
+      why: around.withheld
+        ? `A host is framing this page and had no tracker reading to hand over: ${around.withheld}`
+        : 'A host is framing this page and has not handed over a tracker reading for this epic. This is the ' +
+          'absence of a reading, not a state.',
+    }
+  }
+  return {
+    word: 'not seen from here',
+    why:
+      'Nothing is framing this page, so no tracker reading has reached this app. This is the absence of a ' +
+      'reading, not a state.',
+  }
+}
+
+export function railOf(live: Live | null, ref: string, around: Around = {}): Rail {
+  const seen = stateOf(live, ref)
+  if (!seen) return { now: -1, unseen: true, ...absenceOf(live, around) }
+  /* A person's word, or the journey's own record that a decision was answered,
+     outranks the tracker's state — that is what each of them is FOR. */
+  const verdict = verdictOf(live, ref, around)
+  if (verdict.source === 'person' || verdict.source === 'journey') return railOfVerdict(verdict)
   if (isChange(live, ref)) {
     if (seen.state === 'merged') return { now: 5, word: 'In dev', why: 'It merged. Landing is not releasing.' }
     if (seen.state === 'closed') {
       return {
         now: -1,
         word: 'Closed without merging',
-        why: 'The change is closed and it did not land. That is not a stage.',
+        why:
+          verdict.value === 'unknown'
+            ? 'The change is closed and it did not land. That is not a stage, and nobody has said why it closed.'
+            : 'The change is closed and it did not land. That is not a stage.',
       }
     }
     if (seen.draft) return { now: 2, word: 'In progress', why: 'The change is open and marked a draft.' }
     if ((seen.reviewers ?? []).length) return { now: 3, word: 'In review', why: 'The tracker names reviewers on it.' }
     return { now: 4, word: 'PR open', why: 'The change is open and nobody is named on it yet.' }
   }
-  if (seen.state === 'closed') return { now: 5, word: 'In dev', why: 'The issue is closed. Landing is not releasing.' }
+  if (seen.state === 'closed') return railOfVerdict(verdict)
   const under = carriedBy(live, ref)
   if (under.length) return { now: 4, word: 'PR open', why: `A change is open against it: ${under.join(', ')}.` }
   if ((seen.assignees ?? []).length) return { now: 1, word: 'Taken', why: 'The tracker has it assigned.' }
   return { now: 0, word: 'Todo', why: 'Nobody is on it in the tracker and no change exists.' }
 }
 
+/** Whose word a verdict is, as a clause. */
+function whose(verdict: Verdict): string {
+  if (verdict.source === 'person') return verdict.mark?.by ? `${verdict.mark.by} marked it so` : 'A person marked it so'
+  if (verdict.source === 'journey') return 'This journey records it as a decision answered by changes that merged'
+  return 'The tracker says so'
+}
+
 /**
- * Whether every reference a step names has finished.
+ * Where a closed reference stands, once it is known why it closed.
  *
- * Empty is never done. A step with no references has nothing that could have
- * settled it, and `every` over an empty list is vacuously true — which would
- * put a "done" on every step of a journey nobody has attached any work to yet.
+ * Only `done` is on the line. The other three are work that will not be
+ * delivered — not abandoned-in-progress, not finished — and a dot anywhere on a
+ * line of stages would claim one or the other.
  */
-export function isSettled(live: Live | null, refs: readonly string[]): boolean {
-  if (!refs.length) return false
-  return refs.every((ref) => {
-    const seen = stateOf(live, ref)
-    return Boolean(seen) && (seen?.state === 'merged' || seen?.state === 'closed')
-  })
+function railOfVerdict(verdict: Verdict): Rail {
+  const target = verdict.mark?.target ?? ''
+  switch (verdict.value) {
+    case 'done':
+      return { now: 5, word: 'In dev', why: `${whose(verdict)}: done. Landing is not releasing.` }
+    case 'wont-do':
+      return { now: -1, word: 'Won’t do', why: `${whose(verdict)}. It neither settles its step nor holds it up.` }
+    case 'duplicate':
+      return {
+        now: -1,
+        word: target ? `Duplicate of ${target}` : 'Duplicate',
+        why: `${whose(verdict)}. It neither settles its step nor holds it up.`,
+      }
+    case 'superseded':
+      return {
+        now: -1,
+        word: target ? `Superseded by ${target}` : 'Superseded',
+        why: `${whose(verdict)}. It neither settles its step nor holds it up.`,
+      }
+    default:
+      return {
+        now: -1,
+        word: 'Closed, reason unknown',
+        why:
+          'The tracker closed it without saying why, and nobody has marked it. Whether it was done is for a person ' +
+          'to decide, so it is not counted either way until somebody does.',
+      }
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Why a reference closed
+ * ------------------------------------------------------------------ */
+
+/**
+ * One reference as the shared ref-facet vocabulary reads it, or null where
+ * there is no reading.
+ *
+ * Translated here, once, from the host's bags: an issue or a change by which
+ * bag it was filed in (see `isChange`), and `closedByMerge` from the changes
+ * the tracker itself attaches — GitLab's only sign that a closed issue was
+ * finished rather than dropped.
+ */
+export function sightingFor(live: Live | null, ref: string): RefSighting | null {
+  const seen = stateOf(live, ref)
+  if (!seen) return null
+  const kind = isChange(live, ref) ? 'change' : 'issue'
+  const state = seen.state === 'merged' ? 'merged' : seen.state === 'closed' ? 'closed' : 'open'
+  return {
+    kind,
+    state,
+    stateReason: seen.stateReason ?? null,
+    closedByMerge: kind === 'issue' && carriedBy(live, ref).some((change) => stateOf(live, change)?.state === 'merged'),
+  }
+}
+
+/**
+ * Why a reference closed, and whose word that is.
+ *
+ * `dispositionOf` from the shared facets, with one thing this app adds: a
+ * journey's `settledBy`. A decision issue no commit will close, whose answering
+ * changes have all merged, is `done` by the journey's own record — that field
+ * has always meant exactly this, and folding it in here keeps one answer to
+ * "is this finished" rather than two. A person's mark still wins over it, as
+ * it wins over the tracker.
+ */
+export interface Verdict {
+  value: DispositionValue | 'unknown' | null
+  source: DispositionSource | 'journey' | null
+  mark: Disposition | null
+}
+
+export function verdictOf(live: Live | null, ref: string, around: Around = {}): Verdict {
+  const shown = dispositionOf(ref, sightingFor(live, ref), around.marks ?? [])
+  if (shown.source === 'person') return shown
+  const answers = around.settledBy?.[ref] ?? []
+  if (answers.length && answers.every((change) => stateOf(live, change)?.state === 'merged')) {
+    return { value: 'done', source: 'journey', mark: null }
+  }
+  return shown
+}
+
+/**
+ * Every facet one reference has, for the filter. None at all without a
+ * reading — `sift` never hides what it cannot see.
+ */
+export function facetsOfRef(live: Live | null, ref: string, around: Around = {}): Facet[] {
+  const sighting = sightingFor(live, ref)
+  return sighting ? facetsOf(sighting, verdictOf(live, ref, around)) : []
+}
+
+/**
+ * Where a step's references stand, sorted by what they mean for the step.
+ *
+ * - `done` settles.
+ * - `aside` — won't do, duplicate, superseded — neither settles nor blocks.
+ *   Counting them as settled is how a step whose issue closed as "won't do"
+ *   used to read as delivered; counting them as blocking would hold the step
+ *   open forever on work nobody is going to do.
+ * - `undecided` — closed, reason unknown — is a question for a person, and
+ *   until somebody answers it the step is not called done. It is listed so the
+ *   step can say who has to decide what.
+ * - `pending` is everything else: open, or never read.
+ */
+export interface Standing {
+  done: string[]
+  aside: { ref: string; value: Exclude<DispositionValue, 'done'> }[]
+  undecided: string[]
+  pending: string[]
+  settled: boolean
+}
+
+export function standing(live: Live | null, refs: readonly string[], around: Around = {}): Standing {
+  const out: Standing = { done: [], aside: [], undecided: [], pending: [], settled: false }
+  for (const ref of refs) {
+    const verdict = verdictOf(live, ref, around)
+    if (verdict.value === 'done') out.done.push(ref)
+    else if (verdict.value === 'unknown') out.undecided.push(ref)
+    else if (verdict.value) out.aside.push({ ref, value: verdict.value })
+    else out.pending.push(ref)
+  }
+  /* Empty is never done. A step with no references has nothing that could
+     have settled it, and one whose every reference was set aside delivered
+     nothing either. */
+  out.settled = out.done.length > 0 && !out.pending.length && !out.undecided.length
+  return out
+}
+
+/**
+ * Whether every reference a step names has finished — `done`, by a person's
+ * mark, the tracker's reason or the journey's `settledBy`, with set-aside work
+ * ignored. See `standing`.
+ */
+export function isSettled(live: Live | null, refs: readonly string[], around: Around = {}): boolean {
+  return standing(live, refs, around).settled
 }

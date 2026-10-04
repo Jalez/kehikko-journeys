@@ -1,16 +1,80 @@
+import { Fragment } from 'react'
+import { sift } from 'roadmap-module-protocol/facets'
+
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 
 import { cn } from '@/lib/utils.ts'
 
-import { isChange, carriedBy, isSettled } from '../live/lookup.ts'
-import { pick, setEditing } from '../journeys.ts'
+import { cardsUnder, facetsOfRef, stateOf, standing, toneOf, type Standing, type Tone } from '../live/lookup.ts'
+import { pick, setEditing, setFolds, toggleFold } from '../journeys.ts'
 import type { Live, Step } from '../kinds.ts'
 import { pickedState } from '../refs.ts'
 import { Card } from './card.tsx'
 import { Editor } from './editor.tsx'
 import { Prose } from './prose.tsx'
-import { useReading } from './reading.tsx'
+import { aroundOf, useReading } from './reading.tsx'
+
+/**
+ * A card and the changes the tracker hangs under it, as one fold.
+ *
+ * Built from what `cardsUnder` draws and what the filter kept. A change kept
+ * under an issue the filter hid is not orphaned under the wrong parent: it
+ * becomes a bundle of its own, drawn as a loose change, because the issue it
+ * would have been indented under is not on the page.
+ */
+export interface Bundle {
+  ref: string
+  under: string[]
+}
+
+export function bundlesOf(
+  drawn: readonly { ref: string; under: boolean }[],
+  kept: readonly { ref: string; under: boolean }[] = drawn,
+): Bundle[] {
+  const keep = new Set(kept)
+  const out: Bundle[] = []
+  let owner: Bundle | null = null
+  for (const card of drawn) {
+    if (!card.under) {
+      owner = keep.has(card) ? { ref: card.ref, under: [] } : null
+      if (owner) out.push(owner)
+    } else if (keep.has(card)) {
+      if (owner) owner.under.push(card.ref)
+      else out.push({ ref: card.ref, under: [] })
+    }
+  }
+  return out
+}
+
+const TALLY: { tone: Tone; word: string }[] = [
+  { tone: 'open', word: 'open' },
+  { tone: 'draft', word: 'draft' },
+  { tone: 'merged', word: 'merged' },
+  { tone: 'closed', word: 'closed' },
+  { tone: 'unseen', word: 'not seen' },
+]
+
+/**
+ * One line standing for the changes under a folded issue: "3 changes · 2
+ * merged · 1 closed". Every change the filter kept is counted, folded or not —
+ * a fold hides the cards and never the fact of them.
+ */
+export function foldSummary(live: Live | null, changes: readonly string[]): string {
+  const tones = changes.map((ref) => toneOf(stateOf(live, ref)))
+  const parts = [`${changes.length} ${changes.length === 1 ? 'change' : 'changes'}`]
+  for (const { tone, word } of TALLY) {
+    const n = tones.filter((t) => t === tone).length
+    if (n) parts.push(`${n} ${word}`)
+  }
+  return parts.join(' · ')
+}
+
+const ASIDE: Record<Standing['aside'][number]['value'], string> = {
+  'wont-do': 'won’t do',
+  duplicate: 'duplicate',
+  superseded: 'superseded',
+}
 
 /**
  * One step of the journey: a number, a sentence somebody wrote, and the work
@@ -42,36 +106,6 @@ import { useReading } from './reading.tsx'
  * underneath, the title gets the line, and the number still sits beside its
  * first word.
  */
-/**
- * The cards a step draws, in the order it draws them.
- *
- * An issue first, then the changes the tracker itself attaches to it, then any
- * change the step named that no issue carried in. A change drawn twice is a
- * reader counting the same work twice.
- *
- * Exported because two things have to agree on it exactly: the cards this
- * block draws, and the references a pick of this step puts on the canvas.
- * `Picking` in `app.tsx` picks every step at once and must send the same list
- * each step's own tick would, or the whole-journey press would leave half the
- * steps drawn as partly picked — the union of `step.refs` is not it, because
- * the tracker's carried-in changes are cards and are in no `refs` array.
- */
-export function cardsUnder(live: Live | null, refs: readonly string[]): { ref: string; under: boolean }[] {
-  const issues = refs.filter((ref) => !isChange(live, ref))
-  const loose = refs.filter((ref) => isChange(live, ref))
-  const claimed = new Set<string>()
-  const drawn: { ref: string; under: boolean }[] = []
-  for (const issue of issues) {
-    drawn.push({ ref: issue, under: false })
-    for (const change of carriedBy(live, issue)) {
-      claimed.add(change)
-      drawn.push({ ref: change, under: true })
-    }
-  }
-  for (const change of loose) if (!claimed.has(change)) drawn.push({ ref: change, under: false })
-  return drawn
-}
-
 export function StepBlock({
   step,
   index,
@@ -87,11 +121,26 @@ export function StepBlock({
   /** Whether there is a canvas to pick on at all. The control is not drawn without one. */
   framed: boolean
 }) {
-  const { live } = useReading()
+  const reading = useReading()
+  const { live } = reading
+  const around = aroundOf(reading)
   const refs = step.refs ?? []
   const notes = step.notes ?? []
-  const settled = isSettled(live, refs)
+  const where = standing(live, refs, around)
   const drawn = cardsUnder(live, refs)
+
+  /*
+   * What is drawn: the cards the filter kept, each issue folded over the
+   * changes under it unless somebody opened it. The filter is applied to the
+   * cards and never to `where` above — a step is done or not by all of its
+   * work, whatever a reader has chosen to look at — and never to `carries`
+   * below, so that a pick means the same thing with the filter on or off.
+   */
+  const unfolded = reading.unfolded ?? []
+  const sifted = sift(drawn, reading.hidden ?? [], (card) => facetsOfRef(live, card.ref, around))
+  const bundles = bundlesOf(drawn, sifted.kept)
+  const foldable = bundles.filter((bundle) => bundle.under.length).map((bundle) => bundle.ref)
+  const allOpen = foldable.length > 0 && foldable.every((ref) => unfolded.includes(ref))
 
   /*
    * What this step puts on the canvas when it is picked: every card under it,
@@ -160,9 +209,20 @@ export function StepBlock({
         <h3 className="min-w-0 flex-[1_1_60%] text-[1.02rem] leading-snug font-semibold @min-[26rem]/container:flex-1">
           <Prose text={step.title} />
         </h3>
-        {settled && (
-          <Badge variant="merged" title="Every reference this step names has merged or closed.">
+        {where.settled && (
+          <Badge
+            variant="merged"
+            title="Every reference this step names is done — by the tracker’s word, a person’s mark, or this journey’s record of a decision answered. Work set aside is not counted."
+          >
             done
+          </Badge>
+        )}
+        {where.undecided.length > 0 && (
+          <Badge
+            variant="unseen"
+            title={`Closed, and nobody has said why: ${where.undecided.join(', ')}. Whether it was done is for a person to decide — mark it on its card.`}
+          >
+            {where.undecided.length} to decide
           </Badge>
         )}
         {/* Editing is this app's, not the host's: the steps are here. It is
@@ -189,6 +249,21 @@ export function StepBlock({
         )
       )}
 
+      {/* Set-aside work is said in words, because it changes what "done" above
+          means: these closed without being delivered, and they neither settle
+          the step nor hold it up. */}
+      {where.aside.length > 0 && (
+        <p className="mt-1.5 text-xs leading-5 text-muted-foreground @min-[26rem]/container:ml-[2.1rem]">
+          Set aside, neither settling nor holding up this step:{' '}
+          {where.aside.map(({ ref, value }, i) => (
+            <span key={ref}>
+              {i > 0 && ' · '}
+              {ref} {ASIDE[value]}
+            </span>
+          ))}
+        </p>
+      )}
+
       {notes.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1 @min-[26rem]/container:ml-[2.1rem]">
           {notes.map((note) => (
@@ -199,12 +274,59 @@ export function StepBlock({
         </div>
       )}
 
-      {drawn.length > 0 && (
+      {bundles.length > 0 && (
         <div className="mt-2.5 grid gap-1.5 @min-[26rem]/container:ml-[2.1rem]">
-          {drawn.map(({ ref, under }) => (
-            <Card key={`${ref}:${under ? 'under' : 'own'}`} refName={ref} under={under} />
-          ))}
+          {foldable.length > 0 && (
+            <div className="-mb-0.5 flex justify-end">
+              <Button
+                type="button"
+                variant="ghost"
+                size="container"
+                className="text-muted-foreground"
+                aria-expanded={allOpen}
+                onClick={() => setFolds(foldable, !allOpen)}
+              >
+                {allOpen ? 'fold all' : 'expand all'}
+              </Button>
+            </div>
+          )}
+          {bundles.map((bundle, i) => {
+            const open = unfolded.includes(bundle.ref)
+            return (
+              <Fragment key={`${bundle.ref}:${i}`}>
+                <Card refName={bundle.ref} />
+                {/*
+                  The fold. Folded by default, because a busy step's changes
+                  pushed its issues apart until the step could not be read at
+                  a glance; the summary stands in for them and counts every one
+                  the filter kept, so nothing is hidden without being counted.
+                */}
+                {bundle.under.length > 0 && (
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    data-fold={bundle.ref}
+                    onClick={() => toggleFold(bundle.ref)}
+                    className="ml-2 -mt-0.5 text-left text-xs text-muted-foreground hover:text-foreground @min-[26rem]/container:ml-5"
+                  >
+                    <span aria-hidden="true">{open ? '▾ ' : '▸ '}</span>
+                    {foldSummary(live, bundle.under)}
+                  </button>
+                )}
+                {open && bundle.under.map((ref) => <Card key={`${ref}:under`} refName={ref} under />)}
+              </Fragment>
+            )
+          })}
         </div>
+      )}
+
+      {/* What the filter took off this step, counted, so a step whose every
+          card is filtered out says so rather than looking as if it named
+          nothing. */}
+      {sifted.hidden > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground italic @min-[26rem]/container:ml-[2.1rem]">
+          {sifted.hidden} hidden by the filter
+        </p>
       )}
     </section>
   )

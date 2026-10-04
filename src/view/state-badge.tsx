@@ -2,10 +2,10 @@ import { CircleDot, CircleSlash, EyeOff, GitMerge, PencilLine } from 'lucide-rea
 
 import { Badge } from '@/components/ui/badge.tsx'
 
-import { toneOf } from '../live/lookup.ts'
+import { absenceOf, toneOf } from '../live/lookup.ts'
 import type { Sighting } from '../kinds.ts'
 import { isTracked } from '../refs.ts'
-import { useReading } from './reading.tsx'
+import { aroundOf, useReading } from './reading.tsx'
 
 /**
  * What one reference is doing, as one badge.
@@ -18,10 +18,14 @@ import { useReading } from './reading.tsx'
  *  1. **Not a tracker reference at all.** A gate somebody wrote into the
  *     journey that no tracker will ever tick off for us. It is drawn as what it
  *     is and nothing is implied about it.
- *  2. **A tracker reference nobody has been able to look at.** Either nothing
- *     is framing this page, or the host's last refresh had nothing about it.
- *     This is the ABSENCE of a reading — not "unknown", which reads as a state,
- *     and not blank, which reads as fine.
+ *  2. **A tracker reference nobody has been able to look at.** Nothing is
+ *     framing this page; or a host is, and handed over no reading (it refused
+ *     `live.get`, and its reason is the tooltip); or the host's last refresh
+ *     had nothing about it. Three different absences, worded the way `Sight`
+ *     words them at the top of the page — `absenceOf` in `live/lookup.ts` is
+ *     shared with the rail so the two cannot drift. This is the ABSENCE of a
+ *     reading — not "unknown", which reads as a state, and not blank, which
+ *     reads as fine.
  *  3. **A reading.** Then the tracker's own word, and the date it was read on.
  *
  * The second is the line this whole app exists to get right. It must never be
@@ -47,7 +51,8 @@ const MARKS = {
 } as const
 
 export function StateBadge({ refName, seen }: { refName: string; seen: Sighting | null }) {
-  const { live } = useReading()
+  const reading = useReading()
+  const { live } = reading
 
   if (!isTracked(refName)) {
     return (
@@ -59,18 +64,21 @@ export function StateBadge({ refName, seen }: { refName: string; seen: Sighting 
   }
 
   if (!seen) {
+    const absent = absenceOf(live, aroundOf(reading))
     return (
       <Badge
         variant="unseen"
         title={
           live
             ? 'This host read the trackers, and this reference was not in what it read.'
-            : 'This app holds the journey. What a tracker says about this reference is read by a host, and nothing is ' +
-              'framing this page — so there is nothing to show, which is not the same as nothing being there.'
+            : reading.framed
+              ? absent.why
+              : 'This app holds the journey. What a tracker says about this reference is read by a host, and nothing is ' +
+                'framing this page — so there is nothing to show, which is not the same as nothing being there.'
         }
       >
         <EyeOff aria-hidden="true" />
-        {live ? 'not in the last refresh' : 'state not visible from here'}
+        {live || reading.framed ? absent.word : 'state not visible from here'}
       </Badge>
     )
   }

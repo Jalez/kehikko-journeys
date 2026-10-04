@@ -49,13 +49,14 @@ describe('the manifest a host reads', () => {
   })
 
   /**
-   * One capability, and it is the whole claim of the extraction: this app holds
-   * its own journeys and asks a host only for what a host alone can see. If
+   * One read, and it is the whole claim of the extraction: this app holds its
+   * own journeys and asks a host only for what a host alone can see. The three
+   * writes are each a person's press carried to the host. If
    * `epics:read` or `steps:read` ever appears here, something has started
    * reading its own material over a bridge.
    */
   test('asks for nothing it holds itself', () => {
-    expect(MANIFEST.declares.uses).toEqual(['live:read', 'selection:set'])
+    expect(MANIFEST.declares.uses).toEqual(['live:read', 'selection:set', 'filters:set', 'disposition:set'])
     expect(MANIFEST.declares.uses).not.toContain('epics:read')
     expect(MANIFEST.declares.uses).not.toContain('steps:read')
   })
@@ -76,7 +77,17 @@ describe('the manifest a host reads', () => {
    */
   test('says it both sets the selection and moves when it changes', () => {
     expect(MANIFEST.declares.uses).toContain('selection:set')
-    expect(MANIFEST.reacts).toEqual(['selection'])
+    expect(MANIFEST.reacts).toContain('selection')
+  })
+
+  /**
+   * Both ends of a disposition, for the same reason: the card's control calls
+   * `disposition.set`, and a mark arriving in a context recomputes the card,
+   * the rail and the step's "done".
+   */
+  test('says it marks why things closed and moves when a mark changes', () => {
+    expect(MANIFEST.declares.uses).toContain('disposition:set')
+    expect(MANIFEST.reacts).toEqual(['selection', 'dispositions'])
   })
 
   /**
