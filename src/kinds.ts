@@ -35,6 +35,8 @@ export interface JourneyView {
   steps: Step[]
   stepsFrom?: StepsFrom
   blockedBy: Record<string, string[]>
+  /** Decision issues no commit will close, answered by these changes instead. Read as `done` once they merge. */
+  settledBy?: Record<string, string[]>
   plan: 'stored' | 'elsewhere' | 'none'
 }
 
@@ -58,6 +60,12 @@ export interface Sighting {
   assignees?: string[]
   reviewers?: string[]
   author?: string
+  /**
+   * Why the tracker says it closed, where it says: GitHub's `stateReason`
+   * (`COMPLETED`, `NOT_PLANNED`, `DUPLICATE`). Absent everywhere else, which
+   * is most of the time — see `verdictOf` in `live/lookup.ts`.
+   */
+  stateReason?: string | null
 }
 
 /**

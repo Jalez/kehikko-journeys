@@ -1,7 +1,19 @@
 import { describe, expect, test } from 'bun:test'
 
+import type { Disposition } from 'roadmap-module-protocol'
+
 import type { Live } from '../src/kinds.ts'
-import { carriedBy, isChange, isSettled, railOf, stateOf, toneOf } from '../src/live/lookup.ts'
+import {
+  carriedBy,
+  facetsOfRef,
+  isChange,
+  isSettled,
+  railOf,
+  standing,
+  stateOf,
+  toneOf,
+  verdictOf,
+} from '../src/live/lookup.ts'
 
 /**
  * The rail is the one thing on this page that makes a CLAIM.
@@ -21,6 +33,7 @@ const LIVE: Live = {
     '11': { state: 'opened', assignees: ['ada'] },
     '12': { state: 'closed' },
     '13': { state: 'opened' },
+    '14': { state: 'closed' },
   },
   mrs: {
     '20': { state: 'opened' },
@@ -31,7 +44,7 @@ const LIVE: Live = {
   },
   ghIssues: { 'gh#30': { state: 'opened' }, 'gh:org/repo#31': { state: 'closed' } },
   ghPrs: { 'gh#40': { state: 'opened', draft: true } },
-  links: { '13': [20] },
+  links: { '13': [20], '14': [23] },
   ghLinks: { 'gh#30': [40] },
 }
 
@@ -123,7 +136,14 @@ describe('the rail', () => {
     expect(railOf(LIVE, '#10')).toMatchObject({ now: 0, word: 'Todo' })
     expect(railOf(LIVE, '#11')).toMatchObject({ now: 1, word: 'Taken' })
     expect(railOf(LIVE, '#13')).toMatchObject({ now: 4, word: 'PR open' })
-    expect(railOf(LIVE, '#12')).toMatchObject({ now: 5, word: 'In dev' })
+    /* Closed with a merged change under it: GitLab's sign that it was done. */
+    expect(railOf(LIVE, '#14')).toMatchObject({ now: 5, word: 'In dev' })
+  })
+
+  test('an issue closed with no reason anybody can read is not In dev, and says a person should decide', () => {
+    const rail = railOf(LIVE, '#12')
+    expect(rail).toMatchObject({ now: -1, word: 'Closed, reason unknown' })
+    expect(rail.why).toContain('person')
   })
 
   test('nothing ever reaches In prod, because that is read from a repository', () => {
@@ -141,9 +161,110 @@ describe('whether a step is settled', () => {
   })
 
   test('every reference has to have finished, and to have been READ', () => {
-    expect(isSettled(LIVE, ['#12', '!23'])).toBe(true)
-    expect(isSettled(LIVE, ['#12', '#10'])).toBe(false)
-    expect(isSettled(LIVE, ['#12', '#999'])).toBe(false)
-    expect(isSettled(null, ['#12'])).toBe(false)
+    expect(isSettled(LIVE, ['#14', '!23'])).toBe(true)
+    expect(isSettled(LIVE, ['#14', '#10'])).toBe(false)
+    expect(isSettled(LIVE, ['#14', '#999'])).toBe(false)
+    expect(isSettled(null, ['#14'])).toBe(false)
+  })
+})
+
+/**
+ * Three absences, worded the way the banner words them.
+ *
+ * The bug this guards: inside the host, framed, with `live.get` refused, the
+ * banner said "Framed, and refused" and every card underneath it said
+ * "Nothing is framing this page". `live` is null in both cases, so a rail
+ * that asked only `live` could not tell them apart.
+ */
+describe('a reference with no reading, by why there is none', () => {
+  test('unframed, framed-and-refused, and framed with a reading are three sentences', () => {
+    const alone = railOf(null, '#10')
+    const refused = railOf(null, '#10', { framed: true, withheld: 'Nothing has been read from the trackers for that epic' })
+    const missed = railOf(LIVE, '#999', { framed: true })
+    expect(alone.why).toContain('Nothing is framing this page')
+    expect(refused.word).toBe('no reading from the host')
+    expect(refused.why).toContain('Nothing has been read from the trackers for that epic')
+    expect(refused.why).not.toContain('Nothing is framing')
+    expect(missed.word).toBe('not in the last refresh')
+  })
+
+  test('framed with nothing handed over and no reason given still does not claim to be unframed', () => {
+    const quiet = railOf(null, '#10', { framed: true })
+    expect(quiet.unseen).toBe(true)
+    expect(quiet.why).not.toContain('Nothing is framing')
+  })
+})
+
+describe('why a reference closed', () => {
+  const READ: Live = {
+    ghIssues: {
+      'gh#1': { state: 'closed', stateReason: 'NOT_PLANNED' },
+      'gh#2': { state: 'closed', stateReason: 'COMPLETED' },
+      'gh#3': { state: 'closed' },
+      'gh#4': { state: 'opened' },
+      'gh#5': { state: 'closed', stateReason: 'DUPLICATE' },
+    },
+    ghPrs: { 'gh#9': { state: 'merged' }, 'gh#8': { state: 'closed' } },
+  }
+  const mark = (ref: string, value: Disposition['value'], target: string | null = null): Disposition => ({
+    ref,
+    value,
+    target,
+    note: '',
+    by: 'ada',
+    at: '2026-10-05T10:00:00Z',
+  })
+
+  test('the tracker’s reason is a default, and says it is the tracker’s', () => {
+    expect(verdictOf(READ, 'gh#1')).toMatchObject({ value: 'wont-do', source: 'tracker' })
+    expect(verdictOf(READ, 'gh#2')).toMatchObject({ value: 'done', source: 'tracker' })
+    expect(verdictOf(READ, 'gh#9')).toMatchObject({ value: 'done', source: 'tracker' })
+    expect(verdictOf(READ, 'gh#3')).toMatchObject({ value: 'unknown', source: null })
+    expect(verdictOf(READ, 'gh#4')).toMatchObject({ value: null })
+  })
+
+  test('a person’s mark wins over the tracker', () => {
+    const marks = [mark('gh#2', 'superseded', 'gh#7')]
+    expect(verdictOf(READ, 'gh#2', { marks })).toMatchObject({ value: 'superseded', source: 'person' })
+    expect(railOf(READ, 'gh#2', { marks })).toMatchObject({ now: -1, word: 'Superseded by gh#7' })
+    expect(railOf(READ, 'gh#2', { marks }).why).toContain('ada')
+  })
+
+  test('settledBy is done once its answering changes merged, and only then', () => {
+    expect(verdictOf(READ, 'gh#4', { settledBy: { 'gh#4': ['gh#9'] } })).toMatchObject({
+      value: 'done',
+      source: 'journey',
+    })
+    expect(verdictOf(READ, 'gh#4', { settledBy: { 'gh#4': ['gh#9', 'gh#8'] } }).value).toBeNull()
+    expect(railOf(READ, 'gh#4', { settledBy: { 'gh#4': ['gh#9'] } })).toMatchObject({ now: 5, word: 'In dev' })
+    /* And a person can still overrule the journey. */
+    expect(
+      verdictOf(READ, 'gh#4', { settledBy: { 'gh#4': ['gh#9'] }, marks: [mark('gh#4', 'wont-do')] }).value,
+    ).toBe('wont-do')
+  })
+
+  test('the facets a filter reads, from the shared vocabulary', () => {
+    expect(facetsOfRef(READ, 'gh#1')).toEqual(['issue:closed', 'closed:wont-do'])
+    expect(facetsOfRef(READ, 'gh#9')).toEqual(['change:merged', 'closed:done'])
+    expect(facetsOfRef(READ, 'gh#8')).toEqual(['change:closed', 'closed:unknown'])
+    expect(facetsOfRef(READ, 'gh#4')).toEqual(['issue:open'])
+    /* Unread has no facets, so no filter can hide it. */
+    expect(facetsOfRef(null, 'gh#1')).toEqual([])
+  })
+
+  test('done settles; won’t do, duplicate and superseded neither settle nor block', () => {
+    expect(standing(READ, ['gh#2', 'gh#1'])).toMatchObject({ settled: true, done: ['gh#2'] })
+    expect(standing(READ, ['gh#2', 'gh#5']).aside).toEqual([{ ref: 'gh#5', value: 'duplicate' }])
+    expect(isSettled(READ, ['gh#2', 'gh#5'])).toBe(true)
+    /* Nothing delivered is not done, however tidily it was set aside. */
+    expect(isSettled(READ, ['gh#1', 'gh#5'])).toBe(false)
+    expect(isSettled(READ, ['gh#2', 'gh#4'])).toBe(false)
+  })
+
+  test('closed for no known reason holds "done" back and is listed for a person to decide', () => {
+    const where = standing(READ, ['gh#2', 'gh#3'])
+    expect(where.settled).toBe(false)
+    expect(where.undecided).toEqual(['gh#3'])
+    expect(isSettled(READ, ['gh#2', 'gh#3'], { marks: [mark('gh#3', 'done')] })).toBe(true)
   })
 })

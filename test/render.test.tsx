@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { render } from '@testing-library/react'
 
+import type { Disposition } from 'roadmap-module-protocol'
+import type { Facet } from 'roadmap-module-protocol/facets'
+
 import type { JourneyView, Live } from '../src/kinds.ts'
 import { Card } from '../src/view/card.tsx'
 import { ReadingProvider } from '../src/view/reading.tsx'
 import { Sight } from '../src/view/sight.tsx'
-import { StepBlock } from '../src/view/step.tsx'
+import { StepBlock, bundlesOf, foldSummary } from '../src/view/step.tsx'
 
 /**
  * The two claims this app makes with pixels, asserted in words.
@@ -220,5 +223,142 @@ describe('a step that can be picked out on the canvas', () => {
     expect(tick.disabled).toBe(true)
     expect(tick.getAttribute('aria-label')).toContain('names no reference')
     expect(block(['gh#1'], true, EMPTY).querySelector('section')?.getAttribute('data-picked')).toBeNull()
+  })
+})
+
+/**
+ * The badge and the rail say why there is no reading the way the banner does.
+ *
+ * Inside the host with `live.get` refused, the banner read "Framed, and
+ * refused" and every card underneath it read "Nothing is framing this page".
+ */
+describe('a card on a framed page the host gave no reading for', () => {
+  const REASON = 'Nothing has been read from the trackers for that epic'
+  const drawRefused = () =>
+    render(
+      <ReadingProvider value={{ live: null, journey: JOURNEY, framed: true, withheld: REASON }}>
+        <Card refName="gh#9" />
+      </ReadingProvider>,
+    ).container
+
+  test('says the host had no reading, and gives its reason', () => {
+    const refused = drawRefused()
+    const text = refused.textContent ?? ''
+    expect(text).toContain('no reading from the host')
+    expect(text).toContain(REASON)
+    expect(refused.querySelector('[data-slot=badge]')?.getAttribute('title')).toContain(REASON)
+  })
+
+  test('never says nothing is framing it', () => {
+    const refused = drawRefused()
+    expect(refused.textContent).not.toContain('Nothing is framing')
+    expect(refused.textContent).not.toContain('state not visible from here')
+  })
+})
+
+/**
+ * An issue folds its changes away, and the fold still counts them.
+ */
+describe('the changes under an issue', () => {
+  const LIVE: Live = {
+    issues: { '13': { state: 'opened' }, '14': { state: 'opened' } },
+    mrs: { '20': { state: 'opened' }, '23': { state: 'merged' }, '24': { state: 'closed' }, '25': { state: 'merged' } },
+    links: { '13': [20, 23, 24], '14': [25] },
+  }
+  const STEP = { title: 'It appears on the board', body: '', refs: ['#13', '#14'], notes: [] }
+  const block = (extra: { unfolded?: string[]; hidden?: Facet[] } = {}) =>
+    render(
+      <ReadingProvider value={{ live: LIVE, journey: JOURNEY, framed: true, ...extra }}>
+        <StepBlock step={STEP} index={0} editing={false} selection={[]} framed />
+      </ReadingProvider>,
+    ).container
+
+  test('folded by default, with a one-line summary standing in for the changes', () => {
+    const box = block()
+    expect(box.querySelector('[data-card="!20"]')).toBeNull()
+    expect(box.querySelector('[data-card="#13"]')).not.toBeNull()
+    const fold = box.querySelector('[data-fold="#13"]')
+    expect(fold?.textContent).toContain('3 changes · 1 open · 1 merged · 1 closed')
+    expect(fold?.getAttribute('aria-expanded')).toBe('false')
+    expect(box.textContent).toContain('expand all')
+  })
+
+  test('unfolded, the changes are cards again and the step offers to fold all', () => {
+    const box = block({ unfolded: ['#13', '#14'] })
+    expect(box.querySelector('[data-card="!20"]')).not.toBeNull()
+    expect(box.querySelector('[data-fold="#13"]')?.getAttribute('aria-expanded')).toBe('true')
+    expect(box.textContent).toContain('fold all')
+  })
+
+  test('a filter hides changes from the summary too, and the step counts what it hid', () => {
+    const box = block({ hidden: ['change:closed'] })
+    expect(box.querySelector('[data-fold="#13"]')?.textContent).toContain('2 changes · 1 open · 1 merged')
+    expect(box.textContent).toContain('1 hidden by the filter')
+  })
+
+  test('a step whose every card is filtered out says how many, rather than looking empty', () => {
+    const box = block({ hidden: ['issue:open', 'change:open', 'change:merged', 'change:closed'] })
+    expect(box.querySelector('[data-card]')).toBeNull()
+    expect(box.textContent).toContain('6 hidden by the filter')
+  })
+})
+
+describe('bundling a step’s cards for folding', () => {
+  test('a change kept under an issue the filter hid is drawn loose, not under the wrong issue', () => {
+    const drawn = [
+      { ref: '#1', under: false },
+      { ref: '!2', under: true },
+      { ref: '#3', under: false },
+      { ref: '!4', under: true },
+    ]
+    const kept = drawn.filter((card) => card.ref !== '#3')
+    expect(bundlesOf(drawn, kept)).toEqual([
+      { ref: '#1', under: ['!2'] },
+      { ref: '!4', under: [] },
+    ])
+  })
+
+  test('the summary is singular for one change and lists only states that occur', () => {
+    expect(foldSummary({ mrs: { '1': { state: 'merged' } } }, ['!1'])).toBe('1 change · 1 merged')
+    expect(foldSummary(null, ['!1', '!2'])).toBe('2 changes · 2 not seen')
+  })
+})
+
+/**
+ * Why a closed reference closed, and whose word that is.
+ */
+describe('a closed reference’s disposition', () => {
+  const LIVE: Live = {
+    ghIssues: { 'gh#1': { state: 'closed', stateReason: 'NOT_PLANNED' }, 'gh#3': { state: 'closed' } },
+  }
+  const card = (ref: string, extra: { framed?: boolean; marks?: Disposition[] } = {}) =>
+    render(
+      <ReadingProvider value={{ live: LIVE, journey: JOURNEY, ...extra }}>
+        <Card refName={ref} />
+      </ReadingProvider>,
+    ).container
+
+  test('the tracker’s reason says it is the tracker’s', () => {
+    const text = card('gh#1').textContent ?? ''
+    expect(text).toContain('won’t do')
+    expect(text).toContain('from the tracker')
+  })
+
+  test('a person’s mark says whose it is', () => {
+    const marks: Disposition[] = [
+      { ref: 'gh#1', value: 'duplicate', target: 'gh#2', note: '', by: 'ada', at: null },
+    ]
+    const text = card('gh#1', { marks }).textContent ?? ''
+    expect(text).toContain('duplicate of gh#2')
+    expect(text).toContain('marked by ada')
+  })
+
+  test('closed for no known reason asks a person to decide', () => {
+    expect(card('gh#3').textContent).toContain('a person should decide')
+  })
+
+  test('the control to mark it is offered only while a host is framing the page', () => {
+    expect(card('gh#3', { framed: true }).textContent).toContain('mark why')
+    expect(card('gh#3').textContent).not.toContain('mark why')
   })
 })

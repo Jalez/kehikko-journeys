@@ -1,10 +1,20 @@
 import { flushSync } from 'react-dom'
-import { LIMITS, type Goto, type ModuleContext } from 'roadmap-module-protocol'
+import {
+  LIMITS,
+  filterChoiceSchema,
+  type Disposition,
+  type DispositionValue,
+  type FilterChoice,
+  type Goto,
+  type ModuleContext,
+} from 'roadmap-module-protocol'
 import { HostRefused, connect, type Connection } from 'roadmap-module-protocol/client'
+import { HIDE_GROUP, countFacets, hiddenIn, offer, type Facet } from 'roadmap-module-protocol/facets'
 
 import { ID } from '../manifest.ts'
 import { GET_LIVE } from '../wire/methods.ts'
 import type { Brief, JourneyView, Live, Target } from './kinds.ts'
+import { cardsUnder, facetsOfRef, type Around } from './live/lookup.ts'
 import { bounded, firstShown, samePick, togglePick } from './refs.ts'
 import { get, post, standIn } from './store/api.ts'
 import { apply as applyTheme } from './theme.ts'
@@ -103,6 +113,29 @@ export interface State {
   /** What the host's last refresh saw, or null. */
   live: Live | null
   /**
+   * The host's own words for why it handed over no reading, when it refused.
+   *
+   * Apart from `refused` because that one is a whole sentence for the banner
+   * and is cleared by the next context; this is the reason alone, for the
+   * badge and the rail to quote, and it lasts as long as the missing reading
+   * it explains.
+   */
+  withheld: string | null
+  /** People's marks on why references closed: `context.dispositions`, whole. */
+  marks: Disposition[]
+  /** This container's filter choice, as the host holds it. */
+  filters: FilterChoice
+  /** The facets that choice hides, read once from `filters`. */
+  hidden: Facet[]
+  /**
+   * Issues whose changes somebody has unfolded.
+   *
+   * Folded is the default, so this lists the exceptions. In memory and no
+   * further: remembering it across reloads would need `state:keep`, which
+   * this app does not declare, and a fold is cheap to redo.
+   */
+  unfolded: string[]
+  /**
    * What the canvas has picked out, as the host last said it.
    *
    * Never what this page asked for. A press on a step below asks the host to
@@ -148,6 +181,11 @@ let state: State = {
   journey: null,
   epic: null,
   live: null,
+  withheld: null,
+  marks: [],
+  filters: {},
+  hidden: [],
+  unfolded: [],
   selection: [],
   framed: false,
   refused: null,
@@ -210,6 +248,46 @@ export function say(what: string): void {
 
 export function setEditing(which: number): void {
   set({ editing: state.editing === which ? -1 : which })
+}
+
+/** Open or fold the changes under one issue. */
+export function toggleFold(issue: string): void {
+  set({
+    unfolded: state.unfolded.includes(issue)
+      ? state.unfolded.filter((ref) => ref !== issue)
+      : [...state.unfolded, issue],
+  })
+}
+
+/** Open or fold every listed issue at once — a step's "expand all" and "fold all". */
+export function setFolds(issues: readonly string[], open: boolean): void {
+  const rest = state.unfolded.filter((ref) => !issues.includes(ref))
+  set({ unfolded: open ? [...rest, ...issues] : rest })
+}
+
+/** What `lookup.ts` needs from this state beyond `live`. */
+function around(): Around {
+  return {
+    framed: state.framed,
+    withheld: state.withheld,
+    marks: state.marks,
+    settledBy: state.journey?.settledBy ?? {},
+  }
+}
+
+/** Every card the open journey draws, filter or fold aside, in step order. */
+function everyCard(): { ref: string; under: boolean; owner: string | null }[] {
+  const journey = state.journey
+  if (!journey || journey.plan === 'elsewhere') return []
+  const out: { ref: string; under: boolean; owner: string | null }[] = []
+  for (const step of journey.steps) {
+    let owner: string | null = null
+    for (const card of cardsUnder(state.live, step.refs ?? [])) {
+      if (!card.under) owner = card.ref
+      out.push({ ...card, owner: card.under ? owner : null })
+    }
+  }
+  return out
 }
 
 /* ------------------------------------------------------------------ *
@@ -374,15 +452,128 @@ async function fill(): Promise<void> {
      * data, it is noise with a timestamp.
      */
     if (state.journey !== being) return
-    set({ live: (answer ?? null) as Live | null, refused: null })
+    set({ live: (answer ?? null) as Live | null, refused: null, withheld: null })
+    announce()
   } catch (e) {
     if (state.journey !== being) return
     set({
       live: null,
+      withheld: e instanceof HostRefused ? e.refusal.error : (e as Error).message,
       refused:
         `The host refused ${GET_LIVE} (${(e as Error).message}). Everything below still works; the states beside ` +
         'the references are what is missing, and they are marked as missing rather than guessed.',
     })
+    announce()
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * The filter, offered
+ *
+ * One `toggles` group called "hide", built by `offer()` from the shared
+ * ref-facet vocabulary in `roadmap-module-protocol/facets` — the same group id
+ * and the same option ids References offers, so "closed MRs/PRs" switched on
+ * means the same thing in both containers. Nothing here keeps a copy of the
+ * vocabulary; a facet the protocol learns arrives here with the next install.
+ *
+ * Counted, so each option says how many cards it would hide on this journey,
+ * and a facet nothing here has is left out — except one that is switched on,
+ * which `offer` keeps so a person can always switch off what they switched on.
+ *
+ * Re-offered whenever what it counts changes — a reading arriving, a journey
+ * opening, a mark — and only then: the offer is the WHOLE offer every time,
+ * and sending the same one on every selection tick would be a host redrawing a
+ * menu for nothing. With nothing to count — no journey, or no reading, where
+ * `sift` could hide nothing anyway — the offer is empty, which the protocol
+ * reads as "nothing here can be narrowed now".
+ * ------------------------------------------------------------------ */
+
+/** The last offer sent, as JSON, so that an unchanged one is not sent again. */
+let offered: string | null = null
+
+function announce(): void {
+  if (!host) return
+  const facets = (ref: string) => facetsOfRef(state.live, ref, around())
+  const counts = countFacets(
+    everyCard().map((card) => card.ref),
+    facets,
+  )
+  const groups = Object.keys(counts).length || state.hidden.length ? [offer({ counts, hidden: state.hidden })] : []
+  const key = JSON.stringify(groups)
+  if (key === offered) return
+  offered = key
+  host.filters(groups)
+}
+
+/**
+ * Lift whatever part of the filter hides one reference, for a walk that was
+ * aimed at it.
+ *
+ * The rule References keeps, for its reason: a walk that answered `found` with
+ * the card filtered out would send a reader to a page where their reference is
+ * not drawn, which is worse than the fallback link `found: false` gets them.
+ * So the facets hiding it are ASKED off — the choice is the host's — and the
+ * answer is read rather than assumed: what comes back is what the host
+ * settled on, and only that goes into state.
+ *
+ * Answers null when the card is drawn now, or the host's reason when it is not.
+ */
+async function reveal(ref: string): Promise<string | null> {
+  const blocking = facetsOfRef(state.live, ref, around()).filter((facet) => state.hidden.includes(facet))
+  if (!blocking.length) return null
+  if (!host?.greeted()) return `${ref} is hidden by the filter, and there is no host to lift it.`
+  const rest = state.hidden.filter((facet) => !blocking.includes(facet))
+  const { [HIDE_GROUP]: _hide, ...others } = state.filters
+  const filters: FilterChoice = rest.length ? { ...others, [HIDE_GROUP]: rest } : others
+  try {
+    const answer = await host.request('filters.set', { filters })
+    const held = filterChoiceSchema.safeParse((answer as { filters?: unknown } | null)?.filters)
+    if (!held.success) return 'The host answered that filter change in a shape this app could not read.'
+    set({ filters: held.data, hidden: hiddenIn(held.data) })
+    announce()
+    const still = facetsOfRef(state.live, ref, around()).some((facet) => state.hidden.includes(facet))
+    return still ? `The host kept ${ref} hidden by the filter.` : null
+  } catch (error) {
+    return error instanceof HostRefused
+      ? `${ref} is hidden by the filter, and the host would not lift it (${error.refusal.error}).`
+      : `${ref} is hidden by the filter, and this app failed while asking the host to lift it.`
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Why a reference closed, said by a person
+ *
+ * The control on a closed card calls this, and nothing else does: like the
+ * selection, a disposition is a person's word and is set from a press. What
+ * comes back is a context carrying the new marks — the card is redrawn from
+ * that, never from here, so a mark the host refused or changed is never shown
+ * as if it held. `by` and `at` are the host's to fill in; the method does not
+ * carry them.
+ * ------------------------------------------------------------------ */
+
+export async function markDisposition(
+  ref: string,
+  value: DispositionValue | null,
+  target?: string,
+): Promise<void> {
+  if (!host?.greeted()) {
+    say('Nothing is framing this page, so there is nowhere to keep that mark.')
+    return
+  }
+  const named = target?.trim()
+  /* Only a duplicate or a superseded mark names another ref; the method
+     refuses a target on anything else. */
+  const names = Boolean(named) && (value === 'duplicate' || value === 'superseded')
+  const params = names ? { ref, value, target: named, note: '' } : { ref, value, note: '' }
+  try {
+    await host.request('disposition.set', params)
+    say('')
+  } catch (error) {
+    say(
+      error instanceof HostRefused
+        ? `The host would not keep that mark (${error.refusal.error}). Nothing has changed.`
+        : 'This app failed while asking the host to keep that mark. Nothing has changed.',
+    )
   }
 }
 
@@ -467,6 +658,25 @@ export async function goTo(what: Target | null, how: Walk = {}): Promise<{ found
   if (!state.journey) {
     wanted = what
     return { found: false, why: 'No journey is open in this app yet.' }
+  }
+
+  if (what.ref) {
+    /* A card drawn inside a folded issue, or hidden by the filter, is not on
+       the page to be found. The fold is this page's own and is simply opened;
+       the filter is the host's and is asked — and only for a walk aimed at
+       this container, never for a quiet one: a click in another container is
+       not a reason to change what this one is narrowed by. */
+    const owners = everyCard()
+      .filter((card) => card.ref === what.ref && card.owner)
+      .map((card) => card.owner as string)
+    if (owners.some((owner) => !state.unfolded.includes(owner))) setFolds(owners, true)
+    if (!how.quiet) {
+      const kept = await reveal(what.ref)
+      if (kept) {
+        say(kept)
+        return { found: false, why: kept }
+      }
+    }
   }
 
   let target: Element | null = null
@@ -734,7 +944,16 @@ function context(next: ModuleContext): void {
   /* The selection rides in the same patch as `framed` and `epic`: all three are
      one fact about this context, and a page rendered between them would draw a
      step as picked under a heading the host had not yet named. */
-  set({ framed: true, refused: null, epic: slug, selection: picked })
+  const filters = next.filters ?? {}
+  set({
+    framed: true,
+    refused: null,
+    epic: slug,
+    selection: picked,
+    marks: next.dispositions ?? [],
+    filters,
+    hidden: hiddenIn(filters),
+  })
 
   const project = typeof next.projectPath === 'string' && next.projectPath.trim() ? next.projectPath : null
   const relocated = standingIn !== project
@@ -748,7 +967,8 @@ function context(next: ModuleContext): void {
        from the new one. A journey left on screen while its replacement is in
        flight is the previous project's material under the current project's
        name, which is a worse half-second than an empty container. */
-    set({ index: [], journey: null, live: null, said: '' })
+    set({ index: [], journey: null, live: null, withheld: null, said: '' })
+    announce()
     void standIn(project)
       .then(async (issued) => {
         /* A context that arrived while this was in flight has already moved us
@@ -777,12 +997,13 @@ function context(next: ModuleContext): void {
        about something else — a theme, a selection in a canvas with no epic —
        and redrawing an empty container on each of those is work nobody sees except
        as a flicker. */
-    if (moved) set({ journey: null, live: null })
+    if (moved) set({ journey: null, live: null, withheld: null })
+    announce()
     return
   }
 
   if (moved) {
-    set({ live: null })
+    set({ live: null, withheld: null })
     /* The selection is applied AFTER the journey is on screen, not beside the
        request for it. A walk into a document that has not been fetched finds
        nothing, and `goTo` would honestly report so; the reader would see the
@@ -794,6 +1015,8 @@ function context(next: ModuleContext): void {
     return
   }
 
+  /* Marks and the filter may have changed, and the offer counts both. */
+  announce()
   if (repicked) showSelection()
 }
 
@@ -848,6 +1071,14 @@ function showSelection(): void {
   for (const anchor of document.querySelectorAll('a[data-ref]')) {
     const ref = anchor.getAttribute('data-ref')
     if (ref) shown.add(ref)
+  }
+  /* And the changes folded under an issue, which are on the page in every
+     sense but the DOM's: `goTo` opens the fold before it looks. Not the ones
+     the filter hides — a quiet walk does not lift the filter. */
+  for (const card of everyCard()) {
+    if (card.owner && !facetsOfRef(state.live, card.ref, around()).some((f) => state.hidden.includes(f))) {
+      shown.add(card.ref)
+    }
   }
 
   const ref = firstShown(shown, picked)

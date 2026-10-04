@@ -1,11 +1,16 @@
+import { useState } from 'react'
+import { DISPOSITIONS, type DispositionValue } from 'roadmap-module-protocol'
+
 import { Badge } from '@/components/ui/badge.tsx'
+import { Button } from '@/components/ui/button.tsx'
 import { cn } from '@/lib/utils.ts'
 
-import { isChange, stateOf } from '../live/lookup.ts'
+import { markDisposition } from '../journeys.ts'
+import { isChange, stateOf, verdictOf, type Verdict } from '../live/lookup.ts'
 import { isTracked } from '../refs.ts'
 import { Ref } from './prose.tsx'
 import { Rail } from './rail.tsx'
-import { useReading } from './reading.tsx'
+import { aroundOf, useReading } from './reading.tsx'
 import { StateBadge } from './state-badge.tsx'
 
 /**
@@ -40,9 +45,16 @@ import { StateBadge } from './state-badge.tsx'
  * issue the change belongs to, and there is no room for a line and a label.
  */
 export function Card({ refName, under }: { refName: string; under?: boolean }) {
-  const { live, journey } = useReading()
+  const reading = useReading()
+  const { live, journey } = reading
   const seen = stateOf(live, refName)
   const gates = journey?.blockedBy?.[refName] ?? []
+  const verdict = verdictOf(live, refName, aroundOf(reading))
+  /* Why it closed is said wherever it closed, and wherever somebody's word —
+     a person's mark, the journey's `settledBy` — says more than the state.
+     A merged change is left quiet: "done, from the tracker" on every one of
+     them would be a line restating the badge beside it. */
+  const telling = seen?.state === 'closed' || verdict.source === 'person' || verdict.source === 'journey'
 
   return (
     <div
@@ -138,7 +150,134 @@ export function Card({ refName, under }: { refName: string; under?: boolean }) {
         </div>
       )}
 
+      {telling && <Why refName={refName} verdict={verdict} canMark={Boolean(reading.framed)} />}
+
       <Rail refName={refName} />
+    </div>
+  )
+}
+
+const WORDS: Record<DispositionValue, string> = {
+  done: 'done',
+  'wont-do': 'won’t do',
+  duplicate: 'duplicate of…',
+  superseded: 'superseded by…',
+}
+
+/** What a verdict says, in the words a card has room for. */
+export function verdictWords(verdict: Verdict): { what: string; whose: string } {
+  const target = verdict.mark?.target
+  const what =
+    verdict.value === 'unknown' || !verdict.value
+      ? 'closed, reason unknown'
+      : verdict.value === 'duplicate' || verdict.value === 'superseded'
+        ? target
+          ? `${verdict.value === 'duplicate' ? 'duplicate of' : 'superseded by'} ${target}`
+          : verdict.value
+        : WORDS[verdict.value]
+  const whose =
+    verdict.source === 'person'
+      ? `marked by ${verdict.mark?.by || 'a person'}`
+      : verdict.source === 'journey'
+        ? 'a decision this journey records as answered'
+        : verdict.source === 'tracker'
+          ? 'from the tracker'
+          : 'nobody has said why — a person should decide'
+  return { what, whose }
+}
+
+/**
+ * Why a reference closed, whose word that is, and — framed — a way to say so.
+ *
+ * The source is never left out. "Won't do" because a person said so and "won't
+ * do" because GitHub reads `NOT_PLANNED` are different claims, and a reader
+ * deciding whether to argue with one needs to know which they are looking at.
+ *
+ * The control sets the mark through the host (`disposition.set`) and draws
+ * nothing of its own: the card changes when the next context carries the mark
+ * back. Drawn only while a host is framing the page, because standalone there
+ * is nowhere for a mark to be kept, and only on a closed reference, because
+ * why something closed is not a question about something open.
+ */
+function Why({ refName, verdict, canMark }: { refName: string; verdict: Verdict; canMark: boolean }) {
+  const { live } = useReading()
+  const [marking, setMarking] = useState(false)
+  const [value, setValue] = useState<DispositionValue>(
+    verdict.value && verdict.value !== 'unknown' ? verdict.value : 'done',
+  )
+  const [target, setTarget] = useState(verdict.mark?.target ?? '')
+  const { what, whose } = verdictWords(verdict)
+  const closed = stateOf(live, refName)?.state === 'closed'
+  const needsTarget = value === 'duplicate' || value === 'superseded'
+
+  return (
+    <div className="mt-1.5 text-xs leading-5 text-muted-foreground" data-disposition={verdict.value ?? 'none'}>
+      <span className={cn(verdict.value === 'unknown' && 'italic')}>
+        <span className="text-foreground">{what}</span> · {whose}
+        {verdict.mark?.note ? ` — ${verdict.mark.note}` : ''}
+      </span>
+      {canMark && closed && !marking && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="container"
+          className="ml-1 h-5 px-1.5 text-muted-foreground"
+          onClick={() => setMarking(true)}
+        >
+          {verdict.source === 'person' ? 'change' : 'mark why'}
+        </Button>
+      )}
+      {canMark && closed && marking && (
+        <form
+          className="mt-1 flex flex-wrap items-center gap-1.5"
+          onSubmit={(event) => {
+            event.preventDefault()
+            setMarking(false)
+            void markDisposition(refName, value, needsTarget ? target : undefined)
+          }}
+        >
+          <select
+            aria-label={`Why ${refName} closed`}
+            value={value}
+            onChange={(event) => setValue(event.target.value as DispositionValue)}
+            className="h-6 rounded border bg-background px-1 text-xs"
+          >
+            {DISPOSITIONS.map((option) => (
+              <option key={option} value={option}>
+                {WORDS[option]}
+              </option>
+            ))}
+          </select>
+          {needsTarget && (
+            <input
+              aria-label={value === 'duplicate' ? 'Duplicate of which reference' : 'Superseded by which reference'}
+              placeholder="gh#123"
+              value={target}
+              onChange={(event) => setTarget(event.target.value)}
+              className="h-6 w-24 rounded border bg-background px-1 text-xs"
+            />
+          )}
+          <Button type="submit" variant="outline" size="container">
+            keep
+          </Button>
+          {verdict.source === 'person' && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="container"
+              onClick={() => {
+                setMarking(false)
+                void markDisposition(refName, null)
+              }}
+            >
+              clear the mark
+            </Button>
+          )}
+          <Button type="button" variant="ghost" size="container" onClick={() => setMarking(false)}>
+            cancel
+          </Button>
+        </form>
+      )}
     </div>
   )
 }

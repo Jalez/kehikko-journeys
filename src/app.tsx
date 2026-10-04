@@ -4,13 +4,14 @@ import { Button } from '@/components/ui/button.tsx'
 
 import { clearPick, getSnapshot, grow, pick, subscribe } from './journeys.ts'
 import type { JourneyView, Live } from './kinds.ts'
+import { cardsUnder } from './live/lookup.ts'
 import { pickedState } from './refs.ts'
 import { NoJourneys, NoProject, Trouble } from './view/nowhere.tsx'
 import { Picker } from './view/picker.tsx'
 import { Prose } from './view/prose.tsx'
 import { ReadingProvider } from './view/reading.tsx'
 import { Sight } from './view/sight.tsx'
-import { StepBlock, cardsUnder } from './view/step.tsx'
+import { StepBlock } from './view/step.tsx'
 
 /**
  * The page.
@@ -54,7 +55,17 @@ export function App() {
   useEffect(grow)
 
   return (
-    <ReadingProvider value={{ live: state.live, journey: state.journey }}>
+    <ReadingProvider
+      value={{
+        live: state.live,
+        journey: state.journey,
+        framed: state.framed,
+        withheld: state.withheld,
+        marks: state.marks,
+        hidden: state.hidden,
+        unfolded: state.unfolded,
+      }}
+    >
       <div className="mx-auto w-full max-w-[44rem] px-3 pt-3 pb-12 @min-[26rem]/container:px-4 @min-[26rem]/container:pt-4">
         <Head journey={state.journey} />
         <Sight framed={state.framed} refused={state.refused} epic={state.epic} journey={state.journey} live={state.live} />
