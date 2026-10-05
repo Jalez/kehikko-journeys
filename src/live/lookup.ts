@@ -4,8 +4,8 @@ import {
   type DispositionValue,
   type TrackerReading,
   type TrackerRow,
-} from 'roadmap-module-protocol'
-import { dispositionOf, facetsOf, type DispositionSource, type Facet } from 'roadmap-module-protocol/facets'
+} from 'kehikot-module-protocol'
+import { dispositionOf, facetsOf, type DispositionSource, type Facet } from 'kehikot-module-protocol/facets'
 
 import type { JourneyView, Live } from '../kinds.ts'
 import { REF_IN_PROSE } from '../refs.ts'
@@ -64,7 +64,7 @@ export function carriedBy(live: Live | null, ref: string): string[] {
  * and only the ones a tracker could answer.
  *
  * The host does not read `journeys.json` — the journeys are this app's — so
- * `tracker.get({ epic })` would answer about the roadmap's epic and not about
+ * `tracker.get({ epic })` would answer about Kehikot's epic and not about
  * this page. The refs go over by name instead: what the steps carry, what
  * `settledBy` and `blockedBy` name, and every ref written into the prose, so
  * that a ref mentioned in a sentence gets the tracker's own link like a card
@@ -182,7 +182,7 @@ export function toneOf(seen: TrackerRow | null): Tone {
 /**
  * The rail.
  *
- * Seven words, in the roadmap's own order, and a position derived from ONE
+ * Seven words, in Kehikot's own order, and a position derived from ONE
  * thing: what the last refresh read. That is the whole of what this app can
  * see, and the rail says so rather than implying more.
  *

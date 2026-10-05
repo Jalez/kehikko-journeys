@@ -1,4 +1,4 @@
-import { MESSAGE, PROTOCOL } from 'roadmap-module-protocol'
+import { MESSAGE, PROTOCOL } from 'kehikot-module-protocol'
 
 /**
  * A stand-in host and store, shared by every file that drives `journeys.ts`

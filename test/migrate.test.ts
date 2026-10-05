@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, test } from 'bun:test'
-import { KEHIKOT_DIR, moduleFolder } from 'roadmap-module-protocol'
+import { KEHIKOT_DIR, moduleFolder } from 'kehikot-module-protocol'
 
 import { fold, migrate, verify } from '../dev/migrate.ts'
 import { ID } from '../manifest.ts'

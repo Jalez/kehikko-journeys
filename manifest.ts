@@ -1,6 +1,6 @@
-import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'roadmap-module-protocol'
+import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'kehikot-module-protocol'
 
-export const ID = 'roadmap.journeys'
+export const ID = 'kehikot.journeys'
 export const VERSION = '1.0.0'
 
 /**
@@ -10,7 +10,7 @@ export const VERSION = '1.0.0'
  * It used to be said twice — `--port "${PORT:-7840}"` on the last line of
  * `run.sh` and `Number(process.env.PORT ?? 7840)` in `register.ts` — with
  * nothing keeping the two in step, and a third copy of the number sitting in
- * `~/.roadmap/modules` from whenever somebody last ran the second. Moving this
+ * `~/Library/Application Support/Kehikot/modules` from whenever somebody last ran the second. Moving this
  * app was two edits and a thing to remember.
  *
  * It lives here rather than in `vite.config.ts` because `register.ts` needs it
@@ -21,7 +21,7 @@ export const VERSION = '1.0.0'
  * It is a PREFERENCE and not a promise. 7820 through 7960 belong to the other
  * modules on this machine, and if something else holds 7840 when this starts
  * then `serves()` moves to the next free port and rewrites the registration to
- * match — see `roadmap-module-protocol/serve`. A host reads the registry, so the
+ * match — see `kehikot-module-protocol/serve`. A host reads the registry, so the
  * registry is what has to be true; this number is only where to start looking.
  */
 export const PREFERRED_PORT = 7840
@@ -37,7 +37,7 @@ export const PREFERRED_PORT = 7840
  *
  * ## Why the list of capabilities is five words long, and what each means
  *
- * Every other module extracted from this roadmap declares `epics:read` and
+ * Every other module extracted from Kehikot declares `epics:read` and
  * `steps:read`, because the epics are somebody else's and they need to be
  * handed them. This one declares neither, and the absence is the whole claim of
  * the extraction. What it does declare is one read that only a host can answer
@@ -69,20 +69,20 @@ export const PREFERRED_PORT = 7840
  *   on one answer and four snapshots disagreeing on one screen. The host does
  *   not read `journeys.json`, so this app names its refs in the call
  *   (`tracker.get({ refs })`). It replaced `live:read`, whose `live.get`
- *   answered for the roadmap's epic and was only as fresh as the last reload.
+ *   answered for Kehikot's epic and was only as fresh as the last reload.
  *   Without it the page still draws every journey, every step and every
  *   reference; the cards say, in words, that their state cannot be seen from
  *   here.
  * - **`trackers:refresh` — declared, for one press.** The host draws a refresh
- *   control for a page that says `roadmap.refreshable`, and a press — or the
+ *   control for a page that says `kehikot.refreshable`, and a press — or the
  *   interval a person set — asks the host to read this journey's refs again.
  *   Apart from the read because it SPENDS something: the person's rate limit.
  *   It is sent from that press and from nothing else, never because a page
  *   loaded. The receiving half, `reacts: ['tracker']`, is below.
  * - **`filters:set` — declared, for one press.** This page OFFERS a filter
- *   (`roadmap.filters`, a message that needs no word) built from the shared
+ *   (`kehikot.filters`, a message that needs no word) built from the shared
  *   ref facets, and the host holds the choice. The method is for the other
- *   direction: a `roadmap.goto` aimed at a card the filter is hiding asks the
+ *   direction: a `kehikot.goto` aimed at a card the filter is hiding asks the
  *   host to lift the facets hiding it, because answering `found` for a card
  *   that is not drawn sends a reader nowhere. It is asked from a walk aimed at
  *   this container and from nothing else.
@@ -97,7 +97,7 @@ export const PREFERRED_PORT = 7840
  * - **`view:navigate` — not declared, and this one is a judgement rather than a
  *   principle.** Protocol 2 gives a module a way to ask the host to move, and
  *   this app is the panel a reader is already standing in: what it wants is to
- *   be walked TO, which is `roadmap.goto` arriving and needs no declaration.
+ *   be walked TO, which is `kehikot.goto` arriving and needs no declaration.
  *   The day the picker on this page should switch the HOST's open epic rather
  *   than only this page's own view, this is the line that changes.
  * - **Tracker access — not declared, and there is no capability for it.** This
@@ -116,12 +116,12 @@ export const PREFERRED_PORT = 7840
  *
  * One epic-scoped mode, which becomes an ordinary tab in the mode row beside
  * every other module's. There is no privileged read, no special case and no
- * back door: this is the panel the roadmap is named after, arriving through the
+ * back door: this is the panel Kehikot is named after, arriving through the
  * same door as everything else.
  *
  * `scope: 'epic'` where protocol 1 said `journey`. That rename is what raised
  * the protocol number, and it is not cosmetic here: an epic-scoped mode is told
- * which epic is open by `roadmap.context`, on load and on every switch, and
+ * which epic is open by `kehikot.context`, on load and on every switch, and
  * that is the only inbound channel carrying WHERE the reader is standing. The
  * word this app uses for its own stored documents is still `journey` — see the
  * note at the top of `page/journeys.ts` on why the wire's vocabulary is

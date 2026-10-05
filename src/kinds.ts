@@ -1,4 +1,4 @@
-import type { TrackerMissing, TrackerRow, TrackerSource } from 'roadmap-module-protocol'
+import type { TrackerMissing, TrackerRow, TrackerSource } from 'kehikot-module-protocol'
 
 /**
  * The shapes this app's own server answers with.

@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 
-import { KEHIKOT_DIR } from 'roadmap-module-protocol'
+import { KEHIKOT_DIR } from 'kehikot-module-protocol'
 
 import { migrate } from './migrate.ts'
 
@@ -13,7 +13,7 @@ import { migrate } from './migrate.ts'
  * long version of why that had to go is in `store.ts`; the short version is
  * that "the store" is now a folder inside somebody else's repository, so an
  * automatic seed means opening the container on any project puts thirteen journeys
- * about the roadmap's own codebase inside it, writes them to disk there, and
+ * about Kehikot's own codebase inside it, writes them to disk there, and
  * makes them that project's answer forever — with nothing on screen looking
  * wrong.
  *
@@ -51,7 +51,7 @@ if (import.meta.main) {
       'Usage: bun dev/seed.ts <absolute-project-path> [--apply]\n\n'
         + 'Copies the journeys this app ships with in seed/ into\n'
         + '<project>/.kehikot/journeys/journeys.json. Nothing seeds itself: these are the\n'
-        + "roadmap's own journeys, and putting them into a project automatically would\n"
+        + "Kehikot's own journeys, and putting them into a project automatically would\n"
         + 'fill somebody else’s repository with narratives about a different codebase.\n'
         + 'Without --apply nothing is written.',
     )

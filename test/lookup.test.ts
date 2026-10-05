@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import type { Disposition } from 'roadmap-module-protocol'
+import type { Disposition } from 'kehikot-module-protocol'
 
 import type { JourneyView, Live } from '../src/kinds.ts'
 import {

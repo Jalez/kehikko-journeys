@@ -116,7 +116,7 @@ export function App() {
  * purpose: the flag is only true once a host has greeted us, which is a message
  * and a tick of the event loop after first paint, and a heading that appears
  * and then vanishes is worse than one that stays. Being inside a frame is
- * knowable before anything renders, and a frame that is not a roadmap host
+ * knowable before anything renders, and a frame that is not a Kehikot host
  * still has a header of its own to blame.
  */
 const INSIDE_A_FRAME = typeof window !== 'undefined' && window.parent !== window

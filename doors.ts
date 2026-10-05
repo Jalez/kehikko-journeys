@@ -67,7 +67,7 @@ import {
  *  - Nothing at all — an unpartitioned bucket — is a place journeys go to be
  *    invisible.
  *
- * The page is told which project by the host, in `roadmap.context.projectPath`.
+ * The page is told which project by the host, in `kehikot.context.projectPath`.
  * An agent over MCP is not told anything and must say, and is refused with a
  * sentence when it does not. This is the argument `quiz/projects.ts` makes in
  * the Learning module, made again here because the conclusion is the same one
@@ -237,7 +237,7 @@ function brief(journey: Journey) {
  * doors. An agent told "that is too long" and a person shown nothing would be
  * two programs; there is one.
  *
- * The whole step is written, not patched. That is the roadmap's rule and it is
+ * The whole step is written, not patched. That is Kehikot's rule and it is
  * kept here because the reason is unchanged: anything left out is gone, and
  * anything stale kept is a claim being made afresh. The editor on the page
  * therefore fills every box from what is stored before anybody types.
@@ -311,7 +311,7 @@ function projectArg(value: unknown): { project: string } | { error: string } {
       error:
         'which project? A journey lives in the project it is about, at .kehikot/journeys/journeys.json inside it, so this '
         + 'tool cannot answer without one. Pass `project` as the absolute path of the project folder — the same path '
-        + 'a host would put in `roadmap.context.projectPath`. Nothing here guesses: a guess writes a journey into a '
+        + 'a host would put in `kehikot.context.projectPath`. Nothing here guesses: a guess writes a journey into a '
         + 'folder nobody will look in and reports that it saved.',
     }
   }
@@ -329,8 +329,8 @@ interface ToolCall {
 /**
  * What an agent can do to this store.
  *
- * These are the roadmap's own epic tools over this app's store instead of the
- * roadmap's: list, get, `set_step` and `set_dependency`, plus `remove_step`,
+ * These are Kehikot's own epic tools over this app's store instead of the
+ * Kehikot's: list, get, `set_step` and `set_dependency`, plus `remove_step`,
  * which is here because `set_step`'s refusal on a projected journey creates the
  * need for it — a stored step nothing reads and nothing can remove would sit in
  * the file forever.
@@ -348,9 +348,9 @@ interface ToolCall {
  *  - Anything that reads a tracker. This app holds no credential.
  *  - Anything that writes what is TRUE. Issue state, assignees and board
  *    columns are read on a refresh and hand-editing them is the one thing the
- *    roadmap's own rule forbids everywhere. There is deliberately no tool.
+ *    Kehikot's own rule forbids everywhere. There is deliberately no tool.
  *  - `report_stage`. Saying where work has got to belongs to whoever is doing
- *    it, and it is reported to the roadmap, which is what holds the roster that
+ *    it, and it is reported to Kehikot, which is what holds the roster that
  *    turns a standing report into a stalled one. This app would be a second
  *    place to say it and a worse one.
  */

@@ -11,7 +11,7 @@
  * wrong the symptom is a container that sits still and says nothing. That is the
  * kind of decision that has to be checkable without a browser, and
  * `journeys.ts` cannot be imported outside one: it pulls in
- * `roadmap-module-protocol/client`, whose mailbox reaches for `window` at
+ * `kehikot-module-protocol/client`, whose mailbox reaches for `window` at
  * import time on purpose.
  *
  * So the grammar and the choosing moved here, and `journeys.ts` imports them
@@ -21,7 +21,7 @@
  */
 
 /**
- * The same four shapes the roadmap parses, because they are how people write
+ * The same four shapes Kehikot parses, because they are how people write
  * them out loud: '#2274' a GitLab issue, '!1800' a change, 'gh#41' a GitHub
  * issue in the journey's own repo, 'gh:org/repo#41' one anywhere else.
  * Anything matching none of them is a gate outside every tracker, which nothing

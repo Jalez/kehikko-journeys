@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { render } from '@testing-library/react'
 
-import type { Disposition } from 'roadmap-module-protocol'
-import type { Facet } from 'roadmap-module-protocol/facets'
+import type { Disposition } from 'kehikot-module-protocol'
+import type { Facet } from 'kehikot-module-protocol/facets'
 
 import type { JourneyView, Live } from '../src/kinds.ts'
 import { Card } from '../src/view/card.tsx'

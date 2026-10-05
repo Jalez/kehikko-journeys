@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
-import { LIMITS } from 'roadmap-module-protocol'
-import { mailbox } from 'roadmap-module-protocol/client'
+import { LIMITS } from 'kehikot-module-protocol'
+import { mailbox } from 'kehikot-module-protocol/client'
 
 import { scrolls, settle, started, stubHost, type Wire } from './host.ts'
 
