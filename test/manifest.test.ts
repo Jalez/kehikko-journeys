@@ -56,7 +56,14 @@ describe('the manifest a host reads', () => {
    * reading its own material over a bridge.
    */
   test('asks for nothing it holds itself', () => {
-    expect(MANIFEST.declares.uses).toEqual(['live:read', 'selection:set', 'filters:set', 'disposition:set'])
+    expect(MANIFEST.declares.uses).toEqual([
+      'trackers:read',
+      'trackers:refresh',
+      'selection:set',
+      'filters:set',
+      'disposition:set',
+    ])
+    expect(MANIFEST.declares.uses).not.toContain('live:read')
     expect(MANIFEST.declares.uses).not.toContain('epics:read')
     expect(MANIFEST.declares.uses).not.toContain('steps:read')
   })
@@ -87,7 +94,16 @@ describe('the manifest a host reads', () => {
    */
   test('says it marks why things closed and moves when a mark changes', () => {
     expect(MANIFEST.declares.uses).toContain('disposition:set')
-    expect(MANIFEST.reacts).toEqual(['selection', 'dispositions'])
+    expect(MANIFEST.reacts).toEqual(['selection', 'dispositions', 'tracker'])
+  })
+
+  /**
+   * Both ends of the refresh: the host's control asks `tracker.refresh`, and a
+   * reading that moved — from a press anywhere — re-asks `tracker.get`.
+   */
+  test('says it reads the trackers again and moves when they have been read', () => {
+    expect(MANIFEST.declares.uses).toContain('trackers:refresh')
+    expect(MANIFEST.reacts).toContain('tracker')
   })
 
   /**

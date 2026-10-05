@@ -52,6 +52,7 @@ export function Sight({
   epic,
   journey,
   live,
+  busy = false,
 }: {
   framed: boolean
   refused: string | null
@@ -59,8 +60,10 @@ export function Sight({
   epic: string | null
   journey: JourneyView | null
   live: Live | null
+  /** Whether the trackers are being read again right now. */
+  busy?: boolean
 }) {
-  const { lead, rest } = read(framed, refused, epic, journey, live)
+  const { lead, rest } = read(framed, refused, epic, journey, live, busy)
   return (
     <p className="my-3 rounded-md border border-l-2 border-l-marker bg-card px-3 py-2 text-[0.85rem] leading-6 text-muted-foreground">
       <b className="text-foreground">{lead}</b> {rest}
@@ -74,6 +77,7 @@ function read(
   epic: string | null,
   journey: JourneyView | null,
   live: Live | null,
+  busy = false,
 ): { lead: string; rest: string } {
   if (!framed) {
     return {
@@ -93,14 +97,25 @@ function read(
     if (!epic) return { lead: 'Framed, nothing open.', rest: 'The host has no epic on the canvas.' }
     return { lead: 'Framed, no journey here.', rest: `This project holds none called ${epic}.` }
   }
+  /* Busy first: it is the one thing here that is about to change by itself,
+     and a reader looking at the states below should know they are the
+     reading before the one that is coming. */
+  if (busy) {
+    return {
+      lead: `Framed, reading ${journey.slug} — the trackers are being read again.`,
+      rest: live
+        ? 'The states below are the reading before this one, and are replaced when it lands.'
+        : 'The states beside the references arrive when it lands.',
+    }
+  }
   return {
     lead: `Framed, reading ${journey.slug}.`,
     rest: live
-      ? 'The journey and its steps are this app’s. What each reference is doing comes from the host’s last ' +
-        'refresh, handed over whole: this app holds no credential, calls no tracker, and could not spend ' +
-        'anybody’s rate limit if it tried. An agent’s own report of where work stands is not in that, and the ' +
-        'rail does not pretend to it.'
-      : 'The host has not handed over what its last refresh read — either live.get was refused, or there has been ' +
-        'no refresh. The journey below is complete; the states beside the references are not there.',
+      ? 'The journey and its steps are this app’s. What each reference is doing comes from the tracker reading ' +
+        'the host keeps for every module, read with the person’s own sign-in: this app holds no credential and ' +
+        'calls no tracker. The host’s refresh control reads it again. An agent’s own report of where work ' +
+        'stands is not in that, and the rail does not pretend to it.'
+      : 'The host has not handed over a tracker reading — either tracker.get was refused, or nothing has been ' +
+        'read yet. The journey below is complete; the states beside the references are not there.',
   }
 }

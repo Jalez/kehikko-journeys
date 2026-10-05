@@ -35,13 +35,13 @@ export const PREFERRED_PORT = 7840
  * tab to give the page, and which ONE question the app would like to be allowed
  * to ask if there is anybody there to ask.
  *
- * ## Why the list of capabilities is four words long, and what each means
+ * ## Why the list of capabilities is five words long, and what each means
  *
  * Every other module extracted from this roadmap declares `epics:read` and
  * `steps:read`, because the epics are somebody else's and they need to be
  * handed them. This one declares neither, and the absence is the whole claim of
  * the extraction. What it does declare is one read that only a host can answer
- * and three writes that only a host can carry:
+ * and four asks that only a host can carry:
  *
  * - **`epics:read` — not declared.** This app HOLDS the journeys. Asking a host
  *   which epics exist would be asking somebody else to answer a question about
@@ -60,14 +60,25 @@ export const PREFERRED_PORT = 7840
  *   on picking in `src/journeys.ts` says why that is the whole design. The
  *   receiving half, `reacts: ['selection']`, is declared below beside its own
  *   reasons.
- * - **`live:read` — declared, and it is the one read.** What the
- *   last refresh saw of each reference: a state, a title, the tracker's own
- *   labels, who is on it. That is genuinely somebody else's — the host holds
- *   the credentials, reads GitHub and GitLab once, and hands over what it read.
- *   Four apps each polling a tracker is four times the rate limit spent on one
- *   answer and four snapshots disagreeing on one screen. Without it the page
- *   still draws every journey, every step and every reference; the cards say,
- *   in words, that their state cannot be seen from here.
+ * - **`trackers:read` — declared, and it is the one read.** What the trackers
+ *   last said about each reference this journey names: a state, a title, the
+ *   tracker's own labels, who is on it, which changes say they close it. That
+ *   is genuinely somebody else's — the host holds the credentials, reads GitHub
+ *   and GitLab once into one shared reading, and hands every module the same
+ *   rows. Four apps each polling a tracker is four times the rate limit spent
+ *   on one answer and four snapshots disagreeing on one screen. The host does
+ *   not read `journeys.json`, so this app names its refs in the call
+ *   (`tracker.get({ refs })`). It replaced `live:read`, whose `live.get`
+ *   answered for the roadmap's epic and was only as fresh as the last reload.
+ *   Without it the page still draws every journey, every step and every
+ *   reference; the cards say, in words, that their state cannot be seen from
+ *   here.
+ * - **`trackers:refresh` — declared, for one press.** The host draws a refresh
+ *   control for a page that says `roadmap.refreshable`, and a press — or the
+ *   interval a person set — asks the host to read this journey's refs again.
+ *   Apart from the read because it SPENDS something: the person's rate limit.
+ *   It is sent from that press and from nothing else, never because a page
+ *   loaded. The receiving half, `reacts: ['tracker']`, is below.
  * - **`filters:set` — declared, for one press.** This page OFFERS a filter
  *   (`roadmap.filters`, a message that needs no word) built from the shared
  *   ref facets, and the host holds the choice. The method is for the other
@@ -203,9 +214,15 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * says whose word it is, the rail and the step's "done" are recomputed from
    * it, and the filter's counts change. See `standing` in `src/live/lookup.ts`.
    *
+   * `tracker`, because the shared reading moving moves this page: when
+   * `context.tracker.at` changes — a press here, in another container, or the
+   * project's schedule — `fill` in `src/journeys.ts` re-asks `tracker.get`
+   * and the cards, rails and steps are redrawn from what it answers, and
+   * while `refreshing` is true the page says the states are about to change.
+   *
    * Not `passage`. Nothing here reads one.
    */
-  reacts: ['selection', 'dispositions'],
+  reacts: ['selection', 'dispositions', 'tracker'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     /**
@@ -218,7 +235,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
      * render, not from a context, not when the epic changes. See the essay on
      * picking in `src/journeys.ts` for why that restriction is the point.
      */
-    uses: ['live:read', 'selection:set', 'filters:set', 'disposition:set'],
+    uses: ['trackers:read', 'trackers:refresh', 'selection:set', 'filters:set', 'disposition:set'],
     storage: true,
   },
   health: '/healthz',

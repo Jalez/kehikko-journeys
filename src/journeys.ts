@@ -1,20 +1,25 @@
 import { flushSync } from 'react-dom'
 import {
   LIMITS,
+  TRACKER_REFRESH_WITHIN_MS,
   filterChoiceSchema,
+  readTrackerRef,
+  trackerReadingResult,
+  trackerRefreshResult,
   type Disposition,
   type DispositionValue,
   type FilterChoice,
   type Goto,
   type ModuleContext,
+  type TrackerReading,
 } from 'roadmap-module-protocol'
 import { HostRefused, connect, type Connection } from 'roadmap-module-protocol/client'
 import { HIDE_GROUP, countFacets, hiddenIn, offer, type Facet } from 'roadmap-module-protocol/facets'
 
 import { ID } from '../manifest.ts'
-import { GET_LIVE } from '../wire/methods.ts'
+import { GET_TRACKER, REFRESH_TRACKER } from '../wire/methods.ts'
 import type { Brief, JourneyView, Live, Target } from './kinds.ts'
-import { cardsUnder, facetsOfRef, type Around } from './live/lookup.ts'
+import { cardsUnder, facetsOfRef, readingOf, refsOf, unreadLinks, type Around } from './live/lookup.ts'
 import { bounded, firstShown, samePick, togglePick } from './refs.ts'
 import { get, post, standIn } from './store/api.ts'
 import { apply as applyTheme } from './theme.ts'
@@ -64,7 +69,7 @@ import { apply as applyTheme } from './theme.ts'
  * page is fully drawn before a single bridge message is read.
  *
  * **2. `live` is enrichment and is drawn as such.** When a host is there and
- * `live.get` is answered, the cards gain a state, the tracker's own labels, who
+ * `tracker.get` is answered, the cards gain a state, the tracker's own labels, who
  * is on it and a rail. When it is not, the cards are still there, still name
  * their references, still link nowhere they cannot link — and say, in words,
  * that their state cannot be seen from here. A reference whose state is unknown
@@ -110,8 +115,14 @@ export interface State {
    * false and the page is saying something else entirely.
    */
   epic: string | null
-  /** What the host's last refresh saw, or null. */
+  /** The host's shared tracker reading for this journey's refs, or null. */
   live: Live | null
+  /**
+   * Whether the trackers are being read again right now: by a press on this
+   * container, or by anybody in this project, as `context.tracker.refreshing`
+   * says. The page draws the reading it has, and says it is being replaced.
+   */
+  busy: boolean
   /**
    * The host's own words for why it handed over no reading, when it refused.
    *
@@ -181,6 +192,7 @@ let state: State = {
   journey: null,
   epic: null,
   live: null,
+  busy: false,
   withheld: null,
   marks: [],
   filters: {},
@@ -240,6 +252,7 @@ function set(patch: Partial<State>): void {
   flushSync(() => {
     for (const listener of listeners) listener()
   })
+  offerRefresh()
 }
 
 export function say(what: string): void {
@@ -426,45 +439,212 @@ export async function saveStep(
 }
 
 /**
- * What the host's last refresh saw, if there is a host and it answers.
+ * What the trackers last said about this journey's refs, if there is a host
+ * and it answers.
  *
- * Asked for once per journey, after the journey is already on screen:
- * enrichment arrives late and changes nothing about whether the page works.
+ * Asked after the journey is already on screen — enrichment arrives late and
+ * changes nothing about whether the page works — and asked AGAIN whenever the
+ * host's shared reading moves: `context.tracker.at` changing is the host
+ * saying somebody, somewhere in this project, read the trackers again. It used
+ * to be asked once per journey and never again, and a page that loaded before
+ * a refresh kept its old answer until somebody reloaded the window.
+ *
+ * Two questions, not one. The refs the journey names go first; the changes
+ * their issues say close them are cards on this page and in no `refs` array,
+ * so their rows are asked for second, for exactly those.
  */
 async function fill(): Promise<void> {
   const being = state.journey
   if (!host?.greeted() || !being) return
-  try {
-    const answer = await host.request(GET_LIVE, { epic: being.slug })
-    /*
-     * An answer to a question asked about a journey nobody is reading any more
-     * is dropped.
-     *
-     * Two `roadmap.context` messages in quick succession — which is what
-     * switching epics twice looks like — leave two of these in flight, and the
-     * slower one is not necessarily the older one. Without this check the page
-     * draws the second epic's steps under the first epic's tracker state, which
-     * is the one failure mode this app's whole shape is against: two answers on
-     * one screen with nothing saying which is which. Atlas met the same thing
-     * through `StrictMode`'s double mount and wrote it up in `use-atlas.ts`;
-     * the mechanism here is a switch rather than a remount, and the rule is the
-     * same one — an answer belonging to a question nobody is waiting on is not
-     * data, it is noise with a timestamp.
-     */
-    if (state.journey !== being) return
-    set({ live: (answer ?? null) as Live | null, refused: null, withheld: null })
+  /*
+   * An answer to a question nobody is waiting on any more is dropped, and
+   * there are two ways to stop waiting.
+   *
+   * The journey can change. Two `roadmap.context` messages in quick succession
+   * — which is what switching epics twice looks like — leave two of these in
+   * flight, and the slower one is not necessarily the older one. Without the
+   * check the page draws the second epic's steps under the first epic's
+   * tracker state, which is the one failure mode this app's whole shape is
+   * against: two answers on one screen with nothing saying which is which.
+   *
+   * Or the reading can move again while this one is in flight, which it does
+   * twice per refresh somewhere else on the canvas. Then a slow answer from
+   * before would land on top of a quick one from after, and the page would go
+   * back in time. So each ask takes a number, and only the newest is drawn.
+   */
+  const mine = ++asking
+  const current = () => mine === asking && state.journey === being
+  const refs = refsOf(being)
+  if (!refs.length) {
+    /* Nothing a tracker could answer, which is an answer: an empty reading,
+       not a missing one. `tracker.get` takes at least one ref. */
+    set({ live: readingOf([]), refused: null, withheld: null })
     announce()
+    return
+  }
+  try {
+    const first = await ask(refs)
+    if (!current()) return
+    const live = readingOf(first)
+    /* Drawn at once: the issues need not wait for the changes under them. */
+    set({ live, refused: null, withheld: null })
+    announce()
+    const links = unreadLinks(live)
+    if (!links.length) return
+    try {
+      const more = await ask(links)
+      if (!current()) return
+      set({ live: readingOf([...first, ...more]) })
+      announce()
+    } catch {
+      /* The issues are drawn and stay drawn; the changes under them are marked
+         unread, which is what they are. One failed follow-up is not a reason
+         to take a reading off the screen. */
+    }
   } catch (e) {
-    if (state.journey !== being) return
+    if (!current()) return
     set({
       live: null,
       withheld: e instanceof HostRefused ? e.refusal.error : (e as Error).message,
       refused:
-        `The host refused ${GET_LIVE} (${(e as Error).message}). Everything below still works; the states beside ` +
+        `The host refused ${GET_TRACKER} (${(e as Error).message}). Everything below still works; the states beside ` +
         'the references are what is missing, and they are marked as missing rather than guessed.',
     })
     announce()
   }
+}
+
+/** Which `fill` is the newest. See the comment inside it. */
+let asking = 0
+
+/** Refs in groups a single tracker call may carry. */
+function inGroups(refs: readonly string[]): string[][] {
+  const out: string[][] = []
+  for (let i = 0; i < refs.length; i += LIMITS.TRACKER_ASK) out.push(refs.slice(i, i + LIMITS.TRACKER_ASK))
+  return out
+}
+
+/**
+ * `tracker.get` for these refs, a group at a time, each answer read against
+ * the protocol's own shape. An answer that does not fit is a refusal in this
+ * app's words, not a reading with holes in it.
+ */
+async function ask(refs: readonly string[]): Promise<TrackerReading[]> {
+  const asked = host
+  if (!asked) return []
+  return Promise.all(
+    inGroups(refs).map(async (group) => {
+      const read = trackerReadingResult.safeParse(await asked.request(GET_TRACKER, { refs: group }))
+      if (!read.success) throw new Error(`the host answered ${GET_TRACKER} in a shape this app could not read`)
+      return read.data
+    }),
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ * Reading the trackers again
+ *
+ * The host draws the control — the button, the "read at" line, the person's
+ * auto-refresh interval — for a module that says `roadmap.refreshable`, and
+ * relays a press as `roadmap.refresh`. A press here asks the host to read
+ * THIS journey's refs again (`tracker.refresh`), says busy while it runs, and
+ * re-reads when it lands. The host joins two presses into one read, and every
+ * other container in the project hears about it through `context.tracker`.
+ * ------------------------------------------------------------------ */
+
+/** A press of ours is in flight. */
+let pressed = false
+/** The host says a read is in flight, from `context.tracker.refreshing`. */
+let hostReading = false
+/** When the host's shared reading last changed, as the last context said; `undefined` before any context. */
+let readingAt: string | null | undefined = undefined
+
+function busyNow(): boolean {
+  return pressed || hostReading
+}
+
+/**
+ * Read the trackers again for every ref this journey shows.
+ *
+ * Every ref the journey names, and every change the reading carried in under
+ * an issue: those are cards too, and a refresh that left them stale would draw
+ * an issue newer than the work under it.
+ */
+export async function refresh(): Promise<void> {
+  const being = state.journey
+  if (!host?.greeted() || !being || pressed) return
+  const refs = [...new Set([...refsOf(being), ...everyCard().map((card) => card.ref)])].filter(
+    (ref) => readTrackerRef(ref) !== null,
+  )
+  if (!refs.length) return
+  const asked = host
+  pressed = true
+  set({ busy: true })
+  let why = ''
+  try {
+    const outcomes = await Promise.all(
+      inGroups(refs).map(async (group) =>
+        trackerRefreshResult.safeParse(
+          await asked.request(REFRESH_TRACKER, { refs: group }, { within: TRACKER_REFRESH_WITHIN_MS }),
+        ),
+      ),
+    )
+    for (const outcome of outcomes) {
+      if (!outcome.success) {
+        why = `The host answered ${REFRESH_TRACKER} in a shape this app could not read.`
+        break
+      }
+      if (outcome.data.outcome === 'declined') {
+        why = `The host would not read the trackers again${outcome.data.why ? `: ${outcome.data.why}` : '.'}`
+        break
+      }
+      if (outcome.data.outcome === 'failed') {
+        why =
+          'Not every tracker could be read again' +
+          `${outcome.data.why ? `: ${outcome.data.why}` : '.'} What is shown is the last reading that worked.`
+      }
+    }
+  } catch (error) {
+    why =
+      error instanceof HostRefused
+        ? `The host would not read the trackers again (${error.refusal.error}). What is shown is the last reading.`
+        : 'This app failed while asking the host to read the trackers again. What is shown is the last reading.'
+  } finally {
+    pressed = false
+  }
+  set({ busy: busyNow() })
+  if (state.journey !== being) return
+  say(why)
+  await fill()
+}
+
+/** The last refresh offer sent, as JSON, so that an unchanged one is not sent again. */
+let refreshOffer: string | null = null
+
+/**
+ * Say whether there is anything to read again, when it was last read, and
+ * whether a read is running — whenever any of the three changes.
+ *
+ * Called from `set`, so that it cannot be forgotten on one path: every change
+ * to the journey, the reading or `busy` goes through there. The same offer is
+ * not sent twice. Standalone, or with no ref a tracker could answer, the
+ * control is withdrawn: a button that cannot work teaches a person the button
+ * does not work.
+ *
+ * `at` is the reading's own, as the host stamped it — never the time of the
+ * press, which says when somebody asked and not what the page is showing.
+ */
+function offerRefresh(): void {
+  if (!host) return
+  const offer = {
+    can: state.framed && refsOf(state.journey).length > 0,
+    at: state.live?.at ?? null,
+    busy: state.busy,
+  }
+  const key = JSON.stringify(offer)
+  if (key === refreshOffer) return
+  refreshOffer = key
+  host.refreshable(offer)
 }
 
 /* ------------------------------------------------------------------ *
@@ -945,6 +1125,13 @@ function context(next: ModuleContext): void {
      one fact about this context, and a page rendered between them would draw a
      step as picked under a heading the host had not yet named. */
   const filters = next.filters ?? {}
+  /* The tracker signal: re-read when the reading moved, and say busy while
+     somebody is reading. Only a CHANGE of `at` is news — the first context
+     sets it, and the journey that context opens is read anyway. */
+  const signal = next.tracker ?? { at: null, refreshing: false }
+  const reread = readingAt !== undefined && signal.at !== readingAt
+  readingAt = signal.at
+  hostReading = signal.refreshing
   set({
     framed: true,
     refused: null,
@@ -953,6 +1140,7 @@ function context(next: ModuleContext): void {
     marks: next.dispositions ?? [],
     filters,
     hidden: hiddenIn(filters),
+    busy: busyNow(),
   })
 
   const project = typeof next.projectPath === 'string' && next.projectPath.trim() ? next.projectPath : null
@@ -1018,6 +1206,9 @@ function context(next: ModuleContext): void {
   /* Marks and the filter may have changed, and the offer counts both. */
   announce()
   if (repicked) showSelection()
+  /* Somebody read the trackers again — a press here, in another container, or
+     the project's own schedule — and what is on screen is the reading before. */
+  if (reread) void fill()
 }
 
 /**
@@ -1043,7 +1234,7 @@ function context(next: ModuleContext): void {
  *
  * Saying so was considered and rejected. The line under the page is this app's
  * way of answering the reader — "no such journey here", "the host refused
- * live.get" — and filling it with "nothing in this journey names gh#131" every
+ * tracker.get" — and filling it with "nothing in this journey names gh#131" every
  * time somebody clicks a row in another container would turn the one place this app
  * talks to a person into a running commentary on other containers' clicks. Worse, it
  * would be blaming this journey for a click that was never aimed at it. That is
@@ -1199,6 +1390,11 @@ export function start(): void {
         grow()
       },
       onContext: (heard) => context(heard),
+      /* A press on the host's refresh control, or the interval somebody set for
+         this container. The same either way; see `refresh`. */
+      onRefresh: () => {
+        void refresh()
+      },
       onGoto: (goto: Goto, answer) => {
         void goTo({ ref: goto.ref, step: goto.step, slug: goto.epic }).then((out) => answer(out.found, out.why))
       },

@@ -9,6 +9,7 @@ import { Card } from '../src/view/card.tsx'
 import { ReadingProvider } from '../src/view/reading.tsx'
 import { Sight } from '../src/view/sight.tsx'
 import { StepBlock, bundlesOf, foldSummary } from '../src/view/step.tsx'
+import { closedBy, reading, row } from './reading.ts'
 
 /**
  * The two claims this app makes with pixels, asserted in words.
@@ -52,7 +53,12 @@ const draw = (live: Live | null, ref: string) =>
 describe('a reference nobody has read', () => {
   test('says so in words, differently for "nobody looked" and "it was not there"', () => {
     expect(draw(null, 'gh#9').container.textContent).toContain('state not visible from here')
-    expect(draw({}, 'gh#9').container.textContent).toContain('not in the last refresh')
+    expect(draw(reading([]), 'gh#9').container.textContent).toContain('not in the reading')
+  })
+
+  test('says which absence it is when the host says why there is no row', () => {
+    const pending = draw(reading([], [{ ref: 'gh#9', reason: 'pending' }]), 'gh#9').container.textContent
+    expect(pending).toContain('being read')
   })
 
   test('never reads as open and never as closed', () => {
@@ -76,11 +82,11 @@ describe('a reference nobody has read', () => {
 })
 
 describe('a reference that was read', () => {
-  const LIVE: Live = { ghIssues: { 'gh#1': { state: 'opened', title: 'Something', assignees: ['ada'] } } }
+  const LIVE: Live = reading([row('gh#1', { state: 'open', title: 'Something', assignees: ['ada'] })])
 
   test('wears the tracker’s own word, an icon, and a colour — never only a colour', () => {
     const badge = draw(LIVE, 'gh#1').container.querySelector('[data-slot=badge]')
-    expect(badge?.textContent).toContain('opened')
+    expect(badge?.textContent).toContain('open')
     expect(badge?.querySelector('svg')).not.toBeNull()
   })
 
@@ -105,7 +111,7 @@ describe('nothing but a verdict refuses to wrap', () => {
   })
 
   test('every nowrap thing on the card is one short word', () => {
-    const box = draw({ ghIssues: { 'gh#1': { state: 'opened' } } }, 'gh#1').container
+    const box = draw(reading([row('gh#1', { state: 'open' })]), 'gh#1').container
     for (const node of box.querySelectorAll('*')) {
       if (String(node.className).includes('whitespace-nowrap')) {
         expect((node.textContent ?? '').length).toBeLessThan(32)
@@ -229,7 +235,7 @@ describe('a step that can be picked out on the canvas', () => {
 /**
  * The badge and the rail say why there is no reading the way the banner does.
  *
- * Inside the host with `live.get` refused, the banner read "Framed, and
+ * Inside the host with `tracker.get` refused, the banner read "Framed, and
  * refused" and every card underneath it read "Nothing is framing this page".
  */
 describe('a card on a framed page the host gave no reading for', () => {
@@ -260,11 +266,14 @@ describe('a card on a framed page the host gave no reading for', () => {
  * An issue folds its changes away, and the fold still counts them.
  */
 describe('the changes under an issue', () => {
-  const LIVE: Live = {
-    issues: { '13': { state: 'opened' }, '14': { state: 'opened' } },
-    mrs: { '20': { state: 'opened' }, '23': { state: 'merged' }, '24': { state: 'closed' }, '25': { state: 'merged' } },
-    links: { '13': [20, 23, 24], '14': [25] },
-  }
+  const LIVE: Live = reading([
+    row('#13', { state: 'open', links: closedBy('!20', '!23', '!24') }),
+    row('#14', { state: 'open', links: closedBy('!25') }),
+    row('!20', { state: 'open' }),
+    row('!23', { state: 'merged' }),
+    row('!24', { state: 'closed' }),
+    row('!25', { state: 'merged' }),
+  ])
   const STEP = { title: 'It appears on the board', body: '', refs: ['#13', '#14'], notes: [] }
   const block = (extra: { unfolded?: string[]; hidden?: Facet[] } = {}) =>
     render(
@@ -319,7 +328,7 @@ describe('bundling a step’s cards for folding', () => {
   })
 
   test('the summary is singular for one change and lists only states that occur', () => {
-    expect(foldSummary({ mrs: { '1': { state: 'merged' } } }, ['!1'])).toBe('1 change · 1 merged')
+    expect(foldSummary(reading([row('!1', { state: 'merged' })]), ['!1'])).toBe('1 change · 1 merged')
     expect(foldSummary(null, ['!1', '!2'])).toBe('2 changes · 2 not seen')
   })
 })
@@ -328,9 +337,10 @@ describe('bundling a step’s cards for folding', () => {
  * Why a closed reference closed, and whose word that is.
  */
 describe('a closed reference’s disposition', () => {
-  const LIVE: Live = {
-    ghIssues: { 'gh#1': { state: 'closed', stateReason: 'NOT_PLANNED' }, 'gh#3': { state: 'closed' } },
-  }
+  const LIVE: Live = reading([
+    row('gh#1', { state: 'closed', stateReason: 'NOT_PLANNED' }),
+    row('gh#3', { state: 'closed' }),
+  ])
   const card = (ref: string, extra: { framed?: boolean; marks?: Disposition[] } = {}) =>
     render(
       <ReadingProvider value={{ live: LIVE, journey: JOURNEY, ...extra }}>
@@ -360,5 +370,26 @@ describe('a closed reference’s disposition', () => {
   test('the control to mark it is offered only while a host is framing the page', () => {
     expect(card('gh#3', { framed: true }).textContent).toContain('mark why')
     expect(card('gh#3').textContent).not.toContain('mark why')
+  })
+})
+
+/**
+ * While the trackers are being read again, the page says so: the states on
+ * screen are the reading before, and a reader comparing them with the tracker
+ * should know a newer one is on its way.
+ */
+describe('the page while the trackers are being read again', () => {
+  const say = (busy: boolean, live: Live | null) =>
+    render(<Sight framed refused={null} epic="probe" journey={JOURNEY} live={live} busy={busy} />).container
+      .textContent ?? ''
+
+  test('busy says the trackers are being read, and that what is shown is the reading before', () => {
+    const text = say(true, reading([]))
+    expect(text).toContain('being read again')
+    expect(text).toContain('reading before')
+  })
+
+  test('not busy says nothing of the kind', () => {
+    expect(say(false, reading([]))).not.toContain('being read again')
   })
 })

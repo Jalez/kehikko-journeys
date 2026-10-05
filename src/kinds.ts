@@ -1,3 +1,5 @@
+import type { TrackerMissing, TrackerRow, TrackerSource } from 'roadmap-module-protocol'
+
 /**
  * The shapes this app's own server answers with.
  *
@@ -49,40 +51,29 @@ export interface Brief {
   steps: number
 }
 
-/** What the host's last refresh recorded about one reference. */
-export interface Sighting {
-  title?: string
-  state?: string
-  draft?: boolean
-  url?: string
-  at?: string
-  labels?: string[]
-  assignees?: string[]
-  reviewers?: string[]
-  author?: string
-  /**
-   * Why the tracker says it closed, where it says: GitHub's `stateReason`
-   * (`COMPLETED`, `NOT_PLANNED`, `DUPLICATE`). Absent everywhere else, which
-   * is most of the time — see `verdictOf` in `live/lookup.ts`.
-   */
-  stateReason?: string | null
-}
-
 /**
- * The host's whole reading for one epic, filed the way the host files it.
+ * The host's shared tracker reading, as this page holds it.
  *
- * Every bag is optional because every bag is somebody else's document: this is
- * whatever `live.get` returned, and a host is entitled to answer with less than
- * this app knows how to draw.
+ * What `tracker.get` answered for the refs this journey names, kept by the
+ * spelling each ref was asked for — a row answers for its own `ref`, so a
+ * card looks its own string up and finds its own string. One reading for
+ * GitHub and GitLab alike, read once by the host for every module, with its
+ * own freshness: `at` is when the reading last changed, and each row carries
+ * the `readAt` of its own read.
+ *
+ * A row is the protocol's `TrackerRow`, untranslated. It is assignable to the
+ * facets' `Sighting` on purpose, so the filter, the disposition and the rail
+ * read the same fields every other module reads.
+ *
+ * `missing` is why a ref asked for has no row — `pending` while the host reads
+ * it, `not-found`, `no-tracker`, `failed` — and is what lets a card say which
+ * absence it is looking at instead of one word for four.
  */
 export interface Live {
-  issues?: Record<string, Sighting>
-  mrs?: Record<string, Sighting>
-  ghIssues?: Record<string, Sighting>
-  ghPrs?: Record<string, Sighting>
-  links?: Record<string, number[]>
-  ghLinks?: Record<string, number[]>
-  palette?: Record<string, { bg: string; fg: string }>
+  at: string | null
+  rows: ReadonlyMap<string, TrackerRow>
+  missing: ReadonlyMap<string, TrackerMissing['reason']>
+  sources: readonly TrackerSource[]
 }
 
 /** Somewhere to go: a reference, a step, or a journey to switch to first. */
