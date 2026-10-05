@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { KEHIKOT_DIR } from 'roadmap-module-protocol'
+import { KEHIKOT_DIR } from 'kehikot-module-protocol'
 
 import { type Journey, journeySchema, makeDir, dataFile, held, isSlug } from '../store.ts'
 

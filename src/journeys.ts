@@ -12,9 +12,9 @@ import {
   type Goto,
   type ModuleContext,
   type TrackerReading,
-} from 'roadmap-module-protocol'
-import { HostRefused, connect, type Connection } from 'roadmap-module-protocol/client'
-import { HIDE_GROUP, countFacets, hiddenIn, offer, type Facet } from 'roadmap-module-protocol/facets'
+} from 'kehikot-module-protocol'
+import { HostRefused, connect, type Connection } from 'kehikot-module-protocol/client'
+import { HIDE_GROUP, countFacets, hiddenIn, offer, type Facet } from 'kehikot-module-protocol/facets'
 
 import { ID } from '../manifest.ts'
 import { GET_TRACKER, REFRESH_TRACKER } from '../wire/methods.ts'
@@ -54,7 +54,7 @@ import { apply as applyTheme } from './theme.ts'
  * The wire says `epic`. This app's own store says `journey`, in every file on
  * disk and in every field name in `store.ts`. Both are correct and they are the
  * same thing seen from two sides, so the translation happens at exactly one
- * place — where a `roadmap.context` or a `roadmap.goto` arrives — and nowhere
+ * place — where a `kehikot.context` or a `kehikot.goto` arrives — and nowhere
  * else. A rename pushed down into the store would have rewritten thirteen
  * shipped documents to make a wire word match; a rename left un-done at the
  * wire is what made this module frame as incompatible against a host speaking
@@ -150,7 +150,7 @@ export interface State {
    * What the canvas has picked out, as the host last said it.
    *
    * Never what this page asked for. A press on a step below asks the host to
-   * change the selection and this field is filled in from the `roadmap.context`
+   * change the selection and this field is filled in from the `kehikot.context`
    * that comes back — the same discipline References keeps, and for the same
    * reason: an optimistic copy would tick a step for a pick the host refused or
    * clamped, and two containers would disagree about the one thing the round
@@ -460,7 +460,7 @@ async function fill(): Promise<void> {
    * An answer to a question nobody is waiting on any more is dropped, and
    * there are two ways to stop waiting.
    *
-   * The journey can change. Two `roadmap.context` messages in quick succession
+   * The journey can change. Two `kehikot.context` messages in quick succession
    * — which is what switching epics twice looks like — leave two of these in
    * flight, and the slower one is not necessarily the older one. Without the
    * check the page draws the second epic's steps under the first epic's
@@ -545,8 +545,8 @@ async function ask(refs: readonly string[]): Promise<TrackerReading[]> {
  * Reading the trackers again
  *
  * The host draws the control — the button, the "read at" line, the person's
- * auto-refresh interval — for a module that says `roadmap.refreshable`, and
- * relays a press as `roadmap.refresh`. A press here asks the host to read
+ * auto-refresh interval — for a module that says `kehikot.refreshable`, and
+ * relays a press as `kehikot.refresh`. A press here asks the host to read
  * THIS journey's refs again (`tracker.refresh`), says busy while it runs, and
  * re-reads when it lands. The host joins two presses into one read, and every
  * other container in the project hears about it through `context.tracker`.
@@ -651,7 +651,7 @@ function offerRefresh(): void {
  * The filter, offered
  *
  * One `toggles` group called "hide", built by `offer()` from the shared
- * ref-facet vocabulary in `roadmap-module-protocol/facets` — the same group id
+ * ref-facet vocabulary in `kehikot-module-protocol/facets` — the same group id
  * and the same option ids References offers, so "closed MRs/PRs" switched on
  * means the same thing in both containers. Nothing here keeps a copy of the
  * vocabulary; a facet the protocol learns arrives here with the next install.
@@ -768,7 +768,7 @@ export async function markDisposition(
  * Protocol 1 had no answer, and this file carried a long note saying so, plus a
  * receiving end built against a message that did not exist. Protocol 2 has the
  * message, and the interesting part is not that it arrives: it is that it
- * carries a correlation id and the host WAITS. `roadmap.went` is the first and
+ * carries a correlation id and the host WAITS. `kehikot.went` is the first and
  * only place the host depends on a module answering.
  *
  * Which changes what a walk has to do. The old code, told to go to a reference
@@ -1058,7 +1058,7 @@ let standingIn: string | null | undefined = undefined
  * a reference was clicked: the steps would vanish and come back, and the
  * reader's scroll position — the very thing the click was about to move — would
  * be reset out from under the walk. References met this first and its
- * `use-roadmap.ts` carries the long version; the failure looks like a bug in
+ * `use-kehikot.ts` carries the long version; the failure looks like a bug in
  * whichever container was clicked, which is the wrong container to go and read.
  *
  * So each field is acted on when IT changes, and a context that changed nothing
@@ -1217,7 +1217,7 @@ function context(next: ModuleContext): void {
  * ## Why this is three lines and not a feature
  *
  * Everything hard about "show me this reference" was already solved for
- * `roadmap.goto`: finding the anchor, preferring the card over a bare link,
+ * `kehikot.goto`: finding the anchor, preferring the card over a bare link,
  * scrolling it to the middle, marking it, and doing all of that only once the
  * journey is loaded. A second path that meant the same thing would drift from
  * that one, and the one that drifted would be this one — because `goto` is the
@@ -1238,7 +1238,7 @@ function context(next: ModuleContext): void {
  * time somebody clicks a row in another container would turn the one place this app
  * talks to a person into a running commentary on other containers' clicks. Worse, it
  * would be blaming this journey for a click that was never aimed at it. That is
- * why `goTo` is asked for a quiet walk here and a loud one for `roadmap.goto`:
+ * why `goTo` is asked for a quiet walk here and a loud one for `kehikot.goto`:
  * one of the two was aimed at this container.
  *
  * A quiet miss is also what makes an empty selection free: clearing a pick

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterAll, describe, expect, test } from 'bun:test'
-import { KEHIKOT_DIR, moduleFolder } from 'roadmap-module-protocol'
+import { KEHIKOT_DIR, moduleFolder } from 'kehikot-module-protocol'
 
 import { TICKET, answer, writeTicketFor } from '../doors.ts'
 import { ID } from '../manifest.ts'
@@ -323,6 +323,6 @@ describe('what is not this app’s to answer', () => {
   test('the health check says which module is up', () => {
     const body = get('/healthz')?.body as { ok: boolean; id: string }
     expect(body.ok).toBe(true)
-    expect(body.id).toBe('roadmap.journeys')
+    expect(body.id).toBe('kehikot.journeys')
   })
 })

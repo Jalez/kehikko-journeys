@@ -13,11 +13,11 @@
     "why": "The steps of this journey are the sections of its paper. Nothing is stored here because nothing was ever written here — they are projected out of LaTeX at read time by a program this app is not. This app cannot parse a paper and will not learn how, so it says so rather than showing an empty journey."
   },
   "exists": [
-    "The module protocol, end to end: a manifest on /.well-known/roadmap-module.json, loopback-only discovery from ~/.roadmap/modules or an opt-in port sweep, protocol negotiation, and a status for every module that is not framed — offered, changed, incompatible, silent.",
+    "The module protocol, end to end: a manifest on /.well-known/kehikot-module.json, loopback-only discovery from ~/Library/Application Support/Kehikot/modules or an opt-in port sweep, protocol negotiation, and a status for every module that is not framed — offered, changed, incompatible, silent.",
     "Found is not trusted: a grant records the origin, the permissions and a digest of what was agreed to, so a manifest that later asks for more drops back to asking while keeping what it had.",
     "The frame is cross-origin, sandboxed, and named in a frame-src header built from the grants alone — so a module nobody agreed to cannot be framed even if markup for it reached the page.",
     "The bridge: a module holds no token and never reaches the server itself. It posts to the page, the page asks /api/modules/call, and the scope check runs on the side the frame cannot lie to.",
-    "Extensions: named, versioned formats — roadmap.notifications@1 and roadmap.calls@1 — declared in the manifest, checked on every event and stamped with who sent it. Declaring one IS asking to send it, so there is one permission and one sentence per format.",
+    "Extensions: named, versioned formats — kehikot.notifications@1 and kehikot.calls@1 — declared in the manifest, checked on every event and stamped with who sent it. Declaring one IS asking to send it, so there is one permission and one sentence per format.",
     "Every crossing is counted — module, method, answered or refused, how long — kept for the week the tracker chart is kept for and shown under the module's name, with refusals counted apart and keeping their reason.",
     "A module names its own MCP server in the same manifest, held to its own origin, and the roadmap prints where it is without proxying it or speaking to it.",
     "Starting one from the page: a YAML or JSON registration names a directory and one script inside it — never a command line — which must exist, be executable, and stay inside that directory. Every module ships it as run.sh, told its port through the environment. Start waits for the module's own manifest, so 'started' means what 'found' means; a script that runs and never answers is reported as exactly that, with its pid. Stop is offered only for what this roadmap started, and nothing starts on its own.",
@@ -175,7 +175,7 @@
         "A copy of every notification, so the module can be replaced"
       ],
       "answer": 1,
-      "why": "A sender and a shower are different programs on different release cycles, and the shape between them is the one thing neither can own alone. So the frame holds the extension — roadmap.notifications@1 — checks every payload against it, and stamps who sent it; the panel that draws them is a module like any other and could be swapped for one with different opinions about what deserves attention, without a single sender being told. The version lives in the name because a consumer subscribes to a shape, and a shape that quietly changed under it is worse than one that was replaced.",
+      "why": "A sender and a shower are different programs on different release cycles, and the shape between them is the one thing neither can own alone. So the frame holds the extension — kehikot.notifications@1 — checks every payload against it, and stamps who sent it; the panel that draws them is a module like any other and could be swapped for one with different opinions about what deserves attention, without a single sender being told. The version lives in the name because a consumer subscribes to a shape, and a shape that quietly changed under it is worse than one that was replaced.",
       "passage": {
         "path": "chapters/wire.tex",
         "srcStart": 5409,
@@ -208,7 +208,7 @@
     },
     {
       "term": "manifest",
-      "means": "The JSON a module answers with at /.well-known/roadmap-module.json: what it is called, which protocol it speaks, which modes it brings and which permissions it wants. It is how a module markets itself, and it is data — nothing in it is ever evaluated, and anything it points at must be on the module's own origin."
+      "means": "The JSON a module answers with at /.well-known/kehikot-module.json: what it is called, which protocol it speaks, which modes it brings and which permissions it wants. It is how a module markets itself, and it is data — nothing in it is ever evaluated, and anything it points at must be on the module's own origin."
     },
     {
       "term": "grant",
@@ -240,11 +240,11 @@
     },
     {
       "term": "an extension",
-      "means": "A named, versioned format the frame holds and checks — roadmap.notifications@1, roadmap.calls@1. A module declares which it emits and which it consumes; the frame validates every payload against the shape and stamps who sent it. It is what lets the notification panel and the activity chart be modules: a sender and a shower never have to know about each other, only about the format between them."
+      "means": "A named, versioned format the frame holds and checks — kehikot.notifications@1, kehikot.calls@1. A module declares which it emits and which it consumes; the frame validates every payload against the shape and stamps who sent it. It is what lets the notification panel and the activity chart be modules: a sender and a shower never have to know about each other, only about the format between them."
     },
     {
       "term": "a registration",
-      "means": "A file in ~/.roadmap/modules/, YAML or JSON, whose NAME is the module's id — so it cannot claim to be for a module it is not. It says where the module answers, and optionally where it lives and which script starts it. A directory and one script inside it, never a command line: a registration is not a place to write shell."
+      "means": "A file in ~/Library/Application Support/Kehikot/modules/, YAML or JSON, whose NAME is the module's id — so it cannot claim to be for a module it is not. It says where the module answers, and optionally where it lives and which script starts it. A directory and one script inside it, never a command line: a registration is not a place to write shell."
     }
   ],
   "blockedBy": {

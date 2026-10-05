@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { PROTOCOL, manifestSchema, speaks } from 'roadmap-module-protocol'
+import { PROTOCOL, manifestSchema, speaks } from 'kehikot-module-protocol'
 
 import { ID, MANIFEST } from '../manifest.ts'
 
@@ -127,6 +127,6 @@ describe('the manifest a host reads', () => {
 
   test('is the id the registration file is named after', () => {
     expect(MANIFEST.id).toBe(ID)
-    expect(ID).toBe('roadmap.journeys')
+    expect(ID).toBe('kehikot.journeys')
   })
 })

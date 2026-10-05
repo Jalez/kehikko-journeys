@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { DISPOSITIONS, type DispositionValue, type TrackerRow } from 'roadmap-module-protocol'
+import { DISPOSITIONS, type DispositionValue, type TrackerRow } from 'kehikot-module-protocol'
 
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'

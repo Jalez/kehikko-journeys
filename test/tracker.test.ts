@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
-import { MESSAGE, PROTOCOL, methodParams, refreshableSchema, type Refreshable } from 'roadmap-module-protocol'
-import { mailbox } from 'roadmap-module-protocol/client'
+import { MESSAGE, PROTOCOL, methodParams, refreshableSchema, type Refreshable } from 'kehikot-module-protocol'
+import { mailbox } from 'kehikot-module-protocol/client'
 
 import { settle, started, stubHost, type Wire } from './host.ts'
 import { AT, answerOf, closedBy, row } from './reading.ts'
@@ -11,7 +11,7 @@ import { AT, answerOf, closedBy, row } from './reading.ts'
  * The host half — `tracker.get`, `tracker.refresh`, `context.tracker` and the
  * refresh control — is Jalez/kehikko#25 and cannot be framed against from
  * here, so the protocol's own schemas stand in for it: every question this
- * page asks is parsed with `methodParams`, every `roadmap.refreshable` it
+ * page asks is parsed with `methodParams`, every `kehikot.refreshable` it
  * sends with `refreshableSchema`, and every answer the stand-in gives is built
  * with `trackerReadingResult`, which is what each side runs on arrival.
  *

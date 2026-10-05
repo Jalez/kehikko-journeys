@@ -5,11 +5,11 @@
  *
  * `index.css` has no `@media (prefers-color-scheme: dark)` in it, on purpose.
  * That query follows the READER'S OPERATING SYSTEM and knows nothing about the
- * roadmap this page is sitting inside, so a dark canvas on a machine set to
+ * Kehikot this page is sitting inside, so a dark canvas on a machine set to
  * light framed this module and got a white rectangle — the first thing anybody
  * notices about a protocol.
  *
- * `roadmap.context.theme` is the answer, it arrives on the greeting and on
+ * `kehikot.context.theme` is the answer, it arrives on the greeting and on
  * every switch, and `apply` is the only thing that writes the class. The class
  * is what Tailwind's `dark:` variant keys on AND what the token block keys on,
  * so the two cannot drift: there is no state in which a `dark:` utility is off

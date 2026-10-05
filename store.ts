@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileS
 import { isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 
-import { KEHIKOT_DIR, moduleDir, moduleFile, within } from 'roadmap-module-protocol'
+import { KEHIKOT_DIR, moduleDir, moduleFile, within } from 'kehikot-module-protocol'
 
 import { ID } from './manifest.ts'
 
@@ -11,7 +11,7 @@ import { ID } from './manifest.ts'
  *
  * ## The departure this file is
  *
- * The roadmap's own `docs/modules.md` — in the repository this app was
+ * Kehikot's own `docs/modules.md` — in the repository this app was
  * extracted from, and quoted here because that document does not travel with
  * this one — says the middle holds three things: what was **decided** (the
  * journeys and the steps), what is **true** (what the last refresh read), and
@@ -31,7 +31,7 @@ import { ID } from './manifest.ts'
  * The reason it is arguable at all is the reason gh#131 exists. A journeys
  * panel that read its own steps over a bridge would not have left; it would be
  * a viewer of a store it does not own, mounted through a tab. The test of "the
- * roadmap is a host" is whether the panel it is NAMED after can hold its own
+ * Kehikot is a host" is whether the panel it is NAMED after can hold its own
  * material and still be an ordinary module, and it cannot be that while the
  * material stays behind. This repository existing at all is that test being
  * taken: the code is here, the store is here, and the host is reached only for
@@ -39,11 +39,11 @@ import { ID } from './manifest.ts'
  *
  * ## The schema
  *
- * Copied from the roadmap's own epic schema rather than imported, and the copy
+ * Copied from Kehikot's own epic schema rather than imported, and the copy
  * is the point rather than a shortcut: this app is a separate repository with a
  * separate release, and an app that reached into a host's internals would stop
  * building the day that host reorganised a file. The copy is faithful — a
- * journey written by the roadmap parses here, and one written here parses there
+ * journey written by Kehikot parses here, and one written here parses there
  * — with exactly one addition, `stepsFrom`, which has a section of its own
  * below. The one thing that must not drift is the SLUG: the host's `epic` and
  * this file's `slug` are the same name for the same thing, and a journey whose
@@ -76,7 +76,7 @@ import { ID } from './manifest.ts'
  * > everything is transparent etc and easily usable by others in the project."
  *
  * So: `<projectPath>/.kehikot/journeys/journeys.json`. The folder name and both
- * joins are `roadmap-module-protocol`'s, deliberately, because four modules
+ * joins are `kehikot-module-protocol`'s, deliberately, because four modules
  * answering "where does my data live" separately is four answers and the
  * disagreement has no symptom — every module starts, every module saves, and a
  * person finds half their work in one folder and half in another.
@@ -360,7 +360,7 @@ export const stepSchema = z.object({
  * Where a journey's steps come from, when they do not come from here.
  *
  * **This is the most important field in this app**, and it exists because of a
- * bug the roadmap's own bridge had on the morning this was written: it reported
+ * bug Kehikot's own bridge had on the morning this was written: it reported
  * a journey as having no steps while the page beside it drew twenty.
  *
  * Three journeys in the shipped set — `an-action-is-one-thing`,
@@ -415,7 +415,7 @@ export const quizSchema = z
       .optional(),
   })
   /* Carried, not rendered: quizzes are the Learning app's. Held loosely on
-     purpose — the refinement the roadmap puts on `passage` is a rule about
+     purpose — the refinement Kehikot puts on `passage` is a rule about
      material this app never draws, and enforcing somebody else's invariant on
      the read path is how a store refuses to open a file it has no opinion
      about. */
@@ -537,7 +537,7 @@ export type Document = z.infer<typeof documentSchema>
  * program ships with was a program furnishing its own house. The store is now a
  * folder inside SOMEBODY ELSE'S REPOSITORY, and "empty" is a fact about their
  * project rather than about this installation. An automatic seed would mean:
- * open the container on any project on the machine, and thirteen of the roadmap's
+ * open the container on any project on the machine, and thirteen of Kehikot's
  * own journeys — `the-roadmap-tracks-itself`, `modes-are-modules`, fifty
  * kilobytes of somebody's narrative about a different codebase — appear inside
  * it, get written to `.kehikot/journeys/journeys.json` there, and are then the answer

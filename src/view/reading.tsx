@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react'
 
-import type { Disposition } from 'roadmap-module-protocol'
-import type { Facet } from 'roadmap-module-protocol/facets'
+import type { Disposition } from 'kehikot-module-protocol'
+import type { Facet } from 'kehikot-module-protocol/facets'
 
 import type { JourneyView, Live } from '../kinds.ts'
 import type { Around } from '../live/lookup.ts'

@@ -1,8 +1,8 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { cleanup, render } from '@testing-library/react'
-import { MESSAGE, filtersSchema, methodParams, type Disposition, type FilterGroup } from 'roadmap-module-protocol'
-import { mailbox } from 'roadmap-module-protocol/client'
-import { FACET_IDS, HIDE_GROUP } from 'roadmap-module-protocol/facets'
+import { MESSAGE, filtersSchema, methodParams, type Disposition, type FilterGroup } from 'kehikot-module-protocol'
+import { mailbox } from 'kehikot-module-protocol/client'
+import { FACET_IDS, HIDE_GROUP } from 'kehikot-module-protocol/facets'
 
 import { App } from '../src/app.tsx'
 import { settle, started, stubHost, type Wire } from './host.ts'

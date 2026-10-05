@@ -1,6 +1,6 @@
 import { CircleDot, CircleSlash, EyeOff, GitMerge, PencilLine } from 'lucide-react'
 
-import type { TrackerRow } from 'roadmap-module-protocol'
+import type { TrackerRow } from 'kehikot-module-protocol'
 
 import { Badge } from '@/components/ui/badge.tsx'
 

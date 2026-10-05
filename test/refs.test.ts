@@ -152,7 +152,7 @@ describe('what one selection.set may carry', () => {
 })
 
 describe('the grammar, which decides what is a reference at all', () => {
-  test('the four shapes the roadmap parses', () => {
+  test('the four shapes Kehikot parses', () => {
     expect(isTracked('#2274')).toBe(true)
     expect(isTracked('!1800')).toBe(true)
     expect(isTracked('gh#41')).toBe(true)

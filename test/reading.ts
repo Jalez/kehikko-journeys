@@ -5,7 +5,7 @@ import {
   type TrackerMissing,
   type TrackerReading,
   type TrackerRow,
-} from 'roadmap-module-protocol'
+} from 'kehikot-module-protocol'
 
 import type { Live } from '../src/kinds.ts'
 import { readingOf } from '../src/live/lookup.ts'

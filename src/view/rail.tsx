@@ -4,7 +4,7 @@ import { IN_PROD, STAGES, railOf } from '../live/lookup.ts'
 import { aroundOf, useReading } from './reading.tsx'
 
 /**
- * The rail: seven words in the roadmap's own order, drawn as seven dots, and a
+ * The rail: seven words in Kehikot's own order, drawn as seven dots, and a
  * position derived from ONE thing — what the last refresh read.
  *
  * The reasoning about what it can and cannot know lives with `railOf` in

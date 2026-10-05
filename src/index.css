@@ -11,13 +11,13 @@
  * There is deliberately no `@media (prefers-color-scheme: dark)` block in this
  * file, and its absence is the fix for a real failure rather than an omission:
  * that media query follows the READER'S OPERATING SYSTEM and knows nothing
- * about the roadmap this page is sitting inside, so a dark canvas on a machine
+ * about Kehikot this page is sitting inside, so a dark canvas on a machine
  * set to light framed this module and got a white rectangle. A module one shade
  * lighter than the page around it is the first thing anybody notices about a
  * protocol.
  *
  * So the class is the single source, `theme.ts` is the only thing that writes
- * it, and `roadmap.context.theme` is the only thing that tells it what to
+ * it, and `kehikot.context.theme` is the only thing that tells it what to
  * write. The machine's preference is consulted exactly once — as the seed for a
  * page nobody has framed — and is overruled the instant a host speaks. Tokens
  * and `dark:` utilities therefore cannot disagree, which is the thing a media
@@ -156,7 +156,7 @@
    * the root having no background of its own and it interacts with containment.
    * Measured in the real frame, the host's own `<iframe>` element computes to a
    * white background — so a module that painted nothing did not borrow the
-   * roadmap's near-black, it got white, in both themes, with near-white text on
+   * Kehikot's near-black, it got white, in both themes, with near-white text on
    * top of it. That is not a subtle mis-shade; it is unreadable. This page
    * paints its own opaque surface, in the same numbers its neighbours use.
    */

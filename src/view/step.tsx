@@ -1,5 +1,5 @@
 import { Fragment } from 'react'
-import { sift } from 'roadmap-module-protocol/facets'
+import { sift } from 'kehikot-module-protocol/facets'
 
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
