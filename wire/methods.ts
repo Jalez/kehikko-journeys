@@ -1,7 +1,7 @@
 import { METHOD_NAMES } from 'roadmap-module-protocol'
 
 /**
- * The one question this app asks, resolved out of the package rather than
+ * The questions this app asks, resolved out of the package rather than
  * written down here.
  *
  * ## Why this is not a string literal
@@ -59,10 +59,22 @@ function required(what: string, candidates: readonly string[]): string {
 }
 
 /**
- * What the last refresh saw in the trackers, for the epic that is open.
+ * What the trackers last said about the refs this journey names, from the
+ * reading the host keeps for every module.
  *
- * The only thing this app asks anybody for. It is enrichment: every reference
+ * The one thing this app reads from anybody. It is enrichment: every reference
  * on the page is drawn whether or not this is answered, and where it is not
- * answered a reference is marked unseen rather than guessed at.
+ * answered a reference is marked unseen rather than guessed at. It replaced
+ * `live.get`, which answered for the roadmap's epic in four bags and could
+ * only be as fresh as whatever last wrote the file behind it.
  */
-export const GET_LIVE = required('reading what the trackers last reported', ['live.get'])
+export const GET_TRACKER = required('reading what the trackers last reported', ['tracker.get'])
+
+/**
+ * Ask the host to read the trackers again for this journey's refs.
+ *
+ * Sent from the host's own refresh control — which this page asks for with
+ * `roadmap.refreshable` — and from nothing else. It spends the person's rate
+ * limit, so it is never sent because a page loaded or a context arrived.
+ */
+export const REFRESH_TRACKER = required('reading the trackers again', ['tracker.refresh'])

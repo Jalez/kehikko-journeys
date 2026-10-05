@@ -68,7 +68,14 @@ export function App() {
     >
       <div className="mx-auto w-full max-w-[44rem] px-3 pt-3 pb-12 @min-[26rem]/container:px-4 @min-[26rem]/container:pt-4">
         <Head journey={state.journey} />
-        <Sight framed={state.framed} refused={state.refused} epic={state.epic} journey={state.journey} live={state.live} />
+        <Sight
+          framed={state.framed}
+          refused={state.refused}
+          epic={state.epic}
+          journey={state.journey}
+          live={state.live}
+          busy={state.busy}
+        />
         {!state.framed && <Picker index={state.index} journey={state.journey} />}
         {/*
          * Where the journeys are, before anything about which one is open.

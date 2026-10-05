@@ -35,7 +35,7 @@ import { ID } from './manifest.ts'
  * material and still be an ordinary module, and it cannot be that while the
  * material stays behind. This repository existing at all is that test being
  * taken: the code is here, the store is here, and the host is reached only for
- * `live.get`.
+ * what the trackers say (`tracker.get`) and the presses only a host can carry.
  *
  * ## The schema
  *

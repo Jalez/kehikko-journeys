@@ -5,8 +5,8 @@ import { mailbox } from 'roadmap-module-protocol/client'
 import { FACET_IDS, HIDE_GROUP } from 'roadmap-module-protocol/facets'
 
 import { App } from '../src/app.tsx'
-import type { Live } from '../src/kinds.ts'
 import { settle, started, stubHost, type Wire } from './host.ts'
+import { answerOf, closedBy, row } from './reading.ts'
 
 /**
  * The filter and the dispositions, over the real client on the real `window`.
@@ -19,16 +19,16 @@ import { settle, started, stubHost, type Wire } from './host.ts'
  *
  * Each case stands in a project of its own, because a context naming the
  * project this page is already in does not reload the journey — and these
- * cases need the reading `live.get` hands over, which is asked once per load.
+ * cases need the reading `tracker.get` hands over, which is asked on each load.
  */
 
 /* Step one: issue gh#1 open, carrying change gh#2, which closed without
    merging. Step two: issue gh#3, closed for no reason anybody can read. */
-const LIVE: Live = {
-  ghIssues: { 'gh#1': { state: 'opened' }, 'gh#3': { state: 'closed' } },
-  ghPrs: { 'gh#2': { state: 'closed' } },
-  ghLinks: { 'gh#1': [2] },
-}
+const READ = answerOf([
+  row('gh#1', { state: 'open', links: closedBy('gh#2') }),
+  row('gh#2', { kind: 'change', state: 'closed' }),
+  row('gh#3', { state: 'closed' }),
+])
 
 let wire: Wire
 let projects = 0
@@ -54,7 +54,7 @@ async function framed(more: Record<string, unknown> = {}) {
   projects += 1
   host.greet([], { projectPath: `/Users/somebody/Projects/filter-${projects}`, ...more })
   await settle()
-  host.answer('live.get', LIVE)
+  host.answer('tracker.get', READ)
   await settle()
   render(<App />)
   return host

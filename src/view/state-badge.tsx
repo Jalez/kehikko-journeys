@@ -1,9 +1,10 @@
 import { CircleDot, CircleSlash, EyeOff, GitMerge, PencilLine } from 'lucide-react'
 
+import type { TrackerRow } from 'roadmap-module-protocol'
+
 import { Badge } from '@/components/ui/badge.tsx'
 
 import { absenceOf, toneOf } from '../live/lookup.ts'
-import type { Sighting } from '../kinds.ts'
 import { isTracked } from '../refs.ts'
 import { aroundOf, useReading } from './reading.tsx'
 
@@ -20,9 +21,11 @@ import { aroundOf, useReading } from './reading.tsx'
  *     is and nothing is implied about it.
  *  2. **A tracker reference nobody has been able to look at.** Nothing is
  *     framing this page; or a host is, and handed over no reading (it refused
- *     `live.get`, and its reason is the tooltip); or the host's last refresh
- *     had nothing about it. Three different absences, worded the way `Sight`
- *     words them at the top of the page — `absenceOf` in `live/lookup.ts` is
+ *     `tracker.get`, and its reason is the tooltip); or the host's reading
+ *     has no row for it, and says why — still being read, not found, no
+ *     tracker for that spelling, or a read that failed. Different absences,
+ *     worded the way `Sight` words them at the top of the page — `absenceOf`
+ *     in `live/lookup.ts` is
  *     shared with the rail so the two cannot drift. This is the ABSENCE of a
  *     reading — not "unknown", which reads as a state, and not blank, which
  *     reads as fine.
@@ -50,7 +53,7 @@ const MARKS = {
   unseen: EyeOff,
 } as const
 
-export function StateBadge({ refName, seen }: { refName: string; seen: Sighting | null }) {
+export function StateBadge({ refName, seen }: { refName: string; seen: TrackerRow | null }) {
   const reading = useReading()
   const { live } = reading
 
@@ -64,13 +67,13 @@ export function StateBadge({ refName, seen }: { refName: string; seen: Sighting 
   }
 
   if (!seen) {
-    const absent = absenceOf(live, aroundOf(reading))
+    const absent = absenceOf(live, aroundOf(reading), refName)
     return (
       <Badge
         variant="unseen"
         title={
           live
-            ? 'This host read the trackers, and this reference was not in what it read.'
+            ? absent.why
             : reading.framed
               ? absent.why
               : 'This app holds the journey. What a tracker says about this reference is read by a host, and nothing is ' +
@@ -86,11 +89,11 @@ export function StateBadge({ refName, seen }: { refName: string; seen: Sighting 
   const tone = toneOf(seen)
   const Mark = MARKS[tone]
   /* A change that is open and marked a draft says 'draft'. The tracker's own
-     word for it is still 'opened', which is true and is the less useful half of
+     word for it is still 'open', which is true and is the less useful half of
      what it knows. */
-  const word = seen.state === 'opened' && seen.draft ? 'draft' : (seen.state ?? '')
+  const word = seen.state === 'open' && seen.draft ? 'draft' : seen.state
   return (
-    <Badge variant={tone} title={seen.at ? `as at ${seen.at}` : undefined}>
+    <Badge variant={tone} title={`as read at ${seen.readAt}`}>
       <Mark aria-hidden="true" />
       {word}
     </Badge>

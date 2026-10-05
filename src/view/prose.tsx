@@ -7,7 +7,7 @@ import { useReading } from './reading.tsx'
 /**
  * One reference, as a link where there is somewhere to link to.
  *
- * The href comes from what the last refresh READ — the tracker's own URL for
+ * The href comes from what the host's reading READ — the tracker's own URL for
  * the thing. It is never built from the ref: constructing 'https://github.com/'
  * plus a guess at the repository would produce a link that looks right, goes
  * somewhere, and is somewhere else. With no live state there is no href, and
@@ -42,7 +42,7 @@ export function Ref({ refName }: { refName: string }) {
       className={`${shared} cursor-default decoration-dotted text-muted-foreground decoration-muted-foreground/50 hover:decoration-muted-foreground`}
       title={
         live
-          ? `The last refresh this host did had nothing about ${refName}, so there is no address to open.`
+          ? `The host's tracker reading has nothing about ${refName}, so there is no address to open.`
           : `Nothing is framing this page, so this app cannot see where ${refName} lives.`
       }
     >

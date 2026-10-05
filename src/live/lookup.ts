@@ -1,13 +1,14 @@
-import type { Disposition, DispositionValue } from 'roadmap-module-protocol'
 import {
-  dispositionOf,
-  facetsOf,
-  type DispositionSource,
-  type Facet,
-  type Sighting as RefSighting,
-} from 'roadmap-module-protocol/facets'
+  readTrackerRef,
+  type Disposition,
+  type DispositionValue,
+  type TrackerReading,
+  type TrackerRow,
+} from 'roadmap-module-protocol'
+import { dispositionOf, facetsOf, type DispositionSource, type Facet } from 'roadmap-module-protocol/facets'
 
-import type { Live, Sighting } from '../kinds.ts'
+import type { JourneyView, Live } from '../kinds.ts'
+import { REF_IN_PROSE } from '../refs.ts'
 
 /**
  * Everything this page knows about a reference, and it is all read rather than
@@ -16,50 +17,119 @@ import type { Live, Sighting } from '../kinds.ts'
  * ## Why these are functions of `live` and not of a module-level variable
  *
  * They used to close over the page's own `live`, which meant the only way to
- * ask "what does this app conclude about a merged change with reviewers on it?"
+ * ask "what does this app conclude about a merged change with a review on it?"
  * was to open a browser and look at a dot. The rail is the one thing on this
  * page that makes a CLAIM — every other pixel restates something a person wrote
  * or a tracker said — so it is the one thing that most needs to be checkable
  * without a browser. Passing the reading in costs one argument at each call
  * site and buys a suite that can enumerate every branch.
  *
- * Nothing here guesses. A GitHub number is an issue or a pull request according
- * to WHICH BAG the host's last refresh filed it in, and if it is in neither bag
- * then the honest answer is that we have not seen it — never that it is open,
- * and never that it is closed.
+ * ## One reading, by the spelling it was asked for
+ *
+ * `live` is what `tracker.get` answered: the host's shared reading, a row per
+ * ref, each row saying itself whether it is an issue or a change. There used
+ * to be four bags here — GitLab issues by number, merge requests by number,
+ * GitHub issues and pull requests by ref — and whether `gh#41` was an issue
+ * depended on which bag the host had filed it in. A row says `kind`, and that
+ * is the end of it.
+ *
+ * Nothing here guesses. A ref with no row has not been seen — never open, and
+ * never closed — and `missing` says why.
  */
 
+/** Whether a ref names a change: by its spelling where it says (`!7`), by its row where it does not (`gh#41`). */
 export function isChange(live: Live | null, ref: string): boolean {
-  if (/^![0-9]+$/.test(ref)) return true
-  return Boolean(live?.ghPrs && ref in live.ghPrs)
+  if (readTrackerRef(ref)?.kind === 'change') return true
+  return live?.rows.get(ref)?.kind === 'change'
+}
+
+/** The host's row for a ref, or null where the reading has none. */
+export function stateOf(live: Live | null, ref: string): TrackerRow | null {
+  return live?.rows.get(ref) ?? null
 }
 
 /**
- * The host's own filing, read the way it files: a GitLab number is keyed by the
- * number, a GitHub one by the ref as written, and which bag it is in is the
- * only thing that says whether a GitHub number is an issue or a pull request.
- */
-export function stateOf(live: Live | null, ref: string): Sighting | null {
-  if (!live) return null
-  const change = /^!([0-9]+)$/.exec(ref)
-  if (change) return live.mrs?.[change[1] as string] ?? null
-  const issue = /^#([0-9]+)$/.exec(ref)
-  if (issue) return live.issues?.[issue[1] as string] ?? null
-  if (ref.startsWith('gh')) return live.ghPrs?.[ref] ?? live.ghIssues?.[ref] ?? null
-  return null
-}
-
-/**
- * Which changes the tracker itself attaches to an issue. GitLab files the
- * attachment under the issue's number; GitHub files it under the ref as
- * written. Read, never guessed: this app has no tracker.
+ * Which changes say they deliver an issue — the issue's own `closed-by` links,
+ * which the host fills only from a change's own claim. Read, never guessed:
+ * this app has no tracker.
  */
 export function carriedBy(live: Live | null, ref: string): string[] {
-  if (!live) return []
-  const issue = /^#([0-9]+)$/.exec(ref)
-  if (issue) return (live.links?.[issue[1] as string] ?? []).map((n) => `!${n}`)
-  if (ref.startsWith('gh')) return (live.ghLinks?.[ref] ?? []).map((n) => `gh#${n}`)
-  return []
+  const row = stateOf(live, ref)
+  if (!row || row.kind !== 'issue') return []
+  return row.links.filter((link) => link.relation === 'closed-by').map((link) => link.ref)
+}
+
+/**
+ * Every ref this journey would show a state for, in the order it names them,
+ * and only the ones a tracker could answer.
+ *
+ * The host does not read `journeys.json` — the journeys are this app's — so
+ * `tracker.get({ epic })` would answer about the roadmap's epic and not about
+ * this page. The refs go over by name instead: what the steps carry, what
+ * `settledBy` and `blockedBy` name, and every ref written into the prose, so
+ * that a ref mentioned in a sentence gets the tracker's own link like a card
+ * does. A `local#…` gate, or anything else `readTrackerRef` cannot read, is
+ * left out: no tracker answers it, and asking would only earn `no-tracker`.
+ */
+export function refsOf(journey: JourneyView | null): string[] {
+  if (!journey) return []
+  const named: string[] = []
+  const prose = (text: string | undefined) => named.push(...(String(text ?? '').match(REF_IN_PROSE) ?? []))
+  prose(journey.lede)
+  prose(journey.callout)
+  if (journey.plan !== 'elsewhere') {
+    for (const step of journey.steps ?? []) {
+      named.push(...(step.refs ?? []))
+      prose(step.title)
+      prose(step.body)
+    }
+  }
+  for (const [ref, answers] of Object.entries(journey.settledBy ?? {})) named.push(ref, ...answers)
+  for (const [ref, gates] of Object.entries(journey.blockedBy ?? {})) named.push(ref, ...gates)
+  return [...new Set(named)].filter((ref) => readTrackerRef(ref) !== null)
+}
+
+/**
+ * The changes the reading links to that it holds no row for yet.
+ *
+ * A step names an issue; the host reads the issue and says which changes
+ * claim to close it. Those changes are cards on this page and are in no
+ * `refs` array, so their own rows are a second question — asked once, for
+ * exactly these.
+ */
+export function unreadLinks(live: Live): string[] {
+  const out = new Set<string>()
+  for (const row of live.rows.values()) {
+    for (const ref of carriedBy(live, row.ref)) {
+      if (!live.rows.has(ref) && !live.missing.has(ref) && readTrackerRef(ref)) out.add(ref)
+    }
+  }
+  return [...out]
+}
+
+/**
+ * Put one or more `tracker.get` answers together into what the page holds.
+ *
+ * More than one because a journey can name more refs than one question may
+ * carry, and because the carried-in changes are asked for after their issues.
+ * A row answered later wins over a `missing` from earlier: it is the newer
+ * news about the same ref. `at` is the newest the host gave.
+ */
+export function readingOf(answers: readonly TrackerReading[]): Live {
+  const rows = new Map<string, TrackerRow>()
+  const missing = new Map<string, TrackerReading['missing'][number]['reason']>()
+  const sources = new Map<string, TrackerReading['sources'][number]>()
+  let at: string | null = null
+  for (const answer of answers) {
+    if (answer.at && (!at || Date.parse(answer.at) > Date.parse(at))) at = answer.at
+    for (const source of answer.sources) sources.set(`${source.tracker} ${source.host} ${source.repo}`, source)
+    for (const row of answer.rows) {
+      rows.set(row.ref, row)
+      missing.delete(row.ref)
+    }
+    for (const gap of answer.missing) if (!rows.has(gap.ref)) missing.set(gap.ref, gap.reason)
+  }
+  return { at, rows, missing, sources: [...sources.values()] }
 }
 
 /**
@@ -96,12 +166,12 @@ export function cardsUnder(live: Live | null, refs: readonly string[]): { ref: s
  * Which of the badge's five faces a sighting wears, as one word.
  *
  * `unseen` is not a state and is returned for the absence of a sighting, which
- * is why this takes a `Sighting | null` rather than a `Sighting`: the caller
+ * is why this takes a `TrackerRow | null` rather than a `TrackerRow`: the caller
  * cannot forget the case, because the case is in the type.
  */
 export type Tone = 'open' | 'merged' | 'closed' | 'draft' | 'unseen'
 
-export function toneOf(seen: Sighting | null): Tone {
+export function toneOf(seen: TrackerRow | null): Tone {
   if (!seen) return 'unseen'
   if (seen.state === 'merged') return 'merged'
   if (seen.state === 'closed') return 'closed'
@@ -157,20 +227,49 @@ export interface Around {
 }
 
 /**
- * Why there is no reading, in the three ways there can be none.
+ * Why there is no reading, in the ways there can be none.
  *
  * Shared by the badge and the rail so that the two cannot disagree with each
  * other, and written to agree with `Sight` at the top of the page. They used to
  * look only at `live`, and `live` is null both when nothing frames this page
- * and when a host frames it and refused `live.get` — so a page framed inside
+ * and when a host frames it and refused `tracker.get` — so a page framed inside
  * the host said "Framed, and refused" in its banner and "Nothing is framing
  * this page" on every card underneath it.
+ *
+ * With a reading in hand, the host has said WHY a ref has no row, and the four
+ * reasons send a reader to four different places: wait, check the spelling,
+ * check the project's trackers, or read the source's own error. Without a
+ * `ref`, or for a ref the reading never mentions, it is the old sentence.
  */
-export function absenceOf(live: Live | null, around: Around = {}): { word: string; why: string } {
+export function absenceOf(live: Live | null, around: Around = {}, ref?: string): { word: string; why: string } {
   if (live) {
+    const reason = ref === undefined ? undefined : live.missing.get(ref)
+    switch (reason) {
+      case 'pending':
+        return {
+          word: 'being read',
+          why: 'The host has not read this reference yet and has started to. It is drawn here when the read lands.',
+        }
+      case 'not-found':
+        return { word: 'not found', why: 'The tracker answered, and it has no such issue or change.' }
+      case 'no-tracker':
+        return {
+          word: 'no tracker for it',
+          why: 'This project reads no tracker that this spelling names, so nothing can say what it is doing.',
+        }
+      case 'failed': {
+        const errors = live.sources.map((source) => source.error).filter(Boolean)
+        return {
+          word: 'read failed',
+          why: errors.length
+            ? `The host's last read of its tracker failed: ${errors.join(' · ')}`
+            : "The host's last read of its tracker failed.",
+        }
+      }
+    }
     return {
-      word: 'not in the last refresh',
-      why: 'The host handed over what its last refresh read, and there was nothing about this reference in it.',
+      word: 'not in the reading',
+      why: 'The host handed over its tracker reading, and there was nothing about this reference in it.',
     }
   }
   if (around.framed) {
@@ -178,7 +277,7 @@ export function absenceOf(live: Live | null, around: Around = {}): { word: strin
       word: 'no reading from the host',
       why: around.withheld
         ? `A host is framing this page and had no tracker reading to hand over: ${around.withheld}`
-        : 'A host is framing this page and has not handed over a tracker reading for this epic. This is the ' +
+        : 'A host is framing this page and has not handed over a tracker reading for this journey. This is the ' +
           'absence of a reading, not a state.',
     }
   }
@@ -192,7 +291,7 @@ export function absenceOf(live: Live | null, around: Around = {}): { word: strin
 
 export function railOf(live: Live | null, ref: string, around: Around = {}): Rail {
   const seen = stateOf(live, ref)
-  if (!seen) return { now: -1, unseen: true, ...absenceOf(live, around) }
+  if (!seen) return { now: -1, unseen: true, ...absenceOf(live, around, ref) }
   /* A person's word, or the journey's own record that a decision was answered,
      outranks the tracker's state — that is what each of them is FOR. */
   const verdict = verdictOf(live, ref, around)
@@ -210,8 +309,14 @@ export function railOf(live: Live | null, ref: string, around: Around = {}): Rai
       }
     }
     if (seen.draft) return { now: 2, word: 'In progress', why: 'The change is open and marked a draft.' }
-    if ((seen.reviewers ?? []).length) return { now: 3, word: 'In review', why: 'The tracker names reviewers on it.' }
-    return { now: 4, word: 'PR open', why: 'The change is open and nobody is named on it yet.' }
+    /* `required` is not a review — it is the tracker saying one is still owed,
+       which every GitLab merge request under an approval rule says from the
+       moment it opens. Only a verdict somebody gave moves the rail. */
+    if (seen.review === 'approved') return { now: 3, word: 'In review', why: 'The tracker says it is approved.' }
+    if (seen.review === 'changes-requested') {
+      return { now: 3, word: 'In review', why: 'A reviewer has asked for changes.' }
+    }
+    return { now: 4, word: 'PR open', why: 'The change is open and nobody has reviewed it yet.' }
   }
   if (seen.state === 'closed') return railOfVerdict(verdict)
   const under = carriedBy(live, ref)
@@ -269,31 +374,10 @@ function railOfVerdict(verdict: Verdict): Rail {
  * ------------------------------------------------------------------ */
 
 /**
- * One reference as the shared ref-facet vocabulary reads it, or null where
- * there is no reading.
- *
- * Translated here, once, from the host's bags: an issue or a change by which
- * bag it was filed in (see `isChange`), and `closedByMerge` from the changes
- * the tracker itself attaches — GitLab's only sign that a closed issue was
- * finished rather than dropped.
- */
-export function sightingFor(live: Live | null, ref: string): RefSighting | null {
-  const seen = stateOf(live, ref)
-  if (!seen) return null
-  const kind = isChange(live, ref) ? 'change' : 'issue'
-  const state = seen.state === 'merged' ? 'merged' : seen.state === 'closed' ? 'closed' : 'open'
-  return {
-    kind,
-    state,
-    stateReason: seen.stateReason ?? null,
-    closedByMerge: kind === 'issue' && carriedBy(live, ref).some((change) => stateOf(live, change)?.state === 'merged'),
-  }
-}
-
-/**
  * Why a reference closed, and whose word that is.
  *
- * `dispositionOf` from the shared facets, with one thing this app adds: a
+ * `dispositionOf` from the shared facets, handed the host's row as it is —
+ * a row IS a `Sighting`, `closedByMerge` and all — with one thing this app adds: a
  * journey's `settledBy`. A decision issue no commit will close, whose answering
  * changes have all merged, is `done` by the journey's own record — that field
  * has always meant exactly this, and folding it in here keeps one answer to
@@ -307,7 +391,7 @@ export interface Verdict {
 }
 
 export function verdictOf(live: Live | null, ref: string, around: Around = {}): Verdict {
-  const shown = dispositionOf(ref, sightingFor(live, ref), around.marks ?? [])
+  const shown = dispositionOf(ref, stateOf(live, ref), around.marks ?? [])
   if (shown.source === 'person') return shown
   const answers = around.settledBy?.[ref] ?? []
   if (answers.length && answers.every((change) => stateOf(live, change)?.state === 'merged')) {
@@ -321,8 +405,8 @@ export function verdictOf(live: Live | null, ref: string, around: Around = {}): 
  * reading — `sift` never hides what it cannot see.
  */
 export function facetsOfRef(live: Live | null, ref: string, around: Around = {}): Facet[] {
-  const sighting = sightingFor(live, ref)
-  return sighting ? facetsOf(sighting, verdictOf(live, ref, around)) : []
+  const row = stateOf(live, ref)
+  return row ? facetsOf(row, verdictOf(live, ref, around)) : []
 }
 
 /**

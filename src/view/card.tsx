@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { DISPOSITIONS, type DispositionValue } from 'roadmap-module-protocol'
+import { DISPOSITIONS, type DispositionValue, type TrackerRow } from 'roadmap-module-protocol'
 
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
@@ -92,20 +92,17 @@ export function Card({ refName, under }: { refName: string; under?: boolean }) {
         <StateBadge refName={refName} seen={seen} />
       </div>
 
-      {/* The tracker's own labels, in the tracker's own colours where the
-          refresh recorded a palette. A scoped label dims its scope, because the
-          half after the colons is what distinguishes one row from the next. */}
+      {/* The tracker's own labels. A scoped label dims its scope, because the
+          half after the colons is what distinguishes one row from the next.
+          Uncoloured: the shared reading carries a label's name and not its
+          colour, and a colour this app made up would be a claim about a
+          tracker it never read. */}
       {(seen?.labels ?? []).length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1">
           {(seen?.labels ?? []).map((name) => {
             const at = name.lastIndexOf('::')
-            const colour = live?.palette?.[name]
             return (
-              <Badge
-                key={name}
-                variant="outline"
-                style={colour ? { background: colour.bg, color: colour.fg, borderColor: colour.bg } : undefined}
-              >
+              <Badge key={name} variant="outline">
                 {at > 0 ? (
                   <>
                     <span className="opacity-55">{name.slice(0, at + 2)}</span>
@@ -282,6 +279,13 @@ function Why({ refName, verdict, canMark }: { refName: string; verdict: Verdict;
   )
 }
 
+/** Where a change's review stands, in the tracker's terms and the card's words. */
+const REVIEW: Record<NonNullable<TrackerRow['review']>, string> = {
+  approved: 'approved',
+  'changes-requested': 'changes requested',
+  required: 'review still needed',
+}
+
 function Who({ refName }: { refName: string }) {
   const { live } = useReading()
   const seen = stateOf(live, refName)
@@ -289,19 +293,19 @@ function Who({ refName }: { refName: string }) {
 
   if (isChange(live, refName)) {
     const author = seen.author ?? ''
-    const reviewers = seen.reviewers ?? []
-    if (!author && !reviewers.length) return null
+    const review = seen.review ? REVIEW[seen.review] : ''
+    if (!author && !review) return null
     return (
       <p className="mt-1 text-xs text-muted-foreground">
         {author || 'unknown'} is making it
-        {reviewers.length ? ` · ${reviewers.join(', ')} asked to look` : ''}
+        {review ? ` · ${review}` : ''}
       </p>
     )
   }
 
   const assignees = seen.assignees ?? []
   if (assignees.length) return <p className="mt-1 text-xs text-muted-foreground">{assignees.join(', ')}</p>
-  if (seen.state === 'opened') {
+  if (seen.state === 'open') {
     return (
       <p className="mt-1 text-xs text-muted-foreground italic" title="Nobody is assigned in the tracker.">
         unassigned

@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils.ts'
  * ## `unseen` is dashed, unfilled, and italic, on purpose
  *
  * It is not a sixth state. It is the ABSENCE of a reading — nothing framed this
- * page, or the host's last refresh had nothing about this reference — and the
+ * page, or the host's reading has no row for this reference — and the
  * whole argument of this module is that absence must not be drawn as a state.
  * Every other variant is filled and solid; this one is an outline in the muted
  * colour with nothing behind it, so the eye reads "there is nothing here" before
@@ -29,7 +29,7 @@ import { cn } from '@/lib/utils.ts'
  * ## Only the verdicts refuse to wrap, and that distinction cost a measurement
  *
  * `whitespace-nowrap` is right for the five verdicts: each is one short word
- * from a closed set, and a badge that wraps "not in the last refresh" over two
+ * from a closed set, and a badge that wraps "no reading from the host" over two
  * lines reads as two badges at 220px.
  *
  * It is wrong for everything else, and putting it in the base was a real bug
