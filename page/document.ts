@@ -14,9 +14,8 @@
  *
  * ## Almost nothing is drawn here
  *
- * There is a root element, one sentence inside it, and an inert JSON island.
- * Every journey, step and card is built by React from what this program's own
- * store answers, because all of it depends on what is in that store — and
+ * There is an empty root element and an inert JSON island. Every journey,
+ * step and card is built by React from what this program's own store answers, because all of it depends on what is in that store — and
  * because the page has to be able to redraw after an edit without this file and
  * the client holding two versions of the same sentence.
  *
@@ -25,20 +24,14 @@
  * that inlining saved is not worth a stylesheet that no tool in the repository
  * can read.
  *
- * ## The one sentence that is written here, and why it is the exception
+ * ## The root is empty, as every other module's is
  *
- * It is the only statement on this page that is true before any fetch has
- * returned, true if the store is empty, and true if nothing ever frames this
- * page. A sentence about what this program HOLDS should not itself depend on a
- * request succeeding, or on a bundle having been evaluated. It sits inside
- * `#root`, so React replaces it with the live page on mount — which means it is
- * on screen for exactly the window in which nothing better can be, and gone
- * without a flicker of duplication the moment there is.
- *
- * The heading that used to sit above it is gone from the markup and is decided
- * in `app.tsx` instead, off `window.parent !== window`. That test is answerable
- * before first paint too, so nothing blinks; what changed is only that the
- * decision now lives beside the thing it removes.
+ * A paragraph used to sit inside `#root`, saying what this program holds and
+ * what it leaves to a host, on the grounds that it was true before any fetch
+ * returned. It was on screen for as long as the bundle took to load, which in
+ * a container is long enough to read as a disclaimer no other module shows.
+ * What the page has to say about being unframed is said by `sight.tsx`, once
+ * there is a page to say it.
  *
  * ## The ticket rides in a JSON island
  *
@@ -64,16 +57,7 @@ const PAGE_SHELL = `<!doctype html>
 <title>Journeys</title>
 </head>
 <body>
-<div id="root">
-  <p style="font:15px/1.6 ui-sans-serif,system-ui,sans-serif;margin:1rem;max-width:44rem">
-    <b>The journeys are this program&rsquo;s own.</b>
-    The slugs, the titles, the ledes, the callouts, the steps, their order, what blocks what and what settles
-    what are all held here, on this machine, in this app&rsquo;s own store &mdash; readable and editable with
-    nothing else running. What a tracker says about any reference is not: that is read by a host, which holds
-    the credentials, and handed over if there is one and it said yes. Where it has not, a reference is drawn as a
-    reference and marked as unseen, never as unknown and never as closed.
-  </p>
-</div>
+<div id="root"></div>
 <script id="ticket" type="application/json">__TICKET__</script>
 <script type="module" src="/src/main.tsx"></script>
 </body>
