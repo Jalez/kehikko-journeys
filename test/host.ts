@@ -12,7 +12,7 @@ import { MESSAGE, PROTOCOL } from 'kehikot-module-protocol'
  *
  * The host is the same one References uses: an object with a `postMessage`,
  * which is all a host is from inside a frame. The store is a `fetch` that
- * answers the three doors this page knocks on, because `start()` reads the
+ * answers the doors this page knocks on, because `start()` reads the
  * index before anything else and a page with no journey has no steps to press.
  */
 
@@ -31,14 +31,61 @@ export const JOURNEY = {
 
 export const PROJECT = '/Users/somebody/Projects/probe'
 
-/** The three doors, answered the way the server answers them. */
+/**
+ * What the stand-in store holds and what it has been asked, for the cases that
+ * are about WHEN this page reads — a re-read after somebody else's write is a
+ * request, and the only way to say "one, and only one" is to count them.
+ *
+ * `journey` is what `/api/journey` answers next, so a case can change the
+ * material under an open page the way an agent on the MCP door does. `hold`
+ * keeps `/api/journey` from answering until the function it returns is called,
+ * which is how a read is kept in flight while more changes arrive.
+ */
+export const store = {
+  journey: JOURNEY as typeof JOURNEY,
+  /** Every request, in order, as `METHOD /path?query`. */
+  asked: [] as string[],
+  /** How many times one journey has been read. */
+  reads: () => store.asked.filter((line) => line.startsWith('GET /api/journey?')).length,
+  hold: (): (() => void) => {
+    let release = () => {}
+    held = new Promise<void>((done) => {
+      release = () => {
+        held = null
+        done()
+      }
+    })
+    return release
+  },
+  reset: () => {
+    store.journey = JOURNEY
+    held = null
+  },
+}
+
+let held: Promise<void> | null = null
+
+/** The doors, answered the way the server answers them. */
 function stubStore() {
-  globalThis.fetch = (async (input: string | URL | Request) => {
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input)
+    store.asked.push(`${init?.method ?? 'GET'} ${url}`)
+    if (url.includes('/api/step')) {
+      /* The whole step, kept, and the whole journey handed back — what
+         `setStep` does behind the real door. */
+      const sent = JSON.parse(String(init?.body)) as { position: number } & (typeof JOURNEY)['steps'][number]
+      const kept = { title: sent.title, body: sent.body, refs: sent.refs, notes: sent.notes }
+      store.journey = {
+        ...store.journey,
+        steps: store.journey.steps.map((step, i) => (i === sent.position ? kept : step)),
+      }
+    } else if (url.includes('/api/journey?') && held) {
+      await held
+    }
     const body = url.includes('/api/journeys')
       ? { ok: true, journeys: [{ slug: 'probe', title: 'A journey', tab: null, plan: 'stored', steps: 2 }] }
-      : url.includes('/api/journey')
-        ? { ok: true, journey: JOURNEY }
+      : url.includes('/api/journey') || url.includes('/api/step')
+        ? { ok: true, journey: store.journey }
         : url.includes('/api/ticket')
           ? { ok: true, ticket: 't' }
           : { ok: false, error: `nothing answers ${url}` }

@@ -2,6 +2,7 @@ import { flushSync } from 'react-dom'
 import {
   LIMITS,
   TRACKER_REFRESH_WITHIN_MS,
+  contentStamp,
   filterChoiceSchema,
   readTrackerRef,
   trackerReadingResult,
@@ -17,7 +18,7 @@ import { HostRefused, connect, type Connection } from 'kehikot-module-protocol/c
 import { HIDE_GROUP, countFacets, hiddenIn, offer, type Facet } from 'kehikot-module-protocol/facets'
 
 import { ID } from '../manifest.ts'
-import { GET_TRACKER, REFRESH_TRACKER } from '../wire/methods.ts'
+import { GET_TRACKER, REFRESH_TRACKER, REPORT_CHANGE } from '../wire/methods.ts'
 import type { Brief, JourneyView, Live, Target } from './kinds.ts'
 import { cardsUnder, facetsOfRef, readingOf, refsOf, unreadLinks, type Around } from './live/lookup.ts'
 import { bounded, firstShown, samePick, togglePick } from './refs.ts'
@@ -308,6 +309,23 @@ function everyCard(): { ref: string; under: boolean; owner: string | null }[] {
  * ------------------------------------------------------------------ */
 
 export async function open(slug: string | null): Promise<void> {
+  /* Counted as a read in flight, so that a change announced while it runs is
+     read after it and not beside it. See `readAgain`. The tracker's reading is
+     asked once the count is back down: it waits on a host, which may take as
+     long as it likes, and by then the journey is on screen and can be read
+     again. */
+  reading += 1
+  try {
+    await load(slug)
+  } finally {
+    reading -= 1
+    payOwed()
+  }
+  await fill()
+}
+
+/** Put a journey on screen from the store, or say why there is none: `open`, without the trackers. */
+async function load(slug: string | null): Promise<void> {
   if (!slug) {
     set({ journey: null })
     return
@@ -362,7 +380,6 @@ export async function open(slug: string | null): Promise<void> {
        the answer line is for answering something the reader just did. */
     said: out.ok || state.nowhere ? '' : (out.error ?? 'no such journey here'),
   })
-  await fill()
 }
 
 /** Whether the index this page last read names that journey. */
@@ -427,6 +444,10 @@ export async function saveStep(
     say(out.error ?? 'that was not kept')
     return
   }
+  /* Said before the check below, not after it: the step is on disk whether or
+     not the canvas has moved since, and the other containers on that epic are
+     showing the journey from before it. */
+  report(being.slug)
   /* Dropped if the canvas moved while this was in flight. The server has
      already refused a write whose ticket belonged to the previous project —
      that is what the ticket binding is for — but a write that landed just
@@ -436,6 +457,166 @@ export async function saveStep(
      question nobody is waiting on is noise with a timestamp. */
   if (state.journey !== being) return
   set({ editing: -1, journey: out.journey, said: 'kept' })
+  /* The step may name references it did not name before, and the reading on
+     screen was asked for the old ones. Not awaited: the save is done, and the
+     states beside the references arrive when the host answers. */
+  void fill()
+}
+
+/**
+ * Tell the host that this app's material for one journey has changed, so that
+ * every container showing it reads it again.
+ *
+ * Called from `saveStep` and from nowhere else: AFTER the store has answered
+ * that the write was kept, because a container that re-reads at once must find
+ * the new step, and never from a read — `readAgain` below answers these, and a
+ * re-read that reported would be this page and the host telling each other the
+ * same news for ever.
+ *
+ * Only the page's own writes are said here. A step written through the MCP
+ * door is written by the server process, which has no channel to a host and is
+ * not given one: the host watches `<project>/.kehikot/journeys/` and announces
+ * that itself, as it does for somebody editing the file by hand.
+ *
+ * A refusal is not said to the reader. Nothing of theirs failed — the step is
+ * kept, and the line under the page already says so — and the host that would
+ * not hear this sees the folder move like any other outside write.
+ */
+function report(slug: string): void {
+  if (!host?.greeted()) return
+  void host.request(REPORT_CHANGE, { epic: slug }).catch(() => {})
+}
+
+/* ------------------------------------------------------------------ *
+ * Reading the journey again, because it changed
+ *
+ * `context.content` is the host saying whose material changed and for which
+ * epic; `context` below turns the entries for what this page shows into one
+ * string, and calls `readAgain` when that string moves. A step set through
+ * this app's MCP door, a second Journeys container saving, somebody editing
+ * `journeys.json` — all three arrive here the same way, and before this none
+ * of them reached an open page short of reloading the window.
+ *
+ * ## The reader does not move
+ *
+ * The journey is swapped in state and nothing else is touched: not `unfolded`,
+ * not `selection`, not `editing`, not `live`, not the line under the page.
+ * There is no "loading" in between, so React keeps every node it can and the
+ * container keeps its scroll. `open` is the wrong tool for exactly that reason
+ * — it closes the editor and takes the journey off the screen on a miss — and
+ * its other half, `load`, is only fallen back on when there is no journey on
+ * screen to keep a place in.
+ *
+ * ## One read at a time, and one more if it is owed
+ *
+ * An agent setting six steps is six writes and, give or take the host's own
+ * quiet period, several contexts. A read per context would be several answers
+ * racing to be drawn. So a change that arrives while the journey is being read
+ * — by `open` or by an earlier one of these — is remembered as OWED, and paid
+ * with a single read when the one in flight lands, however many arrived. That
+ * last read starts after the last change was announced, which is the only one
+ * that has to be right.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Whose material this page draws out of a store, for `contentStamp`.
+ *
+ * This module and not the host as well, though the protocol's own example
+ * names both. The host's entry is for the epics the host keeps, which is what
+ * `epics.list`, `epic.get` and `steps.list` answer from, and this page asks
+ * none of them: the journey, its steps and its prose come off this app's own
+ * `/api`. What it does take from the host — the trackers' reading — has a
+ * signal of its own in `context.tracker`.
+ */
+const KEPT_BY: readonly string[] = [ID]
+
+/**
+ * The entries of `context.content` for what this page shows, as the last
+ * context had them, in the one string `contentStamp` makes of them;
+ * `undefined` before any context.
+ */
+let material: string | undefined = undefined
+
+/** Journey reads in flight: an `open`, or a `readAgain`. */
+let reading = 0
+/** A change was announced while one was in flight. */
+let owed = false
+
+function readAgain(): void {
+  if (reading > 0) {
+    owed = true
+    return
+  }
+  reading += 1
+  void reload()
+    /* Nobody asked for this read, so nobody is told it failed. What is on
+       screen is still the last thing that was read, and the next change — or
+       the one owed — tries again. */
+    .catch(() => {})
+    .finally(() => {
+      reading -= 1
+      payOwed()
+    })
+}
+
+/** The read that is owed, once nothing is in flight. */
+function payOwed(): void {
+  if (!owed || reading > 0) return
+  owed = false
+  readAgain()
+}
+
+async function reload(): Promise<void> {
+  const had = state.journey
+  const on = standingOn
+  const within = standingIn
+  /* The journey on screen, which is the canvas's epic except after a walk to
+     a reference in another one; with nothing on screen, the canvas's epic,
+     which may have just been given its first journey. */
+  const slug = had?.slug ?? on
+  if (!slug) return
+  /*
+   * An answer nobody is waiting on is dropped, as everywhere in this file.
+   *
+   * The canvas moving on is the obvious way to stop waiting. The other is the
+   * journey on screen having been replaced while this was asked — by a save
+   * made here, whose answer is the store's word from AFTER this question was
+   * put, so drawing this one over it could take the reader's own step off the
+   * screen until the next read.
+   */
+  const current = () => standingOn === on && standingIn === within && state.journey === had
+  if (had) {
+    const out = await get<{ ok: boolean; error?: string; journey?: JourneyView }>(
+      '/api/journey',
+      `slug=${encodeURIComponent(slug)}`,
+    )
+    if (!current()) return
+    if (out.ok && out.journey) {
+      /* The same journey, which is what this page's own save comes back as:
+         the host tells the container that reported, too. Nothing is set, so
+         nothing is drawn. */
+      if (JSON.stringify(out.journey) === JSON.stringify(had)) return
+      set({
+        journey: out.journey,
+        /* An editor stays open over the position it was opened on, with
+           whatever has been typed into it. Only a step that is no longer
+           there takes its editor with it. */
+        editing: state.editing < out.journey.steps.length ? state.editing : -1,
+      })
+      announce()
+      /* Always, and not only when the references changed: a reading still on
+         its way was asked for the journey this one replaced, and `fill` drops
+         the answer to that. The reading on screen stays until this one lands. */
+      void fill()
+      return
+    }
+    /* It was here and now is not: removed, or the file will no longer read.
+       The index is what knows which, and `load` draws either. */
+    await readIndex()
+    if (!current()) return
+  }
+  await load(slug)
+  void fill()
 }
 
 /**
@@ -1069,6 +1250,11 @@ let standingIn: string | null | undefined = undefined
  * protocol made, and the fix if it is ever wanted is a context field saying so
  * — not a refetch on every tick of somebody else's list.
  *
+ * There is such a field now for the thing that refetch was mostly standing in
+ * for: `content` says when the journey itself was changed, and it is acted on
+ * like every other field here — when it changes. See `readAgain`. A context
+ * that re-sends the same epic with the same `content` still fetches nothing.
+ *
  * `context.epic` is the protocol-2 spelling; it was `slug` in protocol 1, and
  * this one field is the whole of the rename as this app experiences it. It is
  * nullable rather than absent when nothing is open, which matters: "no epic" is
@@ -1132,6 +1318,13 @@ function context(next: ModuleContext): void {
   const reread = readingAt !== undefined && signal.at !== readingAt
   readingAt = signal.at
   hostReading = signal.refreshing
+  /* The content signal, by the same rule: only a CHANGE is news, and only for
+     this app's journeys and the epic this context names. Another epic makes
+     another string, which is harmless — that context opens its journey below
+     and never reaches the line that reads this. */
+  const stamp = contentStamp(next.content, { sources: KEPT_BY, epic: slug })
+  const rewritten = material !== undefined && stamp !== material
+  material = stamp
   set({
     framed: true,
     refused: null,
@@ -1149,6 +1342,9 @@ function context(next: ModuleContext): void {
 
   const moved = relocated || standingOn !== slug
   standingOn = slug
+  /* A read owed to the journey this container was standing on is not owed to
+     the one it is about to open. */
+  if (moved) owed = false
 
   if (relocated) {
     /* Everything read out of the old store goes, before anything is fetched
@@ -1209,6 +1405,10 @@ function context(next: ModuleContext): void {
   /* Somebody read the trackers again — a press here, in another container, or
      the project's own schedule — and what is on screen is the reading before. */
   if (reread) void fill()
+  /* Somebody changed the journey itself — an agent on this app's MCP door,
+     another container, an edit to the file — and what is on screen is the
+     journey from before. */
+  if (rewritten) readAgain()
 }
 
 /**

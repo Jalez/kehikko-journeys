@@ -51,7 +51,8 @@ describe('the manifest a host reads', () => {
   /**
    * One read, and it is the whole claim of the extraction: this app holds its
    * own journeys and asks a host only for what a host alone can see. The three
-   * writes are each a person's press carried to the host. If
+   * writes are each a person's press carried to the host, and `content:report`
+   * is this app saying its own material moved — it hands nothing over. If
    * `epics:read` or `steps:read` ever appears here, something has started
    * reading its own material over a bridge.
    */
@@ -62,6 +63,7 @@ describe('the manifest a host reads', () => {
       'selection:set',
       'filters:set',
       'disposition:set',
+      'content:report',
     ])
     expect(MANIFEST.declares.uses).not.toContain('live:read')
     expect(MANIFEST.declares.uses).not.toContain('epics:read')
@@ -94,7 +96,21 @@ describe('the manifest a host reads', () => {
    */
   test('says it marks why things closed and moves when a mark changes', () => {
     expect(MANIFEST.declares.uses).toContain('disposition:set')
-    expect(MANIFEST.reacts).toEqual(['selection', 'dispositions', 'tracker'])
+    expect(MANIFEST.reacts).toEqual(['selection', 'dispositions', 'tracker', 'content'])
+  })
+
+  /**
+   * Both ends of a change to the journeys themselves, which are this app's
+   * own. `content:report` is sent: `saveStep` in `journeys.ts` calls
+   * `content.changed` once a step has been kept, so every other container on
+   * the epic reads it. `reacts: ['content']` is received: a context whose
+   * entries for this module and the open epic have moved re-reads the open
+   * journey in place — which is how a step written through this app's MCP
+   * door, from a process with no channel to the page, reaches the page.
+   */
+  test('says it reports its own writes and reads again when its material has changed', () => {
+    expect(MANIFEST.declares.uses).toContain('content:report')
+    expect(MANIFEST.reacts).toContain('content')
   })
 
   /**

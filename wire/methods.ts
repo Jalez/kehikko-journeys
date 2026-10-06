@@ -78,3 +78,13 @@ export const GET_TRACKER = required('reading what the trackers last reported', [
  * limit, so it is never sent because a page loaded or a context arrived.
  */
 export const REFRESH_TRACKER = required('reading the trackers again', ['tracker.refresh'])
+
+/**
+ * Say that a journey this app keeps has changed, so that every container
+ * showing it reads it again.
+ *
+ * Not a question and not a read: nothing is handed over, and the journeys stay
+ * this app's own. Sent after a step saved on this page has been kept, and from
+ * nothing else — never from a read, which is what answers it.
+ */
+export const REPORT_CHANGE = required('saying this app’s own material changed', ['content.changed'])

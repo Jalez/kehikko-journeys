@@ -35,7 +35,7 @@ export const PREFERRED_PORT = 7840
  * tab to give the page, and which ONE question the app would like to be allowed
  * to ask if there is anybody there to ask.
  *
- * ## Why the list of capabilities is five words long, and what each means
+ * ## Why the list of capabilities is six words long, and what each means
  *
  * Every other module extracted from Kehikot declares `epics:read` and
  * `steps:read`, because the epics are somebody else's and they need to be
@@ -91,6 +91,14 @@ export const PREFERRED_PORT = 7840
  *   duplicate of, superseded by — and the host keeps that per project, for
  *   every module showing the ref to read. Set from a press and nothing else,
  *   like the selection.
+ * - **`content:report` — declared, and it hands nothing over.** A step saved
+ *   on this page is said to the host (`content.changed`, for that epic), which
+ *   tells every container standing in the project through `context.content` —
+ *   a second Journeys container, References, this one. The journeys stay
+ *   here; only the fact that one moved travels. The receiving half,
+ *   `reacts: ['content']`, is below. The MCP door does not say it and cannot:
+ *   it is answered by the server process, which has no host to say it to, and
+ *   the host sees `.kehikot/journeys/` change and announces that itself.
  * - **`stage:report` — not declared.** Saying where work has got to belongs to
  *   whoever is doing it. This app draws a rail; it does not report onto one.
  *   See the note in `page/journeys.ts` about what the rail can and cannot know.
@@ -220,9 +228,17 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * and the cards, rails and steps are redrawn from what it answers, and
    * while `refreshing` is true the page says the states are about to change.
    *
+   * `content`, because the journey itself moving moves this page: when the
+   * entries of `context.content` for this module and the open epic change —
+   * a step set through the MCP door below, another container saving, an edit
+   * to `journeys.json` — `readAgain` in `src/journeys.ts` reads the open
+   * journey again and swaps it in where the reader is standing. Until this
+   * was declared and done, a step an agent wrote was on disk and not on the
+   * page until somebody reloaded the window.
+   *
    * Not `passage`. Nothing here reads one.
    */
-  reacts: ['selection', 'dispositions', 'tracker'],
+  reacts: ['selection', 'dispositions', 'tracker', 'content'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     /**
@@ -234,8 +250,13 @@ export const MANIFEST: Manifest = manifestSchema.parse({
      * program. It is sent from a press and from nothing else: not from a
      * render, not from a context, not when the epic changes. See the essay on
      * picking in `src/journeys.ts` for why that restriction is the point.
+     *
+     * `content:report` is the last, and it reads nothing: it is this app
+     * telling the host that a journey it keeps has changed, so the host can
+     * tell every container on that epic. Sent once a step saved on the page
+     * has been kept — see `report` in `src/journeys.ts`.
      */
-    uses: ['trackers:read', 'trackers:refresh', 'selection:set', 'filters:set', 'disposition:set'],
+    uses: ['trackers:read', 'trackers:refresh', 'selection:set', 'filters:set', 'disposition:set', 'content:report'],
     storage: true,
   },
   health: '/healthz',
