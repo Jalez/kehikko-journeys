@@ -30,8 +30,7 @@
  * what it leaves to a host, on the grounds that it was true before any fetch
  * returned. It was on screen for as long as the bundle took to load, which in
  * a container is long enough to read as a disclaimer no other module shows.
- * What the page has to say about being unframed is said by `sight.tsx`, once
- * there is a page to say it.
+ * The paragraph `sight.tsx` opened an unframed page with went the same way.
  *
  * ## The ticket rides in a JSON island
  *
