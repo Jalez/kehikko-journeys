@@ -3,7 +3,8 @@ import type { JourneyView, Live } from '../kinds.ts'
 /**
  * What this app can see from here, said out loud.
  *
- * A box at the top, never a tooltip. Five states, five sentences, because they
+ * A box at the top, never a tooltip, and only when a host is framing this
+ * page. Five states, five sentences, because they
  * send a reader to five different places — an app that quietly showed a blank
  * state chip beside a reference it has never had a reading of would be lying in
  * the ordinary case, and a tooltip is a sentence nobody reads on a touchscreen
@@ -63,7 +64,12 @@ export function Sight({
   /** Whether the trackers are being read again right now. */
   busy?: boolean
 }) {
-  const { lead, rest } = read(framed, refused, epic, journey, live, busy)
+  /* Standing on its own, it says nothing. A paragraph used to open the page
+     here about what the store holds and what a tracker would have added, and
+     it read as a disclaimer in front of a page that works. What is missing is
+     said where it is missing: beside each reference, by its own badge. */
+  if (!framed) return null
+  const { lead, rest } = read(refused, epic, journey, live, busy)
   return (
     <p className="my-3 rounded-md border border-l-2 border-l-marker bg-card px-3 py-2 text-[0.85rem] leading-6 text-muted-foreground">
       <b className="text-foreground">{lead}</b> {rest}
@@ -72,23 +78,12 @@ export function Sight({
 }
 
 function read(
-  framed: boolean,
   refused: string | null,
   epic: string | null,
   journey: JourneyView | null,
   live: Live | null,
   busy = false,
 ): { lead: string; rest: string } {
-  if (!framed) {
-    return {
-      lead: 'Standing on its own.',
-      rest:
-        'Nothing is framing this page. Everything below is this app’s own store: the journeys, their prose, their ' +
-        'steps, what blocks what — all of it readable and editable with nothing else running. What is missing is ' +
-        'what a tracker says: every reference is shown as a reference, and marked “state not visible from here”, ' +
-        'which is not the same as unknown and is certainly not closed.',
-    }
-  }
   if (refused) return { lead: 'Framed, and refused.', rest: refused }
   if (!journey) {
     /* The branch that used to be blind. `epic` is what the context named and
