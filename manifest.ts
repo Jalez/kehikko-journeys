@@ -182,6 +182,8 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   id: ID,
   name: 'Journeys',
   version: VERSION,
+  /* Where a host files this module in its list, most fitting first. */
+  tags: ['planning'],
   summary: 'What has to become true for a user, step by step, and where every piece of it stands.',
   /**
    * What an agent should do about this module, given that it is here.
