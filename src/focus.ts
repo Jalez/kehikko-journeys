@@ -36,6 +36,11 @@ import type { Step } from './kinds.ts'
  * sentence `Narrowed` draws says how many are outside and how many of those
  * are in no part at all, which is the number that explains an empty page.
  *
+ * What it owes for that is a way out, and it has one now: the sentence says
+ * where steps are filed under parts (`view/parts.tsx`), because an unfiled
+ * step is the usual reason a focused page is empty and the person looking at
+ * it is the one who can say where each step belongs.
+ *
  * ## Nothing here overrides the focus
  *
  * There is no "show the rest" on this page and there must not be one. The
@@ -98,7 +103,7 @@ export function narrowing(parts: readonly EpicPart[], steps: readonly Step[]): N
 }
 
 /** `narrowing`, in the words the page prints. */
-export function narrowedSaid(said: Narrowing): { lead: string; rest: string } {
+export function narrowedSaid(said: Narrowing): { lead: string; rest: string; file: string | null } {
   const names = said.picked.join(', ')
   const lead = `Narrowed to ${said.picked.length === 1 ? names : `${said.picked.length} parts: ${names}`}.`
   const total = said.shown + said.outside
@@ -114,5 +119,13 @@ export function narrowedSaid(said: Narrowing): { lead: string; rest: string } {
   return {
     lead,
     rest: `${count} The parts are picked in the host’s bar, beside the epic; clear them there to see every step.`,
+    /* Said only when there is something a person can do about it here. A step
+       in ANOTHER part is where somebody put it; a step in none is waiting to
+       be put somewhere, and is hidden under every focus until it is. */
+    file:
+      said.unassigned > 0
+        ? `${said.unassigned === 1 ? 'The step in no part is' : `The ${said.unassigned} steps in no part are`} hidden `
+          + 'under any focus until filed under a part.'
+        : null,
   }
 }

@@ -1,5 +1,7 @@
 import { MESSAGE, PROTOCOL } from 'kehikot-module-protocol'
 
+import { assign, withPart, withoutPart, type Arrangeable } from '../parts.ts'
+
 /**
  * A stand-in host and store, shared by every file that drives `journeys.ts`
  * through the real client on the real `window`.
@@ -65,10 +67,13 @@ export const store = {
   listed: true,
   /** The body of every `POST /api/journey`, in order. */
   begun: [] as Record<string, unknown>[],
+  /** Every write that arranged the journey into parts, as the page sent it. */
+  arranged: [] as { path: string; body: Record<string, unknown> }[],
   reset: () => {
     store.journey = JOURNEY
     store.listed = true
     store.begun = []
+    store.arranged = []
     held = null
   },
 }
@@ -80,14 +85,36 @@ function stubStore() {
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input)
     store.asked.push(`${init?.method ?? 'GET'} ${url}`)
-    if (url.includes('/api/step')) {
+    let refusal: string | null = null
+    let said = 'Began probe from what the host holds for that epic: 2 steps.'
+    if (/\/api\/(assign|part)/.test(url)) {
+      /* The store's own arithmetic, so that what the page draws after a press
+         is what the real door would have answered — `parts.ts` is the half of
+         the store a browser can load, and so can a test. */
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      store.arranged.push({ path: new URL(url, 'http://x').pathname, body })
+      const record = { ...store.journey, groups: (store.journey as { groups?: unknown[] }).groups ?? [] } as Arrangeable
+      const out = url.includes('/api/assign')
+        ? assign(record, body.positions as number[], (body.part as string) || null)
+        : url.includes('/api/part/remove')
+          ? withoutPart(record, String(body.id))
+          : withPart(record, { id: (body.id as string | undefined) ?? null, heading: String(body.heading) })
+      if (out.ok) {
+        store.journey = out.record as unknown as typeof JOURNEY
+        said = 'arranged'
+      } else refusal = out.error
+    } else if (url.includes('/api/step')) {
       /* The whole step, kept, and the whole journey handed back — what
          `setStep` does behind the real door. */
       const sent = JSON.parse(String(init?.body)) as { position: number } & (typeof JOURNEY)['steps'][number]
       const kept = { title: sent.title, body: sent.body, refs: sent.refs, notes: sent.notes }
       store.journey = {
         ...store.journey,
-        steps: store.journey.steps.map((step, i) => (i === sent.position ? kept : step)),
+        plan: 'stored',
+        steps:
+          sent.position > store.journey.steps.length
+            ? [...store.journey.steps, kept]
+            : store.journey.steps.map((step, i) => (i === sent.position ? kept : step)),
       }
     } else if (url.includes('/api/journey?') && held) {
       await held
@@ -100,8 +127,10 @@ function stubStore() {
           ok: true,
           journeys: store.listed ? [{ slug: 'probe', title: 'A journey', tab: null, plan: 'stored', steps: 2 }] : [],
         }
-      : url.includes('/api/journey') || url.includes('/api/step')
-        ? { ok: true, journey: store.journey, said: 'Began probe from what the host holds for that epic: 2 steps.' }
+      : refusal !== null
+        ? { ok: false, error: refusal }
+        : url.includes('/api/journey') || url.includes('/api/step') || /\/api\/(assign|part)/.test(url)
+          ? { ok: true, journey: store.journey, said }
         : url.includes('/api/ticket')
           ? { ok: true, ticket: 't' }
           : { ok: false, error: `nothing answers ${url}` }
