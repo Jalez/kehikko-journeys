@@ -98,7 +98,11 @@ function stubStore() {
         ? assign(record, body.positions as number[], (body.part as string) || null)
         : url.includes('/api/part/remove')
           ? withoutPart(record, String(body.id))
-          : withPart(record, { id: (body.id as string | undefined) ?? null, heading: String(body.heading) })
+          : withPart(record, {
+              id: (body.id as string | undefined) ?? null,
+              ...(body.heading === undefined ? {} : { heading: String(body.heading) }),
+              ...(body.files === undefined ? {} : { files: body.files }),
+            })
       if (out.ok) {
         store.journey = out.record as unknown as typeof JOURNEY
         said = 'arranged'

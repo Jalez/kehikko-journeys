@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterAll, describe, expect, test } from 'bun:test'
-import { KEHIKOT_DIR, journeyIn as recordIn, moduleFolder, partInFocus, stepPart } from 'kehikot-module-protocol'
+import { KEHIKOT_DIR, journeyIn as recordIn, moduleFolder, partInFocus, partsOf, stepPart } from 'kehikot-module-protocol'
 import { readJourneys } from 'kehikot-module-protocol/serve'
 
 import { answer, writeTicketFor } from '../doors.ts'
@@ -76,7 +76,8 @@ const divided = {
   stepsFrom: { projector: 'paper', where: 'chapters/seam.tex', why: 'It is also a paper.', revision: 7 },
   groups: [
     { id: 'the-agent-seam', heading: 'The agent seam', refs: ['gh#6'], collapsed: true },
-    { heading: 'What the page shows', refs: ['gh#7'] },
+    /* `files`: the files of the epic's paper a part owns (protocol 0.32.0). */
+    { heading: 'What the page shows', refs: ['gh#7'], files: ['chapters/page.tex', 'figures/page.tex'] },
   ],
   exists: ['The tracker reading'],
   missing: '',
@@ -162,6 +163,8 @@ describe('saving a journey', () => {
       '"part": "the-agent-seam"',
       '"part": "what-the-page-shows"',
       '"id": "the-agent-seam"',
+      '"chapters/page.tex"',
+      '"figures/page.tex"',
       '"estimate"',
       '"colour": "teal"',
       '"collapsed": true',
@@ -276,5 +279,24 @@ describe('writing a step through the door', () => {
     const read = readJourneys(root)
     expect(recordIn(read, 'the-posting-seam')?.steps.map(stepPart)).toEqual(['the-agent-seam', null, 'what-the-page-shows'])
     expect(recordIn(read, 'an-older-journey')?.steps).toHaveLength(1)
+  })
+})
+
+describe('the files a part owns', () => {
+  test('come through a parse, a save and the protocol’s reading unchanged', () => {
+    const { root, file } = project(document)
+    const journey = journeyIn(held(root), 'the-posting-seam')!
+    expect(journey.groups[1]).toEqual({ heading: 'What the page shows', refs: ['gh#7'], files: ['chapters/page.tex', 'figures/page.tex'] } as never)
+    /* A save of something else in the record — a step — keeps them. */
+    journey.steps[1]!.body = 'edited'
+    expect(writeJourney(root, journey).ok).toBe(true)
+    const kept = (onDisk(file).journeys as Record<string, { groups: Record<string, unknown>[] }>)['the-posting-seam']!
+    expect(kept.groups[1]).toEqual({ heading: 'What the page shows', refs: ['gh#7'], files: ['chapters/page.tex', 'figures/page.tex'] })
+    /* And a group that named none was not given the key by the save. */
+    expect(Object.hasOwn(kept.groups[0]!, 'files')).toBe(false)
+    /* A host reads them off the same file, by the same function. */
+    const parts = partsOf(recordIn(readJourneys(root), 'the-posting-seam'))
+    expect(parts[1]?.files).toEqual(['chapters/page.tex', 'figures/page.tex'])
+    expect('files' in parts[0]!).toBe(false)
   })
 })

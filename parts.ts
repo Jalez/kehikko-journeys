@@ -1,4 +1,4 @@
-import { LIMITS, partIdsOf, partsOf, stepPart, type JourneyPart } from 'kehikot-module-protocol'
+import { LIMITS, partFile, partIdsOf, partsOf, stepPart, type JourneyPart } from 'kehikot-module-protocol'
 
 /**
  * Arranging a journey into parts: which step is in which, and the parts
@@ -49,6 +49,8 @@ export interface PartGroup {
   heading?: string
   refs?: string[]
   id?: string
+  /** The files of the epic's paper this part owns, relative to the paper's folder. Absent means none. */
+  files?: string[]
 }
 
 /** A record's two lists, which is all of it that arranging touches. */
@@ -263,12 +265,118 @@ export function proposed(record: Arrangeable, part: string): number[] {
 }
 
 export type Parted<R> =
-  | { ok: true; record: R; id: string; heading: string; created: boolean; was: string | null }
+  | { ok: true; record: R; id: string; heading: string; created: boolean; was: string | null; files: string[] | null }
   | Refused
 
+/** One example of a part's file, said wherever a person or an agent is asked for one. */
+export const FILE_EXAMPLE = 'chapters/design.tex'
+
 /**
- * Make a part, or change one: its heading, and its references when they are
- * given.
+ * The files somebody gave for a part, in the form they are stored in — or a
+ * sentence naming the one that is not a file of a paper.
+ *
+ * ## What the names are
+ *
+ * The protocol's (0.32.0), and `partFile` is the only reading of them: a path
+ * RELATIVE TO THE PAPER'S FOLDER, `<project>/.kehikot/paper/<epic>/`, with
+ * forward slashes and the extension written — `chapters/design.tex`. That is
+ * the name the Paper module lists the file under and the name `fileInFocus`
+ * compares, so what is stored here has to be that name exactly; a second
+ * tidying rule in this app would be a part that owns a file on this page and
+ * owns nothing in the paper.
+ *
+ * ## Refused, never dropped
+ *
+ * `partsOf` DROPS an entry that is not in the form, and is right to: it reads
+ * a document somebody wrote, and one bad line must not cost an epic its
+ * parts. This is the other side — the door the line comes in by — and here a
+ * dropped entry is a save that reported success and kept two files of three.
+ * So one bad entry refuses the whole list, by name, and nothing is written.
+ *
+ * What is tidied is only what `partFile` tidies (space around the name, a
+ * leading `./`, Unicode to NFC), and a name given twice is one file. More
+ * than `LIMITS.PART_FILES` is refused for the reason a thirty-third part is:
+ * it would be written and never sent.
+ *
+ * ## What is NOT checked: that the file exists
+ *
+ * This app cannot read the paper. It holds no path into another module's
+ * folder and should not grow one; and a part may be given its file before the
+ * file is written. The Paper module says on screen when a picked part names a
+ * file the paper does not include, which is where that can be seen and fixed.
+ */
+export function filesGiven(raw: unknown): { ok: true; files: string[] } | Refused {
+  if (!Array.isArray(raw)) {
+    return {
+      ok: false,
+      error: `a part’s files are a list of names, each relative to the paper’s folder — ["${FILE_EXAMPLE}"]. Nothing was changed.`,
+    }
+  }
+  const files: string[] = []
+  for (const entry of raw) {
+    const file = partFile(entry)
+    if (file === null) {
+      const shown = typeof entry === 'string' ? `"${shortened(entry)}"` : `${shortened(JSON.stringify(entry) ?? String(entry))}`
+      return {
+        ok: false,
+        error:
+          `${shown} is not a name a part can hold for a file. A part’s file is its path relative to the paper’s `
+          + `folder, with forward slashes and its extension — ${FILE_EXAMPLE} — not absolute, with no ".." or empty `
+          + `segment in it, and at most ${LIMITS.PART_FILE} characters. Nothing was changed.`,
+      }
+    }
+    if (!files.includes(file)) files.push(file)
+  }
+  if (files.length > LIMITS.PART_FILES) {
+    return {
+      ok: false,
+      error:
+        `a part names at most ${LIMITS.PART_FILES} files, and that was ${files.length}. The ones past the limit would `
+        + 'be written and never sent to a module, so nothing was changed.',
+    }
+  }
+  return { ok: true, files }
+}
+
+/**
+ * What to say about a part's files once they are kept: which they are, and
+ * the two things about them that are allowed and worth a sentence.
+ *
+ * **A file two parts own.** Allowed, on purpose, and said. The protocol reads
+ * it without complaint (`partsOfFile` answers a list), a file that two parts
+ * both need — a shared introduction — is a real paper, and refusing it would
+ * make MOVING a file from one part to another depend on the order of two
+ * presses. It is shown when either part is picked.
+ *
+ * **A name with no extension.** Allowed, because a paper may hold one, and
+ * said, because it is nearly always `\input{chapters/design}` copied as it
+ * stands — which names no file on disk and so narrows to nothing.
+ */
+export function filesSaid(record: Arrangeable, id: string): string {
+  const parts = partsOf(record)
+  const files = parts.find((part) => part.id === id)?.files ?? []
+  if (!files.length) return 'It owns no file of the paper.'
+  const said = [
+    `It owns ${files.length === 1 ? '1 file' : `${files.length} files`} of the paper, named from the paper’s folder: ${files.join(', ')}.`,
+  ]
+  for (const file of files) {
+    const also = parts.filter((part) => part.id !== id && (part.files ?? []).includes(file))
+    if (also.length) {
+      said.push(
+        `${file} is also owned by ${also.map((part) => `“${part.heading}”`).join(' and ')}: a file may be in more than `
+          + 'one part, and is shown when any of them is picked.',
+      )
+    }
+    if (!/\.[^./]+$/.test(file)) {
+      said.push(`${file} has no extension. A file is named as it is on disk — ${FILE_EXAMPLE}, not chapters/design — or it matches nothing.`)
+    }
+  }
+  return said.join(' ')
+}
+
+/**
+ * Make a part, or change one: its heading, and its references and its files
+ * when they are given.
  *
  * With no `id`, a group is added at the end with this heading, and the id it
  * answers to is WRITTEN on it from the start, so that the first rewording does
@@ -281,20 +389,31 @@ export type Parted<R> =
  * references listed under the heading, and nothing about renaming a part says
  * anything about them.
  *
- * Refused: no heading; a heading another part of this journey already has
- * (two parts a person cannot tell apart in a picker are one part with a bug);
- * more parts than a host will read (`LIMITS.PARTS` — the group would be
- * written and never shown); an id that is not a part.
+ * `files` is the same three-valued thing: absent leaves the part's files
+ * untouched, a list replaces them, and an EMPTY list takes the key off the
+ * group altogether — the protocol's shape for "owns none" is the key being
+ * absent, and `files: []` left in somebody's file is a line that says nothing.
+ * The list is read by `filesGiven`, which refuses rather than drops.
+ *
+ * With an `id`, the heading may be left out, and the part keeps the one it
+ * has: giving a part a file is not a rewording, and a door that made an agent
+ * say the heading again to do it would have it reworded by a typing error.
+ *
+ * Refused: no heading for a new part; a heading another part of this journey
+ * already has (two parts a person cannot tell apart in a picker are one part
+ * with a bug); more parts than a host will read (`LIMITS.PARTS` — the group
+ * would be written and never shown); an id that is not a part; a file that is
+ * not one.
  */
 export function withPart<R extends Arrangeable>(
   record: R,
-  given: { id?: string | null; heading: string; refs?: string[] },
+  given: { id?: string | null; heading?: string; refs?: string[]; files?: unknown },
 ): Parted<R> {
-  const heading = given.heading.trim().slice(0, LIMITS.TITLE)
-  if (!heading) return { ok: false, error: 'a part has to be called something: give it a heading.' }
+  const id = given.id ?? null
   const parts = partsOf(record)
   const named = partIdsOf(record.groups)
-  const id = given.id ?? null
+  const said = (given.heading ?? '').trim().slice(0, LIMITS.TITLE)
+  if (!said && id === null) return { ok: false, error: 'a part has to be called something: give it a heading.' }
 
   if (id !== null) {
     const refusal = notAPart(record, id)
@@ -308,7 +427,11 @@ export function withPart<R extends Arrangeable>(
     }
   }
 
-  const same = parts.find((part) => part.id !== id && part.heading.trim().toLowerCase() === heading.toLowerCase())
+  const was = id === null ? null : (parts.find((part) => part.id === id)?.heading ?? null)
+  const heading = said || was || ''
+  const same = said
+    ? parts.find((part) => part.id !== id && part.heading.trim().toLowerCase() === said.toLowerCase())
+    : undefined
   if (same) {
     return {
       ok: false,
@@ -318,23 +441,37 @@ export function withPart<R extends Arrangeable>(
     }
   }
 
+  let files: string[] | null = null
+  if (given.files !== undefined) {
+    const read = filesGiven(given.files)
+    if (!read.ok) return read
+    files = read.files
+  }
+  /** One group with the files it was given: the list, or — for an empty one — no such key. */
+  const owning = <G extends PartGroup>(group: G): G => {
+    if (files === null) return group
+    const { files: _were, ...rest } = group
+    return (files.length ? { ...rest, files } : rest) as G
+  }
+
   if (id === null) {
-    const added = [...record.groups, { heading, refs: given.refs ?? [] } as R['groups'][number]]
+    const added = [...record.groups, owning({ heading, refs: given.refs ?? [] } as R['groups'][number])]
     const made = partIdsOf(added)[added.length - 1]
     if (made === null || made === undefined) return { ok: false, error: 'that part could not be given a name.' }
     const groups = holding(pinned(added, made), [...named, made])
-    return { ok: true, record: { ...record, groups }, id: made, heading, created: true, was: null }
+    return { ok: true, record: { ...record, groups }, id: made, heading, created: true, was: null, files }
   }
 
   const at = named.indexOf(id)
-  const was = parts.find((part) => part.id === id)?.heading ?? null
   const groups = holding(
     record.groups.map((group, i) =>
-      i === at ? { ...group, id, heading, ...(given.refs ? { refs: given.refs } : {}) } : group,
+      i === at
+        ? owning({ ...group, id, ...(said ? { heading: said } : {}), ...(given.refs ? { refs: given.refs } : {}) })
+        : group,
     ),
     named,
   )
-  return { ok: true, record: { ...record, groups }, id, heading, created: false, was }
+  return { ok: true, record: { ...record, groups }, id, heading, created: false, was, files }
 }
 
 /** What taking a part out would do, counted before it is done. */
