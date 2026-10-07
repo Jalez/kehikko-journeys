@@ -5,10 +5,23 @@ import { Button } from '@/components/ui/button.tsx'
 
 import { narrowedSaid, narrowing, shownSteps, type Shown } from './focus.ts'
 import { partOfStep, partsIn } from '../parts.ts'
-import { begin, clearPick, getSnapshot, grow, pick, setAdding, setArranging, subscribe } from './journeys.ts'
+import {
+  begin,
+  beginAndArrange,
+  clearPick,
+  getSnapshot,
+  grow,
+  pick,
+  setAdding,
+  setArranging,
+  setDividing,
+  subscribe,
+  type PaperChapters,
+} from './journeys.ts'
 import type { JourneyView, Live } from './kinds.ts'
 import { cardsUnder } from './live/lookup.ts'
 import { pickedState } from './refs.ts'
+import { ChapterOffer } from './view/chapters.tsx'
 import { Editor } from './view/editor.tsx'
 import { NoJourneys, NoProject, Trouble } from './view/nowhere.tsx'
 import { Parts, arrangeable } from './view/parts.tsx'
@@ -99,7 +112,13 @@ export function App() {
             read again, and a file that would not parse has no honest answer
             to "is there a journey for this". */}
         {state.framed && !state.journey && !state.trouble && !state.nowhere && state.unwritten === state.epic && state.epic && (
-          <Begin epic={state.epic} busy={state.beginning} />
+          <Begin
+            epic={state.epic}
+            busy={state.beginning}
+            dividing={state.dividing}
+            chapters={state.chapters}
+            making={state.making}
+          />
         )}
         {state.journey && (
           <Journey
@@ -111,6 +130,8 @@ export function App() {
             selection={state.selection}
             parts={state.parts}
             framed={state.framed}
+            chapters={state.chapters}
+            making={state.making}
           />
         )}
         {/* The one line this app uses to answer the reader. Polite rather than
@@ -195,8 +216,36 @@ function Nothing({ state }: { state: ReturnType<typeof getSnapshot> }) {
  * pressed once. Whether it is running is in the page's state with everything
  * else, for the reason at the top of `src/journeys.ts`: the components here
  * hold none.
+ *
+ * ## Dividing the epic into parts starts here too
+ *
+ * A host's bar says an epic has no parts and sends the person here to make
+ * them. For an epic with no journey record that used to be a dead end one
+ * press long: this section said "begin the journey", the parts box is drawn
+ * inside a journey, and nothing connected the two. So the second press in
+ * this section is the one they came for. It opens the same offer the parts
+ * box makes — the paper's chapter files, listed, nothing made — and its
+ * confirming press begins the journey AND makes the parts, in that order,
+ * with `begin` doing exactly what the button above it does. For an epic with
+ * no paper there are no chapters to list, and the press says so and offers to
+ * begin the journey and open the box where parts are made by hand.
+ *
+ * `data-divide` is what a host's walk lands on; see `settleParts`.
  */
-function Begin({ epic, busy }: { epic: string; busy: boolean }) {
+function Begin({
+  epic,
+  busy,
+  dividing,
+  chapters,
+  making,
+}: {
+  epic: string
+  busy: boolean
+  dividing: boolean
+  chapters: PaperChapters | null
+  making: boolean
+}) {
+  const mine = chapters && chapters.slug === epic ? chapters : null
   return (
     <section className="mt-3 flex min-w-0 flex-col items-start gap-1.5">
       <p className="text-[0.82rem] leading-6 text-muted-foreground">
@@ -214,6 +263,50 @@ function Begin({ epic, busy }: { epic: string; busy: boolean }) {
       >
         {busy ? 'beginning…' : `begin the journey for ${epic}`}
       </Button>
+
+      <div data-divide={dividing ? 'open' : 'closed'} className="mt-2 grid w-full min-w-0 gap-1.5 border-t pt-2.5 text-[0.85rem] leading-6">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <Button
+            type="button"
+            variant={dividing ? 'ghost' : 'outline'}
+            size="container"
+            aria-expanded={dividing}
+            disabled={busy || making}
+            onClick={() => setDividing(!dividing)}
+          >
+            divide {epic} into parts…
+          </Button>
+          {!dividing && (
+            <span className="text-[0.82rem] text-muted-foreground">
+              Parts are headings a host lets a person narrow every container to. They are made here.
+            </span>
+          )}
+        </div>
+        {dividing &&
+          (mine === null ? (
+            <p className="text-muted-foreground">Reading this epic’s paper for its chapter files…</p>
+          ) : mine.paper && !mine.nothing ? (
+            <ChapterOffer chapters={mine} beginning busy={making || busy} onLeave={() => setDividing(false)} />
+          ) : (
+            <div className="grid gap-1.5 rounded border border-dashed px-2 py-1.5">
+              <p className="text-muted-foreground">
+                {mine.paper
+                  ? mine.nothing
+                  : `This epic has no paper in this project (no main.tex in .kehikot/paper/${epic}/), so there are no chapter files to make parts from.`}{' '}
+                Parts can be made by hand, with a heading each. They are kept in the journey, so it is begun first —
+                copying what the host holds for the epic, as the press above does.
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                <Button type="button" size="container" disabled={busy} onClick={() => void beginAndArrange()}>
+                  {busy ? 'beginning…' : 'begin the journey and make parts by hand'}
+                </Button>
+                <Button type="button" variant="ghost" size="container" disabled={busy} onClick={() => setDividing(false)}>
+                  leave it
+                </Button>
+              </div>
+            </div>
+          ))}
+      </div>
     </section>
   )
 }
@@ -307,6 +400,8 @@ function Journey({
   selection,
   parts,
   framed,
+  chapters,
+  making,
 }: {
   journey: JourneyView
   live: Live | null
@@ -316,6 +411,8 @@ function Journey({
   selection: readonly string[]
   parts: readonly EpicPart[]
   framed: boolean
+  chapters: PaperChapters | null
+  making: boolean
 }) {
   /* Worked out once, here, and handed to both things that act on "the steps":
      the pair of presses above them and the list itself. Two filters would be
@@ -349,7 +446,15 @@ function Journey({
 
       <Rubric>The journey</Rubric>
       {journey.plan === 'stored' && <Narrowed parts={parts} journey={journey} canFile={own.length > 0} />}
-      <Parts journey={journey} open={arranging} live={live} selection={selection} framed={framed} />
+      <Parts
+        journey={journey}
+        open={arranging}
+        live={live}
+        selection={selection}
+        framed={framed}
+        chapters={chapters}
+        making={making}
+      />
       {framed && journey.plan === 'stored' && shown.length > 0 && (
         <Picking shown={shown} live={live} selection={selection} />
       )}

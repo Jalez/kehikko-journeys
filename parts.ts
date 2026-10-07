@@ -300,10 +300,12 @@ export const FILE_EXAMPLE = 'chapters/design.tex'
  *
  * ## What is NOT checked: that the file exists
  *
- * This app cannot read the paper. It holds no path into another module's
- * folder and should not grow one; and a part may be given its file before the
- * file is written. The Paper module says on screen when a picked part names a
- * file the paper does not include, which is where that can be seen and fixed.
+ * A part may be given its file before the file is written, and a name is a
+ * name: this function is pure, loaded by the page as well as the store, and
+ * opens nothing. Where the epic has a paper the page now LISTS its files to
+ * tick (`paper.ts` reads them, `chapters.ts` says which they are) and marks a
+ * name the paper does not have; the Paper module says the same on its own
+ * page when a picked part names a file the paper does not include.
  */
 export function filesGiven(raw: unknown): { ok: true; files: string[] } | Refused {
   if (!Array.isArray(raw)) {

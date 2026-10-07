@@ -7,8 +7,9 @@ import { Input } from '@/components/ui/input.tsx'
 import { cn } from '@/lib/utils.ts'
 
 import { FILE_EXAMPLE, filesGiven, partOfStep, partsIn, proposed, removalOf, removalSaid, unassigned, type Arrangeable } from '../../parts.ts'
-import { assignSteps, removePart, savePart, savePartFiles, setArranging } from '../journeys.ts'
+import { assignSteps, removePart, savePart, savePartFiles, setArranging, type PaperChapters } from '../journeys.ts'
 import type { JourneyView, Live } from '../kinds.ts'
+import { ChapterOffer } from './chapters.tsx'
 import { cardsUnder } from '../live/lookup.ts'
 import { pickedState } from '../refs.ts'
 
@@ -117,6 +118,17 @@ type Under = 'rename' | 'files' | 'remove' | 'propose'
  * page for it. What it does get is the way IN, because without one the first
  * part can only be made by hand-editing the file.
  *
+ * ## When the epic has a paper, the box offers its chapters
+ *
+ * A paper is usually divided already, a file to a chapter, and the box says
+ * so before it asks anybody to type a heading: "make a part for each chapter
+ * file…" lists what `main.tex` pulls in and makes nothing until the list has
+ * been read. See `view/chapters.tsx` for the list and `chapters.ts` for the
+ * reading. With no part yet it is the first thing in the box and the filled
+ * button; once there are parts it is one quiet press among the others, and
+ * it is still there, because a chapter written next month is a part to make
+ * then.
+ *
  * ## The ticks here are not the canvas selection
  *
  * A step's tick in the journey below puts its REFERENCES on the canvas, for
@@ -133,12 +145,18 @@ export function Parts({
   live,
   selection,
   framed,
+  chapters = null,
+  making = false,
 }: {
   journey: JourneyView
   open: boolean
   live: Live | null
   selection: readonly string[]
   framed: boolean
+  /** What the epic's paper says about parts, once asked; null before, and for a page that never asked. */
+  chapters?: PaperChapters | null
+  /** Parts are being made from the paper's chapter files. */
+  making?: boolean
 }) {
   const record = arrangeable(journey)
   const parts = partsIn(record)
@@ -151,6 +169,10 @@ export function Parts({
   const [under, setUnder] = useState<Open>(null)
   const [every, setEvery] = useState(false)
   const [heading, setHeading] = useState('')
+  const [offering, setOffering] = useState(false)
+  /* The paper's answer for THIS journey, and only when it has a paper. One
+     that arrived for the epic the canvas just left is not this one's. */
+  const paper = chapters && chapters.paper && chapters.slug === journey.slug ? chapters : null
 
   if (!open) {
     return (
@@ -230,6 +252,31 @@ export function Parts({
         every container to some of them — and a step filed under none is then not shown.
       </p>
 
+      {paper && (
+        <div className="grid gap-1.5">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <Button
+              type="button"
+              variant={parts.length ? 'ghost' : 'default'}
+              size="container"
+              className={parts.length ? 'text-muted-foreground' : undefined}
+              aria-expanded={offering}
+              data-offer="chapters"
+              title="List the files main.tex of this epic’s paper pulls in, each as the part it would become. Nothing is made until you say so."
+              onClick={() => setOffering(!offering)}
+            >
+              make a part for each chapter file…
+            </Button>
+            {!offering && !parts.length && (
+              <span className="text-muted-foreground">
+                This epic has a paper. Its chapter files can each become a part — the list is shown first.
+              </span>
+            )}
+          </div>
+          {offering && <ChapterOffer chapters={paper} busy={making} onLeave={() => setOffering(false)} />}
+        </div>
+      )}
+
       {parts.length > 0 && (
         <ul className="grid gap-1.5">
           {parts.map((part) => (
@@ -237,6 +284,8 @@ export function Parts({
               key={part.id}
               part={part}
               record={record}
+              parts={parts}
+              paperFiles={paper ? paper.files : null}
               storesSteps={journey.plan === 'stored'}
               under={under?.id === part.id ? under.kind : null}
               setUnder={(kind) => setUnder(kind ? { kind, id: part.id } : null)}
@@ -375,15 +424,28 @@ export function Parts({
  * One part: what it is called, what is in it, and the four things that can be
  * done to it.
  *
- * ## Its files are typed, and the page says in what form
+ * ## Its files are ticked from the paper's own, and may still be typed
  *
  * A part may own files of the epic's paper (protocol 0.32.0), and a module
  * that shows the paper narrows to them. They are edited here because the
- * parts are this app's; they are TYPED because the paper is not — this app
- * holds no path into another module's folder, so there is no list to tick
- * from. What it can do is say the form with one example, hand the name to the
- * store, and show back exactly what the store kept (`./chapters/a.tex` comes
- * back as `chapters/a.tex`) or the store's sentence for why it kept nothing.
+ * parts are this app's. They used to be TYPED, every one, because this app
+ * read nothing of the paper: a person spelled `chapters/3_methods.tex` into
+ * a box and found out on another module's page whether they had spelled it.
+ *
+ * Where the epic has a paper the files are listed now — every file
+ * `main.tex` reaches, in reading order — and each is a box: ticked is this
+ * part's, and a file another part holds says whose. That is `paper.ts`
+ * reading the person's `.tex` files and nothing else of the Paper module's.
+ *
+ * Typing stays, under the list, for the two cases a list cannot serve: an
+ * epic whose paper this app does not read (there is none here yet, or its
+ * folder is a link out of the project), and a file that is not written yet.
+ * A typed name is handed to the store, which shows back exactly what it kept
+ * (`./chapters/a.tex` comes back as `chapters/a.tex`) or its sentence for
+ * why it kept nothing. A name a part holds that the paper does NOT have is
+ * listed apart and marked, since picking that part narrows to nothing for
+ * it.
+ *
  * Each press is one write of the whole list, like every other press in this
  * box; there is no "apply".
  *
@@ -408,11 +470,17 @@ export function Parts({
 function PartRow({
   part,
   record,
+  parts,
+  paperFiles,
   storesSteps,
   under,
   setUnder,
 }: {
   part: JourneyPart
+  /** Every part of the journey, to say whose a file already is. */
+  parts: readonly JourneyPart[]
+  /** Every file of the epic's paper but `main.tex`, in reading order — or null when this app reads no paper for it. */
+  paperFiles: readonly string[] | null
   record: Arrangeable
   /** False for a journey whose steps are kept elsewhere: there is nothing here to file. */
   storesSteps: boolean
@@ -426,6 +494,12 @@ function PartRow({
      a screen away from a part's row in a narrow container. */
   const [refused, setRefused] = useState('')
   const files = part.files ?? []
+  /* What the part holds that the paper does not have: a name typed for a
+     file not written yet, or one that was misspelled. With no paper read
+     every name is one of these, and the list is the plain list it was. */
+  const strays = paperFiles ? files.filter((one) => !paperFiles.includes(one)) : files
+  const elsewhere = (file: string) =>
+    parts.filter((other) => other.id !== part.id && (other.files ?? []).includes(file)).map((other) => other.heading)
   const press = (kind: Under) => {
     if (kind === 'rename') setName(part.heading)
     setUnder(under === kind ? null : kind)
@@ -530,16 +604,51 @@ function PartRow({
         <div data-files-of={part.id} className="mt-1 grid gap-1.5 rounded border border-dashed px-2 py-1.5">
           <p className="text-muted-foreground">
             The files of this epic’s paper that are this part’s. While the part is picked, a module showing the
-            paper shows only these. Type each as it is named from the paper’s folder, with its extension — for
-            example <code className="font-mono">{FILE_EXAMPLE}</code>. This app cannot read the paper, so a name
-            is kept as typed; the paper’s own module says when a picked part names a file the paper does not have.
+            paper shows only these.{' '}
+            {paperFiles
+              ? paperFiles.length
+                ? 'Tick them below: these are the files main.tex pulls in, in the paper’s order.'
+                : 'The paper is main.tex alone so far: it pulls in no other file to tick.'
+              : 'This epic has no paper in this project that this app can read, so each is typed as it is named from the paper’s folder.'}
           </p>
-          {files.length === 0 ? (
+          {paperFiles && paperFiles.length > 0 && (
+            <ul data-paper-files className="grid gap-0.5">
+              {paperFiles.map((one) => {
+                const held = elsewhere(one)
+                return (
+                  <li key={one}>
+                    <label className="flex min-w-0 cursor-pointer items-baseline gap-2 rounded px-1 py-0.5 hover:bg-accent">
+                      <input
+                        type="checkbox"
+                        checked={files.includes(one)}
+                        onChange={() =>
+                          void savePartFiles(part.id, files.includes(one) ? files.filter((kept) => kept !== one) : [...files, one])
+                        }
+                        aria-label={`${one} is ${part.heading}’s`}
+                        className="size-3.5 shrink-0 translate-y-0.5 accent-primary"
+                      />
+                      <code className="min-w-0 flex-1 font-mono text-xs [overflow-wrap:anywhere]">{one}</code>
+                      {held.length > 0 && (
+                        <span className="shrink-0 text-xs text-muted-foreground italic">in {held.join(', ')}</span>
+                      )}
+                    </label>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {files.length === 0 && !(paperFiles && paperFiles.length) ? (
             <p className="italic text-muted-foreground">This part owns no file yet.</p>
-          ) : (
+          ) : strays.length === 0 ? null : (
             <ul className="grid gap-0.5">
-              {files.map((one) => (
-                <li key={one} className="flex min-w-0 items-baseline gap-2">
+              {paperFiles && (
+                <li className="text-xs text-muted-foreground">
+                  {strays.length === 1 ? 'A name' : 'Names'} this part holds that the paper does not have — not written
+                  yet, or not spelled as the file is:
+                </li>
+              )}
+              {strays.map((one) => (
+                <li key={one} data-stray={paperFiles ? one : undefined} className="flex min-w-0 items-baseline gap-2">
                   <code className="min-w-0 flex-1 font-mono text-xs [overflow-wrap:anywhere]">{one}</code>
                   <Button
                     type="button"
@@ -554,6 +663,18 @@ function PartRow({
                 </li>
               ))}
             </ul>
+          )}
+          {paperFiles && (
+            <p className="text-xs text-muted-foreground">
+              Or type a name, for a file that is not in the paper yet — as it will be named from the paper’s folder,
+              with its extension, like <code className="font-mono">{FILE_EXAMPLE}</code>:
+            </p>
+          )}
+          {!paperFiles && (
+            <p className="text-xs text-muted-foreground">
+              With its extension — for example <code className="font-mono">{FILE_EXAMPLE}</code>. A name is kept as
+              typed; the paper’s own module says when a picked part names a file the paper does not have.
+            </p>
           )}
           <form
             className="flex flex-wrap items-center gap-1.5"

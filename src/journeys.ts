@@ -19,7 +19,8 @@ import { HostRefused, connect, type Connection } from 'kehikot-module-protocol/c
 import { HIDE_GROUP, countFacets, hiddenIn, offer, type Facet } from 'kehikot-module-protocol/facets'
 
 import { ID } from '../manifest.ts'
-import { GET_EPIC, GET_TRACKER, REFRESH_TRACKER, REPORT_CHANGE } from '../wire/methods.ts'
+import type { Chapters } from '../chapters.ts'
+import { GET_EPIC, GET_TRACKER, PARTS_REF, REFRESH_TRACKER, REPORT_CHANGE } from '../wire/methods.ts'
 import type { Brief, JourneyView, Live, Target } from './kinds.ts'
 import { cardsUnder, facetsOfRef, readingOf, refsOf, unreadLinks, type Around } from './live/lookup.ts'
 import { shownSteps, stepInFocus } from './focus.ts'
@@ -200,6 +201,22 @@ export interface State {
   adding: boolean
   /** The box where a journey is arranged into parts is open. See `view/parts.tsx`. */
   arranging: boolean
+  /**
+   * Dividing an epic this project keeps no journey for is open: the same
+   * offer the parts box makes, standing where the journey is not yet. Apart
+   * from `arranging` because that box is drawn inside a journey and there is
+   * none; see `Begin` in `app.tsx`.
+   */
+  dividing: boolean
+  /**
+   * What the epic's paper says about parts — its chapter files, and every
+   * file a part could own — for the epic in `slug`. Null until it has been
+   * asked for; `paper: false` when the epic has no paper in this project.
+   * See `readChapters`.
+   */
+  chapters: PaperChapters | null
+  /** Parts are being made from the paper's chapter files. */
+  making: boolean
   /** The one line this app uses to answer the reader. */
   said: string
   /**
@@ -224,6 +241,14 @@ export interface State {
   from: string | null
 }
 
+/**
+ * What `/api/chapters` answers: the proposal `chapters.ts` works out, the two
+ * things the server says about it in words, and which epic it is for.
+ */
+export type PaperChapters =
+  | { slug: string; paper: false }
+  | ({ slug: string; paper: true; nothing: string | null; leftOut: string[] } & Chapters)
+
 let state: State = {
   index: [],
   journey: null,
@@ -244,6 +269,9 @@ let state: State = {
   editing: -1,
   adding: false,
   arranging: false,
+  dividing: false,
+  chapters: null,
+  making: false,
   said: '',
   /* True until a host says otherwise, and true forever if none ever does. A
      page opened directly has no canvas to tell it which project it is standing
@@ -313,6 +341,42 @@ export function setAdding(on: boolean): void {
 /** Open or close the box where the journey is arranged into parts. */
 export function setArranging(on: boolean): void {
   set({ arranging: on })
+  /* What the paper offers is read when the box opens and not before: it is a
+     read of somebody's `.tex` files, and a journey is read far more often
+     than it is arranged. */
+  if (on) void readChapters()
+}
+
+/** Open or close dividing an epic that has no journey yet. See `Begin` in `app.tsx`. */
+export function setDividing(on: boolean): void {
+  set({ dividing: on })
+  if (on) void readChapters()
+}
+
+/**
+ * Ask this app's own server what the epic's paper says about parts.
+ *
+ * For the journey on screen, or — framed, with none — for the epic the canvas
+ * is standing on: the offer has to be readable BEFORE a journey is begun, and
+ * the server answers it without one. Read again after every change to the
+ * parts, because a file some part now owns is no longer proposed.
+ *
+ * A failure leaves what was there. This is an offer; the box it is drawn in
+ * works without it, and a sentence about a read that failed would sit above
+ * controls that are all still true.
+ */
+export async function readChapters(): Promise<void> {
+  const slug = state.journey?.slug ?? (state.framed ? standingOn : null) ?? null
+  if (!slug) return
+  const project = standingIn
+  try {
+    const out = await get<{ ok: boolean } & Record<string, unknown>>('/api/chapters', `slug=${encodeURIComponent(slug)}`)
+    if (standingIn !== project || (state.journey?.slug ?? standingOn) !== slug) return
+    if (!out.ok) return
+    set({ chapters: { ...out, slug } as unknown as PaperChapters })
+  } catch {
+    /* Left as it was. */
+  }
 }
 
 /** Open or fold the changes under one issue. */
@@ -427,6 +491,7 @@ async function load(slug: string | null): Promise<void> {
     if (!current()) return
     if (!listed(slug)) {
       set({ journey: null, editing: -1, adding: false, said: '', unwritten: slug })
+      settleParts()
       return
     }
   }
@@ -446,6 +511,69 @@ async function load(slug: string | null): Promise<void> {
        the answer line is for answering something the reader just did. */
     said: out.ok || state.nowhere ? '' : (out.error ?? 'no such journey here'),
   })
+  /* A parts box left open across a change of epic is open on the new one,
+     and what it offers has to be the new epic's paper. */
+  if (state.arranging && state.journey) void readChapters()
+  settleParts()
+}
+
+/* ------------------------------------------------------------------ *
+ * Being walked to the parts
+ *
+ * A host's bar draws the parts of the open epic, and for an epic with none it
+ * offers one press that lands here: `kehikot.goto` naming `PARTS_REF`. What
+ * "here" is depends on what this project holds. With a journey, it is the
+ * parts box, open. With none — the epic is the host's and this app has no
+ * record of it — it is the offer to divide it, standing in the section that
+ * begins a journey, which is where the first part has to start anyway.
+ *
+ * ## The walk usually arrives before the journey does
+ *
+ * A host that has just put this container on a canvas greets it and walks it
+ * in the same breath, and the journey for the epic in that greeting is still
+ * being fetched. So the walk is REMEMBERED (`partsWanted`) and settled when
+ * the load lands, by the two lines in `load` above. It is answered at once,
+ * and answered "found": the place exists for every epic this app can stand
+ * on, and the only thing not yet known is which of its two forms it takes.
+ * What is refused is what cannot be opened at all — no project, a file that
+ * will not read, or a walk about an epic the canvas is not on.
+ * ------------------------------------------------------------------ */
+
+/** The epic whose parts a host asked to be shown, until it has been. */
+let partsWanted: string | null = null
+
+function openParts(epic: string | undefined): { found: boolean; why: string } {
+  const slug = standingOn ?? state.journey?.slug ?? null
+  if (!slug) return { found: false, why: 'No epic is open in this app, so there is nothing here to divide into parts.' }
+  if (epic && epic !== slug) return { found: false, why: `This container is on ${slug}, not ${epic}.` }
+  if (state.trouble) return { found: false, why: state.trouble }
+  partsWanted = slug
+  settleParts()
+  return { found: true, why: '' }
+}
+
+function settleParts(): void {
+  const slug = partsWanted
+  if (slug === null) return
+  if ((standingOn ?? state.journey?.slug ?? null) !== slug) {
+    /* The canvas moved on before the journey arrived. The walk was about the
+       epic it left. */
+    partsWanted = null
+    return
+  }
+  if (state.journey?.slug === slug) setArranging(true)
+  else if (state.unwritten === slug) setDividing(true)
+  else return
+  partsWanted = null
+  /* `set` flushed, so the box is in the document to be scrolled to and
+     marked — the mark `goTo` leaves on a card, for the same reason. */
+  const box = document.querySelector('[data-parts="open"], [data-divide]')
+  if (!box) return
+  box.scrollIntoView({ block: 'nearest' })
+  box.removeAttribute('data-found')
+  void (box as HTMLElement).offsetWidth
+  box.setAttribute('data-found', 'true')
+  setTimeout(() => box.removeAttribute('data-found'), MARK_FOR_MS)
 }
 
 /** Which `load` is the newest. See the comment inside it. */
@@ -575,6 +703,8 @@ async function arranged(path: string, body: Record<string, unknown>): Promise<bo
   /* A part's references are among what the journey names, so removing one
      can change what the trackers are asked about. */
   void fill()
+  /* And a part's files are among what the paper's offer skips. */
+  if (state.arranging) void readChapters()
   return true
 }
 
@@ -607,6 +737,58 @@ export function savePartFiles(id: string, files: readonly string[]): Promise<boo
 /** Take a part out. Its steps stay and become unassigned; see `withoutPart`. */
 export function removePart(id: string): Promise<boolean> {
   return arranged('/api/part/remove', { id })
+}
+
+/**
+ * Make a part for each of these chapter files of the paper — the rows a
+ * person left ticked in the list `view/chapters.tsx` showed them.
+ *
+ * ## And begin the journey first, when there is none, in the same press
+ *
+ * An epic with a paper and no journey record is the ordinary first sight of
+ * this for somebody with a thesis: the host holds the epic, nothing here
+ * does. Parts are kept in the journey record, so there has to be one — and
+ * "begin the journey" used to be a separate press, in a separate section,
+ * that a person had to know to make before the one they came for. It is the
+ * same press now. `begin` is the function that button calls, unchanged: it
+ * asks the host what it holds and makes the record from that, for the reason
+ * given at length there, and it says its own sentence if it could not. Only
+ * when a journey is on screen afterwards are the parts made; the line under
+ * the page then says both things that happened.
+ *
+ * The server works the proposal out again from the disk and refuses if what
+ * was ticked is no longer in it, so what is made is what was read.
+ */
+export async function makeChapterParts(files: readonly string[]): Promise<boolean> {
+  if (state.making || !files.length) return false
+  set({ making: true })
+  try {
+    let began = ''
+    if (!state.journey) {
+      if (!state.unwritten) return false
+      await begin()
+      if (!state.journey) return false
+      began = state.said
+    }
+    const done = await arranged('/api/parts/chapters', { files: [...files] })
+    if (!done) return false
+    set({ arranging: true, dividing: false, said: began ? `${began} ${state.said}` : state.said })
+    void readChapters()
+    return true
+  } finally {
+    set({ making: false })
+  }
+}
+
+/**
+ * Begin the journey for the epic the canvas is on and open its parts box —
+ * for an epic with no paper to take chapters from, where dividing it is
+ * done by hand.
+ */
+export async function beginAndArrange(): Promise<void> {
+  if (state.journey || !state.unwritten) return
+  await begin()
+  if (state.journey) set({ arranging: true, dividing: false })
 }
 
 /**
@@ -1592,8 +1774,9 @@ function context(next: ModuleContext): void {
   if (moved) {
     owed = false
     loading += 1
-    /* Whatever was known to be missing was missing for the epic just left. */
-    set({ unwritten: null })
+    /* Whatever was known to be missing was missing for the epic just left —
+       and so was the offer to divide it, and what its paper said. */
+    set({ unwritten: null, dividing: false, chapters: null })
   }
 
   if (relocated) {
@@ -1849,6 +2032,13 @@ export function start(): void {
         void refresh()
       },
       onGoto: (goto: Goto, answer) => {
+        /* The one reference that is not a card: a host asking for the place
+           this epic is divided into parts. See `PARTS_REF`. */
+        if (goto.ref === PARTS_REF) {
+          const out = openParts(goto.epic)
+          answer(out.found, out.why)
+          return
+        }
         void goTo({ ref: goto.ref, step: goto.step, slug: goto.epic }).then((out) => answer(out.found, out.why))
       },
     },

@@ -4,7 +4,7 @@ import type { EpicPart } from 'kehikot-module-protocol'
 import { mailbox } from 'kehikot-module-protocol/client'
 
 import { App } from '../src/app.tsx'
-import { JOURNEY, settle, started, store, stubHost, type Wire } from './host.ts'
+import { JOURNEY, PAPER, settle, started, store, stubHost, type Wire } from './host.ts'
 
 /**
  * Arranging a journey into parts, from the page.
@@ -44,6 +44,7 @@ beforeAll(async () => {
 
 afterEach(() => {
   wire.setArranging(false)
+  wire.setDividing(false)
   wire.setAdding(false)
   cleanup()
   mailbox.forget?.()
@@ -298,8 +299,10 @@ describe('the files a part owns, from the page', () => {
     const row = () => box().querySelector('[data-part="what-the-page-shows"]') as HTMLElement
     fireEvent.click(button('files', row()))
     const editor = () => row().querySelector('[data-files-of]') as HTMLElement
-    expect(editor().textContent).toContain('named from the paper’s folder, with its extension — for example chapters/design.tex')
-    expect(editor().textContent).toContain('This app cannot read the paper')
+    /* No paper here to list files from, so each is typed — and the page says that is why. */
+    expect(editor().textContent).toContain('This epic has no paper in this project that this app can read, so each is typed')
+    expect(editor().textContent).toContain('With its extension — for example chapters/design.tex')
+    expect(editor().querySelector('[data-paper-files]')).toBeNull()
     fireEvent.change(editor().querySelector('input') as Element, { target: { value: './chapters/more.tex' } })
     fireEvent.submit(editor().querySelector('form') as Element)
     await settle()
@@ -373,5 +376,233 @@ describe('a journey with no steps', () => {
     await framed({ parts: pick('what-the-page-shows') })
     expect(drawn()).toEqual(['2'])
     expect(document.querySelector('[data-adding]')).toBeNull()
+  })
+})
+
+describe('an epic with a paper', () => {
+  const offer = () => box().querySelector('[data-chapters]') as HTMLElement | null
+  const rows = () => [...(offer()?.querySelectorAll('[data-chapter]') ?? [])].map((one) => one.textContent)
+
+  test('the parts box offers its chapter files, and the press LISTS them and makes nothing', async () => {
+    store.chapters = PAPER
+    await framed()
+    fireEvent.click(button('divide into parts'))
+    await settle()
+    expect(box().textContent).toContain('This epic has a paper. Its chapter files can each become a part')
+    expect(offer()).toBeNull()
+    fireEvent.click(button('make a part for each chapter file…'))
+    expect(offer()!.textContent).toContain('pulls in 2 chapter files that no part owns')
+    expect(offer()!.textContent).toContain('Nothing has been made.')
+    expect(rows()).toEqual([
+      'Introduction chapters/1_introduction.tex',
+      'Results chapters/2_results.tex and the 1 file it pulls in (generated/table.tex) — named after the file, which has no chapter or section heading',
+    ])
+    /* What was left out, in the server's own sentence. */
+    expect(offer()!.querySelector('[data-left-out]')?.textContent).toContain('macros.tex is pulled in before \\begin{document}')
+    expect(button('make these 2 parts')).toBeDefined()
+    expect(store.arranged).toEqual([])
+    expect(box().querySelectorAll('[data-part]')).toHaveLength(0)
+  })
+
+  test('the second press makes them in one write, and a row left out is not made', async () => {
+    store.chapters = PAPER
+    await framed()
+    fireEvent.click(button('divide into parts'))
+    await settle()
+    fireEvent.click(button('make a part for each chapter file…'))
+    fireEvent.click(offer()!.querySelector('input[aria-label="Make the part Introduction"]') as Element)
+    fireEvent.click(button('make this 1 part'))
+    await settle()
+    expect(store.arranged).toEqual([{ path: '/api/parts/chapters', body: expect.objectContaining({ slug: 'probe', files: ['chapters/2_results.tex'] }) }])
+    const made = [...box().querySelectorAll('[data-part]')]
+    expect(made.map((one) => one.getAttribute('data-part'))).toEqual(['results'])
+    expect(made[0]!.querySelector('[data-files]')?.textContent).toBe('owns chapters/2_results.tex, generated/table.tex')
+    expect(document.querySelector('[aria-live]')?.textContent).toContain('Made 1 parts from the paper’s chapter files.')
+  })
+
+  test('leaving it makes nothing, and unticking every row leaves nothing to press', async () => {
+    store.chapters = PAPER
+    await framed()
+    fireEvent.click(button('divide into parts'))
+    await settle()
+    fireEvent.click(button('make a part for each chapter file…'))
+    for (const tick of offer()!.querySelectorAll('input[type="checkbox"]')) fireEvent.click(tick)
+    expect(button('make these 0 parts').disabled).toBe(true)
+    fireEvent.click(button('leave it'))
+    expect(offer()).toBeNull()
+    expect(store.arranged).toEqual([])
+  })
+
+  test('an epic with no paper is offered nothing of the kind', async () => {
+    await framed()
+    fireEvent.click(button('divide into parts'))
+    await settle()
+    expect(button('make a part for each chapter file…')).toBeUndefined()
+  })
+
+  test('a part’s files are ticked from the paper’s own, one write of the whole list each', async () => {
+    store.chapters = PAPER
+    store.journey = {
+      ...divided,
+      groups: [{ ...GROUPS[0], files: ['chapters/1_introduction.tex'] }, { ...GROUPS[1], files: ['chapters/page.tex'] }],
+    } as unknown as typeof JOURNEY
+    await framed()
+    fireEvent.click(button('2 parts'))
+    await settle()
+    const row = () => box().querySelector('[data-part="what-the-page-shows"]') as HTMLElement
+    fireEvent.click(button('files', row()))
+    const editor = () => row().querySelector('[data-files-of]') as HTMLElement
+    expect(editor().textContent).toContain('Tick them below: these are the files main.tex pulls in')
+    const listedFiles = () =>
+      [...editor().querySelectorAll('[data-paper-files] label')].map((one) => [
+        one.textContent,
+        (one.querySelector('input') as HTMLInputElement).checked,
+      ])
+    expect(listedFiles()).toEqual([
+      ['macros.tex', false],
+      /* Another part's already, and the row says whose. */
+      ['chapters/1_introduction.texin The agent seam', false],
+      ['chapters/2_results.tex', false],
+      ['generated/table.tex', false],
+    ])
+    /* What the part holds that the paper does not have is listed apart. */
+    expect(editor().querySelector('[data-stray]')?.getAttribute('data-stray')).toBe('chapters/page.tex')
+    expect(editor().textContent).toContain('A name this part holds that the paper does not have')
+
+    fireEvent.click(editor().querySelector('input[aria-label="chapters/2_results.tex is What the page shows’s"]') as Element)
+    await settle()
+    expect(store.arranged.at(-1)).toEqual({
+      path: '/api/part',
+      body: expect.objectContaining({ id: 'what-the-page-shows', files: ['chapters/page.tex', 'chapters/2_results.tex'] }),
+    })
+    expect(listedFiles()[2]).toEqual(['chapters/2_results.tex', true])
+    /* Unticking is the same press the other way; typing is still there under the list. */
+    fireEvent.click(editor().querySelector('input[aria-label="chapters/2_results.tex is What the page shows’s"]') as Element)
+    await settle()
+    expect(store.arranged.at(-1)?.body).toMatchObject({ files: ['chapters/page.tex'] })
+    expect(editor().textContent).toContain('Or type a name, for a file that is not in the paper yet')
+    expect(editor().querySelector('form input')).not.toBeNull()
+  })
+})
+
+describe('dividing an epic this project has no journey for', () => {
+  const hosted = { slug: 'probe', title: 'A journey', steps: [{ title: 'From the host', refs: ['gh#9'] }], groups: [] }
+  const divide = () => document.querySelector('[data-divide]') as HTMLElement
+
+  test('is offered beside beginning it, and lists the paper’s chapters before anything exists', async () => {
+    store.listed = false
+    store.chapters = PAPER
+    await framed()
+    expect(divide().getAttribute('data-divide')).toBe('closed')
+    fireEvent.click(button('divide probe into parts…'))
+    await settle()
+    expect(divide().getAttribute('data-divide')).toBe('open')
+    expect(divide().querySelectorAll('[data-chapter]')).toHaveLength(2)
+    expect(divide().textContent).toContain('This project keeps no journey for this epic yet, and parts are kept in one.')
+    expect(button('begin the journey and make these 2 parts')).toBeDefined()
+    expect(store.begun).toEqual([])
+    expect(store.arranged).toEqual([])
+  })
+
+  test('one press begins the journey from what the host holds and then makes the parts', async () => {
+    store.listed = false
+    store.chapters = PAPER
+    const { host, projectPath } = await framed()
+    fireEvent.click(button('divide probe into parts…'))
+    await settle()
+    fireEvent.click(button('begin the journey and make these 2 parts'))
+    await settle()
+    /* The same question "begin the journey" asks, and nothing written until it is answered. */
+    expect(host.asked('epic.get').map((one) => one.params)).toEqual([{ epic: 'probe' }])
+    expect(store.begun).toEqual([])
+    expect(store.arranged).toEqual([])
+    host.answer('epic.get', hosted)
+    await settle()
+    await settle()
+    expect(store.begun).toEqual([{ slug: 'probe', seed: hosted, project: projectPath }])
+    expect(store.arranged).toEqual([
+      { path: '/api/parts/chapters', body: expect.objectContaining({ slug: 'probe', files: ['chapters/1_introduction.tex', 'chapters/2_results.tex'] }) },
+    ])
+    /* The journey is on screen with its parts box open on what was made, and the line says both things. */
+    expect(drawn()).toEqual(['1', '2'])
+    expect([...box().querySelectorAll('[data-part]')].map((one) => one.getAttribute('data-part'))).toEqual(['introduction', 'results'])
+    const said = document.querySelector('[aria-live]')?.textContent ?? ''
+    expect(said).toContain('Began probe from what the host holds')
+    expect(said).toContain('Made 2 parts from the paper’s chapter files.')
+    expect(document.querySelector('[data-divide]')).toBeNull()
+  })
+
+  test('with no paper it says so, and offers to begin and make parts by hand', async () => {
+    store.listed = false
+    const { host } = await framed()
+    fireEvent.click(button('divide probe into parts…'))
+    await settle()
+    expect(divide().textContent).toContain('This epic has no paper in this project (no main.tex in .kehikot/paper/probe/)')
+    fireEvent.click(button('begin the journey and make parts by hand'))
+    await settle()
+    host.answer('epic.get', hosted)
+    await settle()
+    await settle()
+    expect(store.begun).toHaveLength(1)
+    expect(store.arranged).toEqual([])
+    expect(box().textContent).toContain('No parts yet')
+  })
+})
+
+describe('a host walking this page to its parts', () => {
+  const walk = (host: ReturnType<typeof stubHost>, more: Record<string, unknown> = {}) =>
+    host.post({ type: 'kehikot.goto', id: 'g1', ref: 'journeys:parts', epic: 'probe', ...more })
+  const went = (host: ReturnType<typeof stubHost>) => host.said.filter((one) => one.type === 'kehikot.went').at(-1)
+
+  test('opens the parts box of the journey on screen, and says it found the place', async () => {
+    store.chapters = PAPER
+    const { host } = await framed()
+    expect(document.querySelector('[data-parts="open"]')).toBeNull()
+    walk(host)
+    await settle()
+    expect(went(host)).toMatchObject({ id: 'g1', found: true })
+    expect(box()).not.toBeNull()
+    expect(box().getAttribute('data-found')).toBe('true')
+    /* And the paper's offer is there to be pressed. */
+    expect(button('make a part for each chapter file…')).toBeDefined()
+  })
+
+  test('with no journey for the epic, opens dividing it where the journey would begin', async () => {
+    store.listed = false
+    store.chapters = PAPER
+    const { host } = await framed()
+    walk(host)
+    await settle()
+    expect(went(host)).toMatchObject({ id: 'g1', found: true })
+    expect(document.querySelector('[data-divide]')?.getAttribute('data-divide')).toBe('open')
+    expect(button('begin the journey and make these 2 parts')).toBeDefined()
+  })
+
+  test('a walk that arrives before the journey has loaded is kept until it has', async () => {
+    const release = store.hold()
+    const { host } = await framed()
+    walk(host)
+    await settle()
+    expect(went(host)).toMatchObject({ found: true })
+    expect(document.querySelector('[data-parts="open"]')).toBeNull()
+    release()
+    await settle()
+    expect(box()).not.toBeNull()
+  })
+
+  test('is refused, in words, when it is about another epic', async () => {
+    const { host } = await framed()
+    walk(host, { epic: 'another-epic' })
+    await settle()
+    expect(went(host)).toMatchObject({ id: 'g1', found: false, why: 'This container is on probe, not another-epic.' })
+    expect(document.querySelector('[data-parts="open"]')).toBeNull()
+  })
+
+  test('any other reference is still a card to walk to', async () => {
+    const { host } = await framed()
+    host.post({ type: 'kehikot.goto', id: 'g2', ref: 'gh#404' })
+    await settle()
+    expect(went(host)).toMatchObject({ id: 'g2', found: false })
+    expect(document.querySelector('[data-parts="open"]')).toBeNull()
   })
 })
