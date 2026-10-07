@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test'
-import { render } from '@testing-library/react'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { cleanup, render } from '@testing-library/react'
 
 import type { Disposition } from 'kehikot-module-protocol'
 import type { Facet } from 'kehikot-module-protocol/facets'
@@ -27,6 +27,18 @@ import { closedBy, reading, row } from './reading.ts'
  *     whole document inside a 220-pixel container. That is the bug this file exists
  *     to keep from coming back.
  */
+
+/*
+ * Every test file here shares one document, and the order they run in is the
+ * order the directory happens to list them — which moved the day two files
+ * were added. This file rendered into that document and left it there, and the
+ * file after it then found a step from here when it asked the page for
+ * `[data-step="1"]`. What is rendered is taken down.
+ */
+afterEach(() => {
+  cleanup()
+  document.body.innerHTML = ''
+})
 
 const JOURNEY = {
   slug: 'probe',

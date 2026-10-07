@@ -9,6 +9,7 @@ import {
   trackerRefreshResult,
   type Disposition,
   type DispositionValue,
+  type EpicPart,
   type FilterChoice,
   type Goto,
   type ModuleContext,
@@ -18,9 +19,10 @@ import { HostRefused, connect, type Connection } from 'kehikot-module-protocol/c
 import { HIDE_GROUP, countFacets, hiddenIn, offer, type Facet } from 'kehikot-module-protocol/facets'
 
 import { ID } from '../manifest.ts'
-import { GET_TRACKER, REFRESH_TRACKER, REPORT_CHANGE } from '../wire/methods.ts'
+import { GET_EPIC, GET_TRACKER, REFRESH_TRACKER, REPORT_CHANGE } from '../wire/methods.ts'
 import type { Brief, JourneyView, Live, Target } from './kinds.ts'
 import { cardsUnder, facetsOfRef, readingOf, refsOf, unreadLinks, type Around } from './live/lookup.ts'
+import { shownSteps, stepInFocus } from './focus.ts'
 import { bounded, firstShown, samePick, togglePick } from './refs.ts'
 import { get, post, standIn } from './store/api.ts'
 import { apply as applyTheme } from './theme.ts'
@@ -159,6 +161,29 @@ export interface State {
    * which is true — there is no canvas for anything to be picked on.
    */
   selection: string[]
+  /**
+   * The parts of the open epic, as the host last said, each flagged `picked`.
+   *
+   * None picked is the whole epic and is the resting state — `[]` from a host
+   * that has never heard of parts, and from one standing on an epic with no
+   * groups. With some picked, only the steps that say they are in one are
+   * drawn; see `focus.ts`. Held verbatim: which steps that is, is worked out
+   * where it is drawn, by the protocol's own function.
+   */
+  parts: EpicPart[]
+  /**
+   * The epic this project is KNOWN to hold no journey for: the index was read
+   * again and does not list it.
+   *
+   * Not the same as `journey === null`, which is also true for the half second
+   * a journey is being fetched. The page offers to begin a journey on this
+   * and on nothing weaker, because an offer that flashed past while an
+   * existing journey loaded would be an offer to overwrite it — refused by the
+   * store, but drawn.
+   */
+  unwritten: string | null
+  /** A journey is being begun: the host is being asked, or the store is writing. */
+  beginning: boolean
   framed: boolean
   /** The host said no to something we asked. */
   refused: string | null
@@ -200,6 +225,9 @@ let state: State = {
   hidden: [],
   unfolded: [],
   selection: [],
+  parts: [],
+  unwritten: null,
+  beginning: false,
   framed: false,
   refused: null,
   editing: -1,
@@ -294,7 +322,10 @@ function everyCard(): { ref: string; under: boolean; owner: string | null }[] {
   const journey = state.journey
   if (!journey || journey.plan === 'elsewhere') return []
   const out: { ref: string; under: boolean; owner: string | null }[] = []
-  for (const step of journey.steps) {
+  /* Only the steps in front of the person. A step outside the picked parts is
+     not drawn, so its cards are not cards on this page: counting them in the
+     filter's offer would be a number about things nobody can see. */
+  for (const { step } of shownSteps(state.parts, journey.steps)) {
     let owner: string | null = null
     for (const card of cardsUnder(state.live, step.refs ?? [])) {
       if (!card.under) owner = card.ref
@@ -372,7 +403,7 @@ async function load(slug: string | null): Promise<void> {
     await readIndex()
     if (!current()) return
     if (!listed(slug)) {
-      set({ journey: null, editing: -1, said: '' })
+      set({ journey: null, editing: -1, said: '', unwritten: slug })
       return
     }
   }
@@ -383,6 +414,7 @@ async function load(slug: string | null): Promise<void> {
   if (!current()) return
   set({
     journey: out.ok && out.journey ? out.journey : null,
+    unwritten: null,
     editing: -1,
     /* Nothing is said when there is nowhere to read. The screen for that is
        already on the page and says the whole thing; repeating the server's
@@ -477,10 +509,92 @@ export async function saveStep(
 }
 
 /**
+ * Begin a journey for the epic the canvas is standing on, which this project
+ * has no record of.
+ *
+ * ## It asks the host first, and that is the point of the press
+ *
+ * A host answers an epic's steps and groups out of this app's record, and out
+ * of its own file only where there is no record. So the record made here
+ * REPLACES what the host has been answering with, for every module on the
+ * canvas, the moment it exists — and an empty one would hide every step the
+ * host held. The first record therefore has to be what the host holds, and the
+ * host is right there: `epic.get`, asked once, and the answer handed to this
+ * app's own store to become the record.
+ *
+ * A host that refuses — it was not granted, or it is older than the question —
+ * is not a reason to make an empty record either. The store is then asked
+ * with no seed, and reads the host's own file itself, as it must for an agent
+ * on the MCP door; see `hostEpic` in `store.ts`. Either way the answer line
+ * says which it was and how many steps came across, because "created" is the
+ * same word for a journey begun from nine steps and one begun from none.
+ *
+ * From a press and from nothing else. Not when an epic with no journey is
+ * opened: writing a file into somebody's repository because a tab was
+ * selected is the seeding this app stopped doing, for the reason `store.ts`
+ * gives at length.
+ */
+export async function begin(): Promise<void> {
+  const slug = state.unwritten
+  const project = standingIn
+  if (!slug || !state.framed || standingOn !== slug || state.beginning) return
+  const here = () => standingOn === slug && standingIn === project
+  set({ beginning: true })
+  try {
+    await beginFrom(slug, here)
+  } finally {
+    set({ beginning: false })
+  }
+}
+
+async function beginFrom(slug: string, here: () => boolean): Promise<void> {
+  let seed: unknown = undefined
+  if (host?.greeted()) {
+    try {
+      seed = await host.request(GET_EPIC, { epic: slug })
+    } catch {
+      /* Refused or unanswered. The store reads the host's file instead. */
+      seed = undefined
+    }
+  }
+  /* The canvas moved while the host was being asked. Nothing has been written
+     and nothing should be: the press was about the epic that was open then. */
+  if (!here()) return
+
+  const out = await post<{ ok: boolean; error?: string; journey?: JourneyView; said?: string }>('/api/journey', {
+    slug,
+    ...(seed && typeof seed === 'object' ? { seed } : {}),
+  })
+  if (!out.ok || !out.journey) {
+    if (here()) say(out.error ?? 'that journey was not begun')
+    return
+  }
+  /* Said whether or not the canvas has moved since: the record is on disk, and
+     every container on that epic is showing what the host answered before it. */
+  report(slug)
+  if (!here()) return
+  await readIndex()
+  if (!here()) return
+  /* `open`, taken apart, so that what was made is SAID as soon as it is on
+     screen and not after the host has answered about the trackers — which it
+     may take as long as it likes over, and the sentence is the only thing
+     that says how many steps came across. */
+  reading += 1
+  try {
+    await load(slug)
+  } finally {
+    reading -= 1
+    payOwed()
+  }
+  if (here() && state.journey?.slug === slug) say(out.said ?? 'begun')
+  void fill()
+}
+
+/**
  * Tell the host that this app's material for one journey has changed, so that
  * every container showing it reads it again.
  *
- * Called from `saveStep` and from nowhere else: AFTER the store has answered
+ * Called from `saveStep` and from `begin`, and from nowhere else: AFTER the store has answered
  * that the write was kept, because a container that re-reads at once must find
  * the new step, and never from a read — `readAgain` below answers these, and a
  * re-read that reported would be this page and the host telling each other the
@@ -1095,7 +1209,19 @@ export async function goTo(what: Target | null, how: Walk = {}): Promise<{ found
   }
 
   if (!target) {
-    const why = what.ref ? `Nothing in this journey names ${what.ref}.` : `This journey has no step ${what.step}.`
+    /* A step that is there and not drawn is not a step this journey lacks.
+       Under a focus the two are different answers, and the second sends a
+       host looking for a step that is one press in its own bar away. */
+    const steps = state.journey.plan === 'elsewhere' ? [] : state.journey.steps
+    const outside = what.ref
+      ? steps.some((step) => (step.refs ?? []).includes(what.ref as string) && !stepInFocus(state.parts, step))
+      : steps.some((step, i) => i + 1 === Number(what.step) && !stepInFocus(state.parts, step))
+    const why = outside
+      ? `${what.ref ? `${what.ref} is named by a step` : `Step ${what.step} is`} outside the parts picked in the ` +
+        'host’s bar, so it is not on this page. Clear the picked parts there to see it.'
+      : what.ref
+        ? `Nothing in this journey names ${what.ref}.`
+        : `This journey has no step ${what.step}.`
     if (!how.quiet) say(why)
     return { found: false, why }
   }
@@ -1343,6 +1469,11 @@ function context(next: ModuleContext): void {
     refused: null,
     epic: slug,
     selection: picked,
+    /* The focus rides in the same patch for the reason the selection does: a
+       page rendered between them would draw every step under a bar that says
+       it is narrowed. Nothing is fetched for it — the steps are already here,
+       and which of them are shown is decided where they are drawn. */
+    parts: next.parts ?? [],
     marks: next.dispositions ?? [],
     filters,
     hidden: hiddenIn(filters),
@@ -1360,6 +1491,8 @@ function context(next: ModuleContext): void {
   if (moved) {
     owed = false
     loading += 1
+    /* Whatever was known to be missing was missing for the epic just left. */
+    set({ unwritten: null })
   }
 
   if (relocated) {

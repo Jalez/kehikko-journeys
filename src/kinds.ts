@@ -16,6 +16,12 @@ export interface Step {
   body: string
   refs: string[]
   notes: string[]
+  /**
+   * The id of the part this step was assigned to, when it says one. Read with
+   * the protocol's `stepPart`, never compared raw: anything that is not an id
+   * is no assignment. This page shows by it and does not set it.
+   */
+  part?: string
 }
 
 export interface StepsFrom {

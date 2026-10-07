@@ -49,12 +49,17 @@ describe('the manifest a host reads', () => {
   })
 
   /**
-   * One read, and it is the whole claim of the extraction: this app holds its
-   * own journeys and asks a host only for what a host alone can see. The three
-   * writes are each a person's press carried to the host, and `content:report`
-   * is this app saying its own material moved — it hands nothing over. If
-   * `epics:read` or `steps:read` ever appears here, something has started
+   * This app holds its own journeys and asks a host only for what a host alone
+   * can see. The three writes are each a person's press carried to the host,
+   * and `content:report` is this app saying its own material moved — it hands
+   * nothing over. If `steps:read` ever appears here, something has started
    * reading its own material over a bridge.
+   *
+   * `epics:read` used to be pinned out beside it and is now pinned IN, for one
+   * question: what the host holds for an epic, asked once, when a person
+   * begins a journey for it. The owner decided this app owns an epic's steps
+   * and a host reads them from here; the first record therefore has to be
+   * what the host held. The second test is what keeps that from widening.
    */
   test('asks for nothing it holds itself', () => {
     expect(MANIFEST.declares.uses).toEqual([
@@ -64,10 +69,19 @@ describe('the manifest a host reads', () => {
       'filters:set',
       'disposition:set',
       'content:report',
+      'epics:read',
     ])
     expect(MANIFEST.declares.uses).not.toContain('live:read')
-    expect(MANIFEST.declares.uses).not.toContain('epics:read')
     expect(MANIFEST.declares.uses).not.toContain('steps:read')
+  })
+
+  test('and the one question it asks about an epic is asked in one place: beginning a journey', async () => {
+    const page = await Bun.file(new URL('../src/journeys.ts', import.meta.url)).text()
+    /* Imported once and used once. A second use is this page drawing from a
+       host what it keeps itself, which is what the capability was kept out for. */
+    expect(page.match(/\bGET_EPIC\b/g)).toHaveLength(2)
+    expect(page).toContain('host.request(GET_EPIC, { epic: slug })')
+    for (const method of ['epics.list', 'steps.list']) expect(page).not.toContain(`'${method}'`)
   })
 
   /**
@@ -96,7 +110,7 @@ describe('the manifest a host reads', () => {
    */
   test('says it marks why things closed and moves when a mark changes', () => {
     expect(MANIFEST.declares.uses).toContain('disposition:set')
-    expect(MANIFEST.reacts).toEqual(['selection', 'dispositions', 'tracker', 'content'])
+    expect(MANIFEST.reacts).toEqual(['selection', 'dispositions', 'tracker', 'content', 'parts'])
   })
 
   /**

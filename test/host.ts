@@ -57,8 +57,18 @@ export const store = {
     })
     return release
   },
+  /**
+   * Whether the index lists the journey. False is a project that holds no
+   * journey for the epic the canvas is on — until `POST /api/journey` makes
+   * one, as the real door does.
+   */
+  listed: true,
+  /** The body of every `POST /api/journey`, in order. */
+  begun: [] as Record<string, unknown>[],
   reset: () => {
     store.journey = JOURNEY
+    store.listed = true
+    store.begun = []
     held = null
   },
 }
@@ -81,11 +91,17 @@ function stubStore() {
       }
     } else if (url.includes('/api/journey?') && held) {
       await held
+    } else if (init?.method === 'POST' && url.endsWith('/api/journey')) {
+      store.begun.push(JSON.parse(String(init.body)) as Record<string, unknown>)
+      store.listed = true
     }
     const body = url.includes('/api/journeys')
-      ? { ok: true, journeys: [{ slug: 'probe', title: 'A journey', tab: null, plan: 'stored', steps: 2 }] }
+      ? {
+          ok: true,
+          journeys: store.listed ? [{ slug: 'probe', title: 'A journey', tab: null, plan: 'stored', steps: 2 }] : [],
+        }
       : url.includes('/api/journey') || url.includes('/api/step')
-        ? { ok: true, journey: store.journey }
+        ? { ok: true, journey: store.journey, said: 'Began probe from what the host holds for that epic: 2 steps.' }
         : url.includes('/api/ticket')
           ? { ok: true, ticket: 't' }
           : { ok: false, error: `nothing answers ${url}` }
