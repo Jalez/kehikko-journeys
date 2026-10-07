@@ -1,6 +1,6 @@
 {
   "name": "kehikko-journeys",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "The journeys themselves: what has to become true for a user, step by step, and where each piece of work stands. An app: a page, a store of its own and an MCP door, which a host may frame but nothing here needs one.",

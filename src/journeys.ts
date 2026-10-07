@@ -189,6 +189,17 @@ export interface State {
   refused: string | null
   /** Which step has its editor open, or -1. */
   editing: number
+  /**
+   * The editor for a step that does not exist yet is open.
+   *
+   * Apart from `editing`, which is a position: "one past the last step" would
+   * say the same thing right up until somebody else removed a step while the
+   * box was open, at which point the editor for a NEW step would be sitting
+   * over the last existing one and would save over it.
+   */
+  adding: boolean
+  /** The box where a journey is arranged into parts is open. See `view/parts.tsx`. */
+  arranging: boolean
   /** The one line this app uses to answer the reader. */
   said: string
   /**
@@ -231,6 +242,8 @@ let state: State = {
   framed: false,
   refused: null,
   editing: -1,
+  adding: false,
+  arranging: false,
   said: '',
   /* True until a host says otherwise, and true forever if none ever does. A
      page opened directly has no canvas to tell it which project it is standing
@@ -290,6 +303,16 @@ export function say(what: string): void {
 
 export function setEditing(which: number): void {
   set({ editing: state.editing === which ? -1 : which })
+}
+
+/** Open or close the editor for a step that is not written yet. */
+export function setAdding(on: boolean): void {
+  set({ adding: on })
+}
+
+/** Open or close the box where the journey is arranged into parts. */
+export function setArranging(on: boolean): void {
+  set({ arranging: on })
 }
 
 /** Open or fold the changes under one issue. */
@@ -403,7 +426,7 @@ async function load(slug: string | null): Promise<void> {
     await readIndex()
     if (!current()) return
     if (!listed(slug)) {
-      set({ journey: null, editing: -1, said: '', unwritten: slug })
+      set({ journey: null, editing: -1, adding: false, said: '', unwritten: slug })
       return
     }
   }
@@ -416,6 +439,7 @@ async function load(slug: string | null): Promise<void> {
     journey: out.ok && out.journey ? out.journey : null,
     unwritten: null,
     editing: -1,
+    adding: false,
     /* Nothing is said when there is nowhere to read. The screen for that is
        already on the page and says the whole thing; repeating the server's
        sentence in the answer line underneath would be the same news twice, and
@@ -501,11 +525,75 @@ export async function saveStep(
      under the new project's index. Same rule as `fill` below: an answer to a
      question nobody is waiting on is noise with a timestamp. */
   if (state.journey !== being) return
-  set({ editing: -1, journey: out.journey, said: 'kept' })
+  set({ editing: -1, adding: false, journey: out.journey, said: 'kept' })
   /* The step may name references it did not name before, and the reading on
      screen was asked for the old ones. Not awaited: the save is done, and the
      states beside the references arrive when the host answers. */
   void fill()
+}
+
+/* ------------------------------------------------------------------ *
+ * Arranging the journey into parts
+ *
+ * Three writes, and they are this app's own for the reason a step's are: the
+ * groups a host reads as an epic's parts are in this app's record, and which
+ * step is in which part is a field on the step. What the HOST holds is which
+ * parts a person picked, and nothing below touches that — filing a step is
+ * not picking a part, and this page still offers no way to widen a focus.
+ *
+ * Every one of them goes through `arranged`, which is `saveStep` with the
+ * step taken out: the store answers with the journey and a sentence, the host
+ * is told the material changed (it re-reads the parts for its picker and for
+ * every module's `context.parts` from exactly that), and an answer that lands
+ * after the canvas moved is dropped.
+ *
+ * The parts a press names come from the RECORD — `partsOf(journey)`, the
+ * protocol's function over what this app's own store answered — and never
+ * from `context.parts`. That list is the host's reading of this same record,
+ * later, and only when a host is there: a page that filed steps against it
+ * would offer a part that was removed a moment ago, and could offer nothing
+ * at all standing alone.
+ * ------------------------------------------------------------------ */
+
+async function arranged(path: string, body: Record<string, unknown>): Promise<boolean> {
+  const being = state.journey
+  if (!being) return false
+  let out: { ok: boolean; error?: string; journey?: JourneyView; said?: string }
+  try {
+    out = await post(path, { slug: being.slug, ...body })
+  } catch {
+    say('This app could not reach its own store, so that was not kept.')
+    return false
+  }
+  if (!out.ok || !out.journey) {
+    say(out.error ?? 'that was not kept')
+    return false
+  }
+  report(being.slug)
+  if (state.journey !== being) return true
+  set({ journey: out.journey, said: out.said ?? 'kept' })
+  /* A part's references are among what the journey names, so removing one
+     can change what the trackers are asked about. */
+  void fill()
+  return true
+}
+
+/**
+ * File steps under a part, or — `part` null — take them out of every part.
+ * `positions` are one-based, as the store counts them.
+ */
+export function assignSteps(positions: readonly number[], part: string | null): Promise<boolean> {
+  return arranged('/api/assign', { positions: [...positions], part: part ?? '' })
+}
+
+/** Make a part (`id` null) or reword one. */
+export function savePart(id: string | null, heading: string): Promise<boolean> {
+  return arranged('/api/part', { ...(id === null ? {} : { id }), heading })
+}
+
+/** Take a part out. Its steps stay and become unassigned; see `withoutPart`. */
+export function removePart(id: string): Promise<boolean> {
+  return arranged('/api/part/remove', { id })
 }
 
 /**

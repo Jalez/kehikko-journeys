@@ -1,14 +1,17 @@
 import { useEffect, useSyncExternalStore } from 'react'
-import type { EpicPart } from 'kehikot-module-protocol'
+import type { EpicPart, JourneyPart } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
 
 import { narrowedSaid, narrowing, shownSteps, type Shown } from './focus.ts'
-import { begin, clearPick, getSnapshot, grow, pick, subscribe } from './journeys.ts'
+import { partOfStep, partsIn } from '../parts.ts'
+import { begin, clearPick, getSnapshot, grow, pick, setAdding, setArranging, subscribe } from './journeys.ts'
 import type { JourneyView, Live } from './kinds.ts'
 import { cardsUnder } from './live/lookup.ts'
 import { pickedState } from './refs.ts'
+import { Editor } from './view/editor.tsx'
 import { NoJourneys, NoProject, Trouble } from './view/nowhere.tsx'
+import { Parts, arrangeable } from './view/parts.tsx'
 import { Picker } from './view/picker.tsx'
 import { Prose } from './view/prose.tsx'
 import { ReadingProvider } from './view/reading.tsx'
@@ -103,6 +106,8 @@ export function App() {
             journey={state.journey}
             live={state.live}
             editing={state.editing}
+            adding={state.adding}
+            arranging={state.arranging}
             selection={state.selection}
             parts={state.parts}
             framed={state.framed}
@@ -223,21 +228,65 @@ function Begin({ epic, busy }: { epic: string; busy: boolean }) {
  * and how many are outside — and how many of those are in no part at all,
  * which is the number that explains a page showing none.
  *
- * It offers nothing to press. The focus is the person's and the host holds it
- * for every module on the canvas; a "show the rest" here would be one pane
- * quietly disagreeing with the panes beside it. It says where the picking is
- * done instead.
+ * It offers nothing that changes the focus. The focus is the person's and the
+ * host holds it for every module on the canvas; a "show the rest" here would
+ * be one pane quietly disagreeing with the panes beside it. It says where the
+ * picking is done instead.
+ *
+ * ## The one press it does offer is about the steps, not the focus
+ *
+ * A step in no part is outside every focus, so a journey whose steps nobody
+ * has filed shows none of them the moment a part is picked. For two stages
+ * that was a sentence with a number in it and nothing to do: which part a
+ * step is in was a field in a file. It can be said on this page now, so the
+ * sentence ends in the press that opens where it is said. That is not this
+ * pane disagreeing with its neighbours — filing a step changes the journey,
+ * for every pane, and the steps appear here because they are now in the part
+ * the person picked.
  */
-function Narrowed({ parts, journey }: { parts: readonly EpicPart[]; journey: JourneyView }) {
+function Narrowed({
+  parts,
+  journey,
+  canFile,
+}: {
+  parts: readonly EpicPart[]
+  journey: JourneyView
+  /**
+   * Whether this journey's own record has parts to file a step under. The
+   * parts in the sentence are the host's; they are this record's groups
+   * unless the host is answering from somewhere else, and a press that opened
+   * a box with no part in it would be an offer this page cannot keep.
+   */
+  canFile: boolean
+}) {
   const said = narrowing(parts, journey.steps)
   if (!said) return null
-  const { lead, rest } = narrowedSaid(said)
+  const { lead, rest, file } = narrowedSaid(said)
   return (
     <p
       data-narrowed={said.shown}
       className="mb-3 rounded-md border border-l-2 border-l-primary bg-card px-3 py-2 text-[0.85rem] leading-6 text-muted-foreground"
     >
       <b className="text-foreground">{lead}</b> {rest}
+      {file && canFile && (
+        <>
+          {' '}
+          <span className="text-foreground">{file}</span>{' '}
+          <Button
+            type="button"
+            variant="outline"
+            size="container"
+            data-file="open"
+            className="align-baseline text-foreground"
+            onClick={() => {
+              setArranging(true)
+              document.querySelector('[data-parts]')?.scrollIntoView({ block: 'nearest' })
+            }}
+          >
+            file them under parts
+          </Button>
+        </>
+      )}
     </p>
   )
 }
@@ -253,6 +302,8 @@ function Journey({
   journey,
   live,
   editing,
+  adding,
+  arranging,
   selection,
   parts,
   framed,
@@ -260,6 +311,8 @@ function Journey({
   journey: JourneyView
   live: Live | null
   editing: number
+  adding: boolean
+  arranging: boolean
   selection: readonly string[]
   parts: readonly EpicPart[]
   framed: boolean
@@ -268,6 +321,12 @@ function Journey({
      the pair of presses above them and the list itself. Two filters would be
      a "pick every step" that picked steps nobody can see. */
   const shown = journey.plan === 'stored' ? shownSteps(parts, journey.steps) : []
+  /* The journey's own parts, read off the record this app's store answered
+     with — not `parts` above, which is the host's later reading of the same
+     record and is there only when a host is. What a step is FILED under is
+     this app's material; what is PICKED is the host's. */
+  const own = partsIn(arrangeable(journey))
+  const narrowed = parts.some((part) => part.picked)
   const meta = [
     journey.umbrella ? `umbrella ${journey.umbrella}` : '',
     journey.written ? `written ${journey.written}` : '',
@@ -289,11 +348,21 @@ function Journey({
       )}
 
       <Rubric>The journey</Rubric>
-      {journey.plan === 'stored' && <Narrowed parts={parts} journey={journey} />}
+      {journey.plan === 'stored' && <Narrowed parts={parts} journey={journey} canFile={own.length > 0} />}
+      <Parts journey={journey} open={arranging} live={live} selection={selection} framed={framed} />
       {framed && journey.plan === 'stored' && shown.length > 0 && (
         <Picking shown={shown} live={live} selection={selection} />
       )}
-      <Plan journey={journey} shown={shown} editing={editing} selection={selection} framed={framed} />
+      <Plan
+        journey={journey}
+        shown={shown}
+        editing={editing}
+        adding={adding}
+        narrowed={narrowed}
+        selection={selection}
+        framed={framed}
+        parts={own}
+      />
     </article>
   )
 }
@@ -386,15 +455,24 @@ function Plan({
   journey,
   shown,
   editing,
+  adding,
+  narrowed,
   selection,
   framed,
+  parts,
 }: {
   journey: JourneyView
   /** The steps to draw, each with its own position in the journey. See `focus.ts`. */
   shown: readonly Shown[]
   editing: number
+  /** The editor for a step that is not written yet is open. */
+  adding: boolean
+  /** The host says some parts are picked, so not every step is drawn. */
+  narrowed: boolean
   selection: readonly string[]
   framed: boolean
+  /** The journey's own parts, for each step's chooser. Empty for a journey with none. */
+  parts: readonly JourneyPart[]
 }) {
   if (journey.plan === 'elsewhere' && journey.stepsFrom) {
     const from = journey.stepsFrom
@@ -417,10 +495,13 @@ function Plan({
 
   if (journey.plan === 'none') {
     return (
-      <p className="text-[0.95rem] leading-7 text-muted-foreground italic">
-        No steps have been written for this journey yet. Nothing is hidden and nothing is elsewhere — there simply are
-        none.
-      </p>
+      <>
+        <p className="text-[0.95rem] leading-7 text-muted-foreground italic">
+          No steps have been written for this journey yet. Nothing is hidden and nothing is elsewhere — there simply
+          are none.
+        </p>
+        <Adding at={1} open={adding} first />
+      </>
     )
   }
 
@@ -447,8 +528,42 @@ function Plan({
           editing={editing === index}
           selection={selection}
           framed={framed}
+          parts={parts}
+          inPart={parts.length ? partOfStep(arrangeable(journey), step) : null}
         />
       ))}
+      {/* Not under a focus. A step written here is in no part, and under a
+          focus that is a step that vanishes the moment it is saved — kept, and
+          counted in the line above, but a strange answer to "add a step". */}
+      {!narrowed && <Adding at={journey.steps.length + 1} open={adding} />}
     </>
+  )
+}
+
+/**
+ * The step that is not written yet: a press, and then the same editor every
+ * step has.
+ *
+ * A journey with no steps used to say so and stop. Its first step could be
+ * written through the MCP door and from nowhere on this page, because the
+ * editor hung off a step's own "edit" and there was no step to hang it off.
+ * The store has always taken a position one past the end as "append"; this is
+ * the editor pointed there, over an empty step.
+ */
+function Adding({ at, open, first = false }: { at: number; open: boolean; first?: boolean }) {
+  return (
+    <section data-adding={at} className={first ? 'mt-2' : 'mt-1 border-t pt-2.5'}>
+      <Button
+        type="button"
+        variant={first ? 'outline' : 'ghost'}
+        size="container"
+        className={first ? undefined : 'text-muted-foreground'}
+        aria-expanded={open}
+        onClick={() => setAdding(!open)}
+      >
+        {open ? 'close' : first ? 'write the first step' : 'add a step'}
+      </Button>
+      {open && <Editor step={{ title: '', body: '', refs: [], notes: [] }} position={at} />}
+    </section>
   )
 }

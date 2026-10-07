@@ -115,7 +115,13 @@ async function framed(more: Record<string, unknown> = {}) {
 const drawn = () => [...document.querySelectorAll('[data-step]')].map((el) => el.getAttribute('data-step'))
 
 describe('the page under a focus', () => {
-  const divided = { ...JOURNEY, steps: STEPS } as unknown as typeof JOURNEY
+  /* The record's own groups are what the host reads the parts from, so a
+     journey that is divided has both: the groups here, the parts on the wire. */
+  const divided = {
+    ...JOURNEY,
+    steps: STEPS,
+    groups: PARTS.map((one) => ({ heading: one.heading, refs: [] })),
+  } as unknown as typeof JOURNEY
 
   test('with nothing picked it is the page it always was', async () => {
     store.journey = divided
@@ -146,8 +152,15 @@ describe('the page under a focus', () => {
     expect(said).toContain('host’s bar')
     /* Nothing is fetched for it: the steps were already here. */
     expect(store.asked.slice(before)).toEqual([])
-    /* And there is no way on this page to widen it again. */
-    expect(document.querySelector('[data-narrowed] button')).toBeNull()
+    /* And there is no way on this page to widen it again. The one press the
+       sentence carries opens where steps are filed under parts, and pressing
+       it draws no step that was not drawn. */
+    const presses = [...document.querySelectorAll('[data-narrowed] button')]
+    expect(presses.map((one) => one.textContent)).toEqual(['file them under parts'])
+    fireEvent.click(presses[0] as Element)
+    expect(drawn()).toEqual(['1', '5'])
+    expect(document.querySelector('[data-parts="open"]')).not.toBeNull()
+    fireEvent.click([...document.querySelectorAll('[data-parts="open"] button')].find((b) => b.textContent === 'close') as Element)
 
     context({ parts: PARTS })
     await settle()

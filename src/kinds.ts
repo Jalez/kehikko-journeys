@@ -5,8 +5,8 @@ import type { TrackerMissing, TrackerRow, TrackerSource } from 'kehikot-module-p
  *
  * Written down here rather than imported from `store.ts`, which reads
  * directories and cannot be loaded into a browser. They are deliberately loose
- * about everything the page does not draw: `quizzes`, `vocabulary`, `owners`
- * and `groups` are other apps' material, carried through the store untouched,
+ * about everything the page does not draw: `quizzes`, `vocabulary` and `owners`
+ * are other apps' material, carried through the store untouched,
  * and a type here that enumerated them would be this file claiming an opinion
  * about documents it never renders.
  */
@@ -19,9 +19,22 @@ export interface Step {
   /**
    * The id of the part this step was assigned to, when it says one. Read with
    * the protocol's `stepPart`, never compared raw: anything that is not an id
-   * is no assignment. This page shows by it and does not set it.
+   * is no assignment. Set from this page through `/api/assign`, never by
+   * the step editor, which leaves it as it is.
    */
   part?: string
+}
+
+/**
+ * A heading and the references under it, which a host reads as a PART of the
+ * epic. `id` is there when somebody has written one; the id a group answers
+ * to is otherwise derived, and is asked of the protocol's `partsOf` rather
+ * than read off this.
+ */
+export interface Group {
+  heading: string
+  refs: string[]
+  id?: string
 }
 
 export interface StepsFrom {
@@ -41,6 +54,8 @@ export interface JourneyView {
   repo?: string
   callout: string
   steps: Step[]
+  /** The journey's parts, as stored. Absent from a server older than parts. */
+  groups?: Group[]
   stepsFrom?: StepsFrom
   blockedBy: Record<string, string[]>
   /** Decision issues no commit will close, answered by these changes instead. Read as `done` once they merge. */

@@ -1,4 +1,5 @@
 import { Fragment } from 'react'
+import type { JourneyPart } from 'kehikot-module-protocol'
 import { sift } from 'kehikot-module-protocol/facets'
 
 import { Badge } from '@/components/ui/badge.tsx'
@@ -7,11 +8,12 @@ import { Button } from '@/components/ui/button.tsx'
 import { cn } from '@/lib/utils.ts'
 
 import { cardsUnder, facetsOfRef, stateOf, standing, toneOf, type Standing, type Tone } from '../live/lookup.ts'
-import { pick, setEditing, setFolds, toggleFold } from '../journeys.ts'
+import { assignSteps, pick, setEditing, setFolds, toggleFold } from '../journeys.ts'
 import type { Live, Step } from '../kinds.ts'
 import { pickedState } from '../refs.ts'
 import { Card } from './card.tsx'
 import { Editor } from './editor.tsx'
+import { PartChooser } from './parts.tsx'
 import { Prose } from './prose.tsx'
 import { aroundOf, useReading } from './reading.tsx'
 
@@ -112,9 +114,19 @@ export function StepBlock({
   editing,
   selection,
   framed,
+  parts = [],
+  inPart = null,
 }: {
   step: Step
   index: number
+  /**
+   * The journey's own parts. Empty for a journey that is not divided into
+   * any, and then no chooser is drawn: a control offering "in no part" and
+   * nothing else is a control about a thing this journey does not have.
+   */
+  parts?: readonly JourneyPart[]
+  /** The id of the part this step is in, or null: it says none, or names one that is gone. */
+  inPart?: string | null
   editing: boolean
   /** What the canvas has picked out, as the host last said. Empty standalone. */
   selection: readonly string[]
@@ -224,6 +236,17 @@ export function StepBlock({
           >
             {where.undecided.length} to decide
           </Badge>
+        )}
+        {/* Which part the step is in, said and changed in one control. It
+            files this one step and nothing else about it; several at once
+            are filed from the parts box above the journey. */}
+        {parts.length > 0 && (
+          <PartChooser
+            parts={parts}
+            value={inPart}
+            label={`The part step ${index + 1} is in`}
+            onChoose={(part) => void assignSteps([index + 1], part)}
+          />
         )}
         {/* Editing is this app's, not the host's: the steps are here. It is
             offered whenever the plan is stored, framed or not. */}
