@@ -35,18 +35,28 @@ export const PREFERRED_PORT = 7840
  * tab to give the page, and which ONE question the app would like to be allowed
  * to ask if there is anybody there to ask.
  *
- * ## Why the list of capabilities is six words long, and what each means
+ * ## Why the list of capabilities is seven words long, and what each means
  *
  * Every other module extracted from Kehikot declares `epics:read` and
  * `steps:read`, because the epics are somebody else's and they need to be
- * handed them. This one declares neither, and the absence is the whole claim of
- * the extraction. What it does declare is one read that only a host can answer
- * and four asks that only a host can carry:
+ * handed them. This one never declared either, and for `steps:read` the
+ * absence is still the whole claim of the extraction. What it does declare is
+ * two reads that only a host can answer and the asks that only a host can
+ * carry:
  *
- * - **`epics:read` — not declared.** This app HOLDS the journeys. Asking a host
- *   which epics exist would be asking somebody else to answer a question about
- *   our own store, and the two answers would then have to be reconciled on
- *   screen by a reader who never asked for two.
+ * - **`epics:read` — declared, for one press, and it used not to be.** This
+ *   app HOLDS the journeys, and it still never asks a host which epics exist
+ *   or draws anything from one: the two answers would have to be reconciled on
+ *   screen by a reader who never asked for two. What changed is who owns what.
+ *   The owner decided that this app owns an epic's steps, groups and prose and
+ *   a host owns its slug, its title and whether it exists; a host now reads
+ *   the steps out of this app's record and falls back to its own file only
+ *   where there is none. So the FIRST record for an epic cannot be made empty
+ *   — it would replace everything the host had been answering with. When a
+ *   person begins a journey for an epic this app has no record of, the page
+ *   asks `epic.get` once and that answer becomes the record. From a press, and
+ *   from nothing else. Refused, the app reads the host's file itself, as its
+ *   MCP door has to; see `hostEpic` in `store.ts`.
  * - **`steps:read` — not declared**, for the same reason and more sharply: the
  *   steps are the thing this app is for. A journeys app that read its steps
  *   over a bridge would be a viewer, and a viewer is precisely what the
@@ -66,9 +76,12 @@ export const PREFERRED_PORT = 7840
  *   is genuinely somebody else's — the host holds the credentials, reads GitHub
  *   and GitLab once into one shared reading, and hands every module the same
  *   rows. Four apps each polling a tracker is four times the rate limit spent
- *   on one answer and four snapshots disagreeing on one screen. The host does
- *   not read `journeys.json`, so this app names its refs in the call
- *   (`tracker.get({ refs })`). It replaced `live:read`, whose `live.get`
+ *   on one answer and four snapshots disagreeing on one screen. This app
+ *   names its refs in the call (`tracker.get({ refs })`), and still does now
+ *   that a host reads `journeys.json` for an epic's steps: what a journey
+ *   draws is more than the refs a host counts as the epic's — what blocks
+ *   what, what settles what, what is merely watched — and the page is the one
+ *   that knows which of them it is about to draw. It replaced `live:read`, whose `live.get`
  *   answered for Kehikot's epic and was only as fresh as the last reload.
  *   Without it the page still draws every journey, every step and every
  *   reference; the cards say, in words, that their state cannot be seen from
@@ -238,9 +251,16 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * was declared and done, a step an agent wrote was on disk and not on the
    * page until somebody reloaded the window.
    *
+   * `parts`, because a person pointing the canvas at some of the epic's parts
+   * moves this page: only the steps that say they are in a picked part are
+   * drawn, and the page says which parts those are and how many steps are
+   * outside them. See `src/focus.ts` for the rule and for why a step with no
+   * part is outside every focus. With nothing picked the page is exactly what
+   * it was. It sets nothing: the picking is the host's own control.
+   *
    * Not `passage`. Nothing here reads one.
    */
-  reacts: ['selection', 'dispositions', 'tracker', 'content'],
+  reacts: ['selection', 'dispositions', 'tracker', 'content', 'parts'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     /**
@@ -257,8 +277,21 @@ export const MANIFEST: Manifest = manifestSchema.parse({
      * telling the host that a journey it keeps has changed, so the host can
      * tell every container on that epic. Sent once a step saved on the page
      * has been kept — see `report` in `src/journeys.ts`.
+     *
+     * `epics:read` is the one that was pointedly absent, and it is here for
+     * one question asked once: what the host holds for an epic, at the moment
+     * a person begins a journey for it. The essay at the top of this file has
+     * the argument. Nothing is drawn from it.
      */
-    uses: ['trackers:read', 'trackers:refresh', 'selection:set', 'filters:set', 'disposition:set', 'content:report'],
+    uses: [
+      'trackers:read',
+      'trackers:refresh',
+      'selection:set',
+      'filters:set',
+      'disposition:set',
+      'content:report',
+      'epics:read',
+    ],
     storage: true,
   },
   health: '/healthz',

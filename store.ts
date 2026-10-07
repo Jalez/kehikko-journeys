@@ -2,7 +2,18 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileS
 import { isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 
-import { KEHIKOT_DIR, moduleDir, moduleFile, within } from 'kehikot-module-protocol'
+import {
+  KEHIKOT_DIR,
+  journeyGroupSchema,
+  journeyRecordSchema,
+  journeyStepSchema,
+  journeysDocumentSchema,
+  moduleDir,
+  moduleFile,
+  stepsFromSchema as recordStepsFromSchema,
+  stepsOf,
+  within,
+} from 'kehikot-module-protocol'
 
 import { ID } from './manifest.ts'
 
@@ -24,9 +35,34 @@ import { ID } from './manifest.ts'
  * it is written down here rather than smoothed over: **the journeys, their
  * slugs, titles, ledes, callouts, steps, ordering, what blocks what and what
  * settles what are this app's, and the frame keeps discovery, the grants, the
- * credentialed tracker reading, and the reference list.** Somebody has to
- * decide which of the two documents is right; nothing here decides it, and
- * nothing here pretends the question was not asked.
+ * credentialed tracker reading, and the reference list.**
+ *
+ * For a long time that paragraph ended by saying somebody had to decide which
+ * of the two documents was right, and that nothing here decided it. It was
+ * true, and it had a cost that showed up exactly where it was bound to: the
+ * host kept a file per epic as well, nothing kept the two in step, and in one
+ * real project they came apart — nine steps in the host's copy and twelve in
+ * this one — with every answer correct about the copy it happened to read.
+ *
+ * **It has been decided, by the owner, and this is the decision:**
+ *
+ * - **This app owns the steps, the groups (which a host reads as an epic's
+ *   parts) and the prose around them.**
+ * - **A host owns the epic's slug, its title, and whether it exists.**
+ * - A host reads the steps and the groups out of THIS file, and falls back to
+ *   the file it keeps itself only when a project has no record under that
+ *   slug.
+ *
+ * Three things in this file follow from it, and none of them is optional any
+ * more. The shape of a record is no longer this app's private business: a
+ * host reads it, so it is written down in `kehikot-module-protocol`
+ * (`journey.ts`) and the schemas below are BUILT ON that one rather than
+ * restated beside it. Nothing this app does not understand may be dropped on
+ * a save, because the other reader's fields are in the same file; see
+ * `writeJourney`. And a record that does not exist yet has to be made from
+ * what the host holds rather than from nothing, because the moment a record
+ * exists the host stops reading its own — an empty one would hide every step
+ * the host had; see `createJourney`.
  *
  * The reason it is arguable at all is the reason gh#131 exists. A journeys
  * panel that read its own steps over a bridge would not have left; it would be
@@ -39,23 +75,38 @@ import { ID } from './manifest.ts'
  *
  * ## The schema
  *
- * Copied from Kehikot's own epic schema rather than imported, and the copy
- * is the point rather than a shortcut: this app is a separate repository with a
- * separate release, and an app that reached into a host's internals would stop
- * building the day that host reorganised a file. The copy is faithful — a
- * journey written by Kehikot parses here, and one written here parses there
- * — with exactly one addition, `stepsFrom`, which has a section of its own
- * below. The one thing that must not drift is the SLUG: the host's `epic` and
- * this file's `slug` are the same name for the same thing, and a journey whose
- * slug matches no epic simply never gets pointed at.
+ * It used to be copied from Kehikot's own epic schema rather than imported,
+ * and the copy was defended here as the point: an app that reached into a
+ * host's internals would stop building the day that host reorganised a file.
+ * That argument is still right about a host's INTERNALS. It stopped covering
+ * this schema the day a host began reading this file, because a format two
+ * programs read and each spell for themselves is two formats with a delay.
  *
- * ## What is carried but not drawn
+ * So the part a host reads — slug, title, lede, steps, groups, `stepsFrom`,
+ * the lists it counts — is the protocol package's `journeyRecordSchema`, and
+ * what is written below is that schema EXTENDED with what is this app's alone:
+ * the callout, what blocks what, what settles what, the order of work. The
+ * SLUG is the protocol's `EPIC_SLUG` for the same reason it always was: the
+ * host's `epic` and this file's `slug` are one name for one thing, and a
+ * journey whose slug matches no epic simply never gets pointed at.
  *
- * `quizzes` and `vocabulary` are the Learning app's material, and `owners` and
- * `groups` are the ownership table's. They are kept in the schema and written
- * back untouched, because a store that silently dropped a field on the first
- * edit would destroy somebody's work to make a point about boundaries. This app
- * simply does not render them.
+ * ## What is carried but not drawn, and what is carried without being known
+ *
+ * `quizzes` and `vocabulary` are the Learning app's material and `owners` is
+ * the ownership table's. They are in the schema and written back untouched.
+ * `groups` used to be on that list and no longer is: a host reads a group as a
+ * PART of the epic, a step may say which part it is in (`part`), and a group
+ * may carry the `id` that names it.
+ *
+ * And every object here is `.passthrough()`, at every level. That is not
+ * politeness. These schemas were plain `z.object` once, which STRIPS what it
+ * does not name, and `writeJourney` rebuilt the whole document from what it
+ * had parsed — so the first save of any step, by anybody, would have deleted
+ * `part` from every step and `id` from every group in the project, and every
+ * field a newer version of anything had added, in journeys nobody had opened.
+ * A store that silently dropped a field on the first edit would destroy
+ * somebody's work to make a point about boundaries; a store that drops fields
+ * it has never heard of does the same thing without even the point.
  */
 
 /* ------------------------------------------------------------------ *
@@ -347,14 +398,15 @@ const ref = z.string().min(1)
  * over prose the store is about to refuse.
  */
 
-export const stepSchema = z.object({
-  title: z.string().min(1),
-  body: z.string().default(''),
-  /** Issues and changes that deliver this step. */
-  refs: z.array(ref).default([]),
-  /** Free-text chips for work with no ticket ("ingest already built"). */
-  notes: z.array(z.string()).default([]),
-})
+/**
+ * One step: the protocol's, as it is.
+ *
+ * `title`, `body`, `refs`, `notes`, and `part` — the id of the part the step
+ * was assigned to, optional, and read with `stepPart` rather than trusted.
+ * Passthrough, so a field this version has never heard of is still on the step
+ * when it is written back.
+ */
+export const stepSchema = journeyStepSchema
 
 /**
  * Where a journey's steps come from, when they do not come from here.
@@ -388,15 +440,12 @@ export const stepSchema = z.object({
  * paper beside them projects a different set, which another reader may be the
  * one seeing. Two answers on one screen is bad; two answers on two screens with
  * neither saying so is worse.
+ *
+ * The shape is the protocol's now, because a host reads this field too: it is
+ * what stops a host answering `steps.list` with "none" for an epic whose steps
+ * are a paper's sections.
  */
-export const stepsFromSchema = z.object({
-  /** What does the projecting. `paper` is the only one that exists today. */
-  projector: z.string().min(1),
-  /** Where the source is, as a person would go and look at it. */
-  where: z.string().min(1),
-  /** Said on screen, in this journey's own words. */
-  why: z.string().default(''),
-})
+export const stepsFromSchema = recordStepsFromSchema
 
 export const quizSchema = z
   .object({
@@ -412,6 +461,7 @@ export const quizSchema = z
         srcEnd: z.number().int().min(0),
         quote: z.string().min(1),
       })
+      .passthrough()
       .optional(),
   })
   /* Carried, not rendered: quizzes are the Learning app's. Held loosely on
@@ -421,35 +471,30 @@ export const quizSchema = z
      about. */
   .passthrough()
 
-export const journeySchema = z.object({
-  slug: z.string().regex(SLUG, 'lowercase, digits and dashes only'),
-  title: z.string().min(1),
-  /** The one-line answer to "what is this page about". */
-  lede: z.string().default(''),
-  /** The tracking issue that stands for the journey, e.g. "#2151". */
-  umbrella: z.string().optional(),
+/**
+ * One journey: the record a host reads, and what is this app's alone beside it.
+ *
+ * `journeyRecordSchema` brings `slug`, `title`, `lede`, `project`, `umbrella`,
+ * `steps`, `stepsFrom`, `groups`, `exists` and `open`, each with the default
+ * and the looseness the protocol's essay argues for. Everything below is added
+ * to it. `extend` keeps the passthrough, and every object added here asks for
+ * it again by name — a nested `z.object` strips on its own account whatever
+ * its parent does.
+ */
+export const journeySchema = journeyRecordSchema.extend({
   /** Shown under the title; the date the narrative was last thought through. */
   written: z.string().optional(),
   /** Short label for the tab. Falls back to the title. */
   tab: z.string().optional(),
-  /** The product this journey belongs to, as a person would name it. */
-  project: z.string().optional(),
   /** Leading callout, rendered above the journey. */
   callout: z.string().default(''),
-  steps: z.array(stepSchema).default([]),
-  /** See `stepsFromSchema`. Absent means the steps here are the steps. */
-  stepsFrom: stepsFromSchema.optional(),
-  /** Bulleted "what already exists, so we don't rebuild it". */
-  exists: z.array(z.string()).default([]),
   /** The red callout: what is assumed but not built. */
   missing: z.string().default(''),
   order: z
-    .array(z.object({ when: z.string().min(1), what: z.string().min(1), why: z.string().default('') }))
+    .array(z.object({ when: z.string().min(1), what: z.string().min(1), why: z.string().default('') }).passthrough())
     .default([]),
-  /** Bulleted "still open" questions. */
-  open: z.array(z.string()).default([]),
   quizzes: z.array(quizSchema).default([]),
-  vocabulary: z.array(z.object({ term: z.string().min(1), means: z.string().min(1) })).default([]),
+  vocabulary: z.array(z.object({ term: z.string().min(1), means: z.string().min(1) }).passthrough()).default([]),
   /** ref -> what must land first. Values may be gates outside every tracker. */
   blockedBy: z.record(z.string(), z.array(ref)).default({}),
   /** Decision issues no commit will close, answered by these changes instead. */
@@ -458,9 +503,13 @@ export const journeySchema = z.object({
   containers: z.array(ref).default([]),
   people: z.array(z.string()).default([]),
   owners: z
-    .record(z.string(), z.object({ maker: z.string().optional(), reviewer: z.string().optional() }))
+    .record(z.string(), z.object({ maker: z.string().optional(), reviewer: z.string().optional() }).passthrough())
     .default({}),
-  groups: z.array(z.object({ heading: z.string(), refs: z.array(ref) })).default([]),
+  /**
+   * A heading and the references under it, which a host reads as a PART of the
+   * epic. `id`, when it is written, is what a step's `part` names.
+   */
+  groups: z.array(journeyGroupSchema).default([]),
   /** Extra refs to track that the narrative never mentions. */
   watch: z.array(ref).default([]),
   /** The GitHub repo a bare `gh#41` belongs to. */
@@ -470,9 +519,10 @@ export const journeySchema = z.object({
       development: z.string().min(1).default('development'),
       prod: z.string().min(1).default('prod'),
     })
+    .passthrough()
     .nullable()
     .optional(),
-  board: z.object({ org: z.string(), number: z.number().int() }).optional(),
+  board: z.object({ org: z.string(), number: z.number().int() }).passthrough().optional(),
 })
 
 export type Journey = z.infer<typeof journeySchema>
@@ -512,9 +562,13 @@ export type StepsFrom = z.infer<typeof stepsFromSchema>
  * opened rather than refused, because refusing would leave somebody unable to
  * read their own journeys with the older program they happen to have running,
  * and every field this version knows about is still where it was.
+ *
+ * The protocol's `journeysDocumentSchema`, with this app's fuller record in
+ * place of the one a host reads. Passthrough like everything under it: a key
+ * beside `version` and `journeys` that this version has never heard of is
+ * somebody's, and `writeJourney` writes it back.
  */
-const documentSchema = z.object({
-  version: z.number().int().min(1).default(1),
+const documentSchema = journeysDocumentSchema.extend({
   journeys: z.record(z.string(), journeySchema).default({}),
 })
 
@@ -602,13 +656,29 @@ export interface Held {
 }
 
 export function held(projectPath: string | null | undefined): Held {
+  return read(projectPath).held
+}
+
+/**
+ * The file read ONCE, two ways: what this app understands of it, and what is
+ * actually in it.
+ *
+ * `held` is the first and is what every reader gets. `raw` is the second —
+ * the document exactly as `JSON.parse` returned it, null when there is no file
+ * yet or none that could be read — and it exists for `writeJourney` alone,
+ * which writes the one record it was handed into THAT and not into a document
+ * rebuilt from the parse. Both come from one `readFileSync`, because two reads
+ * of one file are two different files if anything writes between them.
+ */
+function read(projectPath: string | null | undefined): { held: Held; raw: Record<string, unknown> | null } {
   const { path, trouble } = dataFile(projectPath)
-  if (trouble) return { journeys: {}, from: null, nowhere: false, trouble }
-  if (path === null) return { journeys: {}, from: null, nowhere: true, trouble: null }
-  if (!existsSync(path)) return { journeys: {}, from: path, nowhere: false, trouble: null }
+  if (trouble) return { held: { journeys: {}, from: null, nowhere: false, trouble }, raw: null }
+  if (path === null) return { held: { journeys: {}, from: null, nowhere: true, trouble: null }, raw: null }
+  if (!existsSync(path)) return { held: { journeys: {}, from: path, nowhere: false, trouble: null }, raw: null }
 
   try {
-    const parsed = documentSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
+    const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
+    const parsed = documentSchema.parse(raw)
     /* A key that is not a slug is dropped rather than refused, and this is the
        one place in the read that shrugs. A hand-edited file with a stray key is
        not a corrupt store, and taking a whole project's journeys away over one
@@ -618,16 +688,20 @@ export function held(projectPath: string | null | undefined): Held {
     for (const [slug, journey] of Object.entries(parsed.journeys)) {
       if (isSlug(slug)) journeys[slug] = journey
     }
-    return { journeys, from: path, nowhere: false, trouble: null }
+    /* `documentSchema` has just accepted it, so it is an object. */
+    return { held: { journeys, from: path, nowhere: false, trouble: null }, raw: raw as Record<string, unknown> }
   } catch (e) {
     return {
-      journeys: {},
-      from: path,
-      nowhere: false,
-      trouble:
-        `${path} could not be read (${e instanceof Error ? (e.message.split('\n')[0] ?? '') : String(e)}), so no `
-        + 'journey is being shown and nothing will be written over it. Every step and every sentence in that file is '
-        + 'recoverable: fix or move it.',
+      held: {
+        journeys: {},
+        from: path,
+        nowhere: false,
+        trouble:
+          `${path} could not be read (${e instanceof Error ? (e.message.split('\n')[0] ?? '') : String(e)}), so no `
+          + 'journey is being shown and nothing will be written over it. Every step and every sentence in that file is '
+          + 'recoverable: fix or move it.',
+      },
+      raw: null,
     }
   }
 }
@@ -678,7 +752,8 @@ export const NOWHERE =
 export type Written = { ok: true; journey: Journey } | { ok: false; error: string }
 
 /**
- * Put one journey into this project's document, whole.
+ * Put one journey into this project's document, whole — and touch nothing
+ * else in it.
  *
  * Re-reads immediately before it writes, deliberately. The caller is holding a
  * `Held` from a moment ago and the document has thirteen other journeys in it;
@@ -688,11 +763,38 @@ export type Written = { ok: true; journey: Journey } | { ok: false; error: strin
  * Refuses on `nowhere` and on `trouble` rather than writing. Writing into
  * nowhere is the failure this whole file was rearranged to prevent; writing
  * over a file that would not parse is the one that destroys something.
+ *
+ * ## One record goes in. Everything else is the bytes that were there.
+ *
+ * This used to build `{ version: 1, journeys: { ...everything parsed } }` and
+ * write that. It read as careful and it was the opposite: every OTHER journey
+ * in the file was written back as this version's parse of it, so a save to one
+ * step rewrote thirteen journeys nobody had touched — filling in defaults they
+ * had never carried, and, while the schemas still stripped, deleting every
+ * field this version did not name. A host reads this file now. Its fields and
+ * a newer writer's fields are in it beside this app's.
+ *
+ * So the record being saved is placed into the document AS IT WAS READ OFF
+ * THE DISK, key by key: the other journeys are not re-serialised from a parse
+ * but carried as the JSON they were, a key that is not a slug is still there
+ * afterwards, and so is anything beside `version` and `journeys`. The record
+ * that IS being saved is written as this version parses it — its defaults
+ * filled in, with whatever the schema does not name still on it, because the
+ * schema passes it through — and with its keys in the order the file had them
+ * rather than the schema's; see `inTheOrderOf`.
+ *
+ * A save of an unchanged journey therefore changes nothing in the file: not a
+ * value, and for a file this app wrote, not a byte. A record that was missing
+ * a default gains it, at the end. `test/round-trip.test.ts` holds it to that.
+ *
+ * The result is checked once more before it is written. It cannot fail — the
+ * document parsed a moment ago and the record has just parsed — and a write
+ * path is where "cannot" is worth one more line.
  */
 export function writeJourney(projectPath: string | null | undefined, journey: Journey): Written {
   const parsed = journeySchema.parse(journey)
 
-  const store = held(projectPath)
+  const { held: store, raw } = read(projectPath)
   if (store.nowhere) return { ok: false, error: NOWHERE }
   if (store.trouble) return { ok: false, error: `nothing was written. ${store.trouble}` }
 
@@ -707,9 +809,269 @@ export function writeJourney(projectPath: string | null | undefined, journey: Jo
   if (trouble) return { ok: false, error: `nothing was written. ${trouble}` }
   if (path === null) return { ok: false, error: NOWHERE }
 
-  const document: Document = { version: 1, journeys: { ...store.journeys, [parsed.slug]: parsed } }
-  writeFileSync(path, `${JSON.stringify(documentSchema.parse(document), null, 2)}\n`)
+  const before = raw ?? {}
+  const others =
+    before.journeys && typeof before.journeys === 'object' && !Array.isArray(before.journeys)
+      ? (before.journeys as Record<string, unknown>)
+      : {}
+  /* Whatever the file holds, in the file's order: the record keeps its place
+     among its neighbours, and a new one goes at the end. `version` is written
+     into a document this call is CREATING and into no other. One real file
+     has none — it is read as 1, loosely, like everything about that field —
+     and a save that added the key would be this app editing a line of a
+     document nobody asked it to touch. */
+  const record = inTheOrderOf(others[parsed.slug], parsed)
+  const document = { ...(raw === null ? { version: 1 } : {}), ...before, journeys: { ...others, [parsed.slug]: record } }
+  documentSchema.parse(document)
+  writeFileSync(path, `${JSON.stringify(document, null, 2)}\n`)
   return { ok: true, journey: parsed }
+}
+
+/**
+ * `now`, with its keys in the order `was` had them, all the way down.
+ *
+ * A parse hands a record back with its keys in the SCHEMA's order, and the
+ * schema's order is an accident of how this file happens to be written: the
+ * day the schemas were rebuilt on the protocol's, `project` and `groups`
+ * moved ahead of `written` and `callout` in every parsed record. Written out
+ * like that, the first save of a step would have shown up in somebody's
+ * `git diff` as five fields of their journey moving past each other — a
+ * hundred-line change for a one-word edit, in a hand-written document with
+ * their name on the commit.
+ *
+ * So the file's order wins. Keys the record already had stay where they were,
+ * keys it has gained go after them, and nothing about a VALUE is touched:
+ * this arranges, it does not merge. Lists are walked by position, which is
+ * right for the common case and harmless for the other — a step inserted in
+ * the middle borrows the key order of the step that used to be there, and
+ * every step in a file has the same one.
+ */
+function inTheOrderOf(was: unknown, now: unknown): unknown {
+  if (Array.isArray(now)) {
+    const before = Array.isArray(was) ? was : []
+    return now.map((one, i) => inTheOrderOf(before[i], one))
+  }
+  if (!now || typeof now !== 'object') return now
+  const before = was && typeof was === 'object' && !Array.isArray(was) ? (was as Record<string, unknown>) : {}
+  const given = now as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(before)) {
+    if (Object.hasOwn(given, key)) out[key] = inTheOrderOf(before[key], given[key])
+  }
+  for (const key of Object.keys(given)) {
+    if (!Object.hasOwn(out, key)) out[key] = inTheOrderOf(undefined, given[key])
+  }
+  return out
+}
+
+/* ------------------------------------------------------------------ *
+ * Beginning a journey for an epic that has none
+ * ------------------------------------------------------------------ */
+
+/**
+ * Where a host keeps its own file for an epic: `kehikko`, and `roadmap` from
+ * before the host was renamed, which it still reads where the new folder is
+ * not there.
+ *
+ * These two words are a host's, spelled in a module, and that is exactly the
+ * thing the protocol's `journey.ts` argues against — so it is said plainly
+ * rather than tucked away. They are read by `hostEpic` below and by nothing
+ * else, once, at the moment a record is first made. If the protocol package
+ * comes to name the host's folder, this is the line that becomes an import.
+ */
+const HOST_FOLDERS = ['kehikko', 'roadmap'] as const
+
+export type HostEpic =
+  /** No host has a file for that epic in this project, in either place a host keeps one. */
+  | { found: 'none'; looked: string[] }
+  /** There is a file and it could not be read as one JSON object. */
+  | { found: 'unreadable'; path: string }
+  | { found: 'epic'; path: string; epic: Record<string, unknown> }
+
+/**
+ * The host's own file for one epic, read once, for a handover.
+ *
+ * ## The one read this app makes of somebody else's file, and why it is allowed
+ *
+ * Everything else in this file confines itself to `.kehikot/journeys/`. This
+ * reads `.kehikot/kehikko/epics/<slug>.json`, which is a host's, and it does
+ * so for one purpose: `createJourney`, when there is no host to ASK.
+ *
+ * The page has one. Framed, it asks `epic.get` and hands the answer over, and
+ * that is the better source — it is the host's own word about what it holds,
+ * wherever the host keeps it. The MCP door has no host. An agent names a
+ * project path and a slug and that is all there is. The three things that door
+ * could do instead of this were each worse:
+ *
+ *  - **Make an empty record.** The moment a record exists the host reads IT
+ *    and stops reading its own file. Nine steps somebody wrote would vanish
+ *    from every module on the canvas, replaced by a journey with none, with
+ *    the file that still holds them sitting untouched on disk and nothing
+ *    reading it. That is the failure this whole change exists to end, caused
+ *    by the tool that was meant to end it.
+ *  - **Refuse, and send the agent to the page.** An agent cannot press a
+ *    button, and "create a journey" is the first thing one is asked to do in a
+ *    project that has epics and no journeys.
+ *  - **Take the steps as arguments.** Then the agent reads the host's file
+ *    itself and retypes it, which is this read done by a program that has
+ *    never seen the schema.
+ *
+ * So the handover reads what is being handed over. It is read-only, it
+ * happens once per journey, the path is fenced the way every path here is —
+ * resolved, and refused if it lands outside the project — and nothing is ever
+ * written there: the host's file stays exactly as it was, and stays the
+ * host's fallback for any project where this record is later removed.
+ */
+export function hostEpic(projectPath: string | null | undefined, slug: string): HostEpic {
+  const root = projectRoot(projectPath)
+  if (root === null || 'trouble' in root || !isSlug(slug)) return { found: 'none', looked: [] }
+  const looked: string[] = []
+  for (const folder of HOST_FOLDERS) {
+    const path = join(root.path, KEHIKOT_DIR, folder, 'epics', `${slug}.json`)
+    looked.push(path)
+    if (!existsSync(path)) continue
+    /* A link out of the project is not followed, for the reason `dataFile`
+       gives: followed, it is another project's epic under this one's name. */
+    if (escapes(root.path, path)) return { found: 'unreadable', path }
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { found: 'unreadable', path }
+      return { found: 'epic', path, epic: parsed as Record<string, unknown> }
+    } catch {
+      return { found: 'unreadable', path }
+    }
+  }
+  return { found: 'none', looked }
+}
+
+export type Begun =
+  | {
+      ok: true
+      journey: Journey
+      /**
+       * What the first record was made from: the host's answer to `epic.get`,
+       * handed over by the page; the host's own file, read here; or nothing,
+       * because no host holds that epic in this project.
+       */
+      from: 'host-answer' | 'host-file' | 'nothing'
+      /** The host's file, when that is what was read. */
+      file: string | null
+    }
+  | { ok: false; error: string }
+
+/**
+ * Make the first record for an epic: this app taking over its steps.
+ *
+ * ## Why this is not "add an empty journey"
+ *
+ * A host reads an epic's steps and groups from this app's record and falls
+ * back to its own file only when there is no record. So making a record is
+ * not adding something beside what the host holds — it REPLACES what the host
+ * answers with, for every module, from that moment. The first record therefore
+ * has to be what the host held: its steps, its groups, its prose, everything
+ * in its file, so that the handover changes whose the steps are and nothing
+ * about what they say.
+ *
+ * `seed` is that, when the caller has it: the page asks the host `epic.get`
+ * and passes the answer. Without one the host's own file is read; see
+ * `hostEpic` for why that is allowed and what else was considered. With
+ * neither — no host holds this epic here at all — a record is made from a
+ * title and nothing else, and the caller is told so, because a journey whose
+ * slug matches no epic is one no canvas will ever point at.
+ *
+ * ## What it refuses, and each refusal writes nothing
+ *
+ *  - A slug that is not one; no project; a file that will not parse.
+ *  - **A journey that is already there.** Never overwritten: that record is a
+ *    document somebody has been editing, and "create" is not a way to reset it.
+ *  - **A host epic that does not read as a journey** — a step with no title, a
+ *    `refs` that is not a list. Refused rather than repaired or skipped,
+ *    because either would make a record that hides part of what the host
+ *    holds; the sentence names the field so that somebody can fix the file.
+ *  - No host epic and no title.
+ *
+ * ## The slug is the one asked for, and the title is the host's
+ *
+ * The record is filed under `slug` and says `slug`, whatever the seed called
+ * itself: the key is the name, and the protocol's `journeyIn` hands nobody a
+ * record that disagrees with its key. The title is the seed's when it has one
+ * — a host owns an epic's title — then the caller's, then the slug, which is
+ * what a host itself falls back to for an epic with no title.
+ */
+export function createJourney(
+  projectPath: string | null | undefined,
+  slug: string,
+  given: { seed?: unknown; title?: string } = {},
+): Begun {
+  if (!isSlug(slug)) return { ok: false, error: 'that is not a journey name' }
+
+  const store = held(projectPath)
+  if (store.nowhere) return { ok: false, error: NOWHERE }
+  if (store.trouble) return { ok: false, error: `nothing was written. ${store.trouble}` }
+  if (journeyIn(store, slug)) {
+    return {
+      ok: false,
+      error:
+        `this project already holds a journey called "${slug}", and nothing was changed. Creating one is not a way `
+        + 'to reset it: read it, and change the step that is wrong.',
+    }
+  }
+
+  let seed: Record<string, unknown> = {}
+  let from: 'host-answer' | 'host-file' | 'nothing' = 'nothing'
+  let file: string | null = null
+  if (given.seed !== undefined && given.seed !== null) {
+    if (typeof given.seed !== 'object' || Array.isArray(given.seed)) {
+      return { ok: false, error: `what the host answered for "${slug}" is not an epic, so nothing was created.` }
+    }
+    seed = given.seed as Record<string, unknown>
+    from = 'host-answer'
+  } else {
+    const host = hostEpic(projectPath, slug)
+    if (host.found === 'unreadable') {
+      return {
+        ok: false,
+        error:
+          `${host.path} is the host’s file for "${slug}" and it could not be read as JSON, so nothing was created. `
+          + 'A journey made without it would hide whatever steps that file holds: once this app keeps a record for '
+          + 'an epic, a host reads the record and not its own file. Fix the file, then create the journey.',
+      }
+    }
+    if (host.found === 'epic') {
+      seed = host.epic
+      from = 'host-file'
+      file = host.path
+    }
+  }
+
+  const said = typeof seed.title === 'string' && seed.title.trim() ? seed.title.trim() : ''
+  const title = said || (given.title ?? '').trim()
+  if (!title && from === 'nothing') {
+    return {
+      ok: false,
+      error:
+        `no host holds an epic called "${slug}" in this project, so there is nothing to begin this journey from. `
+        + 'Give a `title` to make one that stands on its own — or make the epic in the host first, so that a '
+        + 'canvas has something to point at it.',
+    }
+  }
+
+  const parsed = journeySchema.safeParse({ ...seed, slug, title: title || slug })
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    const where = issue?.path.length ? issue.path.join('.') : 'the epic'
+    return {
+      ok: false,
+      error:
+        `what the host holds for "${slug}" does not read as a journey (${where}: ${issue?.message ?? 'malformed'}), `
+        + 'so nothing was created. It is refused rather than repaired: a record made from part of it would hide the '
+        + `rest, because a host reads this app’s record in place of its own file. Fix ${file ?? 'the epic'} and try again.`,
+    }
+  }
+
+  const written = writeJourney(projectPath, parsed.data)
+  if (!written.ok) return written
+  return { ok: true, journey: written.journey, from, file }
 }
 
 /* ------------------------------------------------------------------ *
@@ -734,11 +1096,11 @@ export type Plan =
  * this app exists to not have.
  */
 export function planOf(journey: Journey): Plan {
-  if (journey.steps.length) {
-    return { kind: 'stored', steps: journey.steps, alsoProjected: journey.stepsFrom ?? null }
-  }
-  if (journey.stepsFrom) return { kind: 'elsewhere', from: journey.stepsFrom }
-  return { kind: 'none' }
+  /* The protocol's `stepsOf`, and not three lines of this app's own. A host
+     asks the same question of the same record, and "is this journey's empty
+     array none or elsewhere" answered by two functions is the bug this one was
+     written to prevent, waiting for the day one of them is edited. */
+  return stepsOf(journey)
 }
 
 /**

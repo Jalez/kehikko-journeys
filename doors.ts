@@ -6,6 +6,7 @@ import {
   type Held,
   type Journey,
   NOWHERE,
+  createJourney,
   dataFile,
   held,
   isSlug,
@@ -92,6 +93,18 @@ const MAX_NOTE = 200
 const MAX_LIST = 200
 /** As long as a path may be, matching the protocol's own `LIMITS.PATH`. */
 const MAX_PROJECT = 4096
+/**
+ * How much of an epic a page may hand over as the first record of a journey.
+ *
+ * Every other bound here is on one string. This one is on a whole document —
+ * what a host answered `epic.get` with, passed on by the page to become the
+ * record — and it has to be a document, because the record must be everything
+ * the host held or it hides the difference. So it is bounded as one: by its
+ * length as JSON. The longest journey this app ships is under sixty thousand
+ * characters; this is several of those, and well inside what the adapter in
+ * `vite.config.ts` will read at all.
+ */
+const MAX_SEED = 400_000
 
 function str(value: unknown, max: number): string {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value).slice(0, max)
@@ -241,6 +254,17 @@ function brief(journey: Journey) {
  * kept here because the reason is unchanged: anything left out is gone, and
  * anything stale kept is a claim being made afresh. The editor on the page
  * therefore fills every box from what is stored before anybody types.
+ *
+ * ## "Whole" means the four things this door takes
+ *
+ * A title, a body, refs and notes: those are what a caller can say here, so
+ * those are what a caller is taken to have said, and each replaces what was
+ * stored. A step may carry more than that — `part`, the id of the part it was
+ * assigned to, and whatever a newer writer added — and this door has no
+ * argument for any of it. What a caller could not have said, a caller has not
+ * unsaid: those fields stay on the step. The other reading, where correcting
+ * a typo in a title quietly took the step out of its part, is the first save
+ * deleting somebody's work again, one step at a time.
  */
 function setStep(
   project: string | null,
@@ -255,7 +279,17 @@ function setStep(
   if (nothing) return { ok: false, error: nothing }
 
   const journey = journeyIn(store, slug)
-  if (!journey) return { ok: false, error: `no journey "${slug}" here` }
+  if (!journey) {
+    /* It used to stop at the first clause, and there was then nothing a
+       caller could do next: no door made a journey. There is one now, and a
+       refusal that does not name it sends an agent to edit the file by hand. */
+    return {
+      ok: false,
+      error:
+        `no journey "${slug}" here. A step is written into a journey, and this project has none under that name `
+        + 'yet: begin one with `create_journey`, which starts it from what the host holds for that epic.',
+    }
+  }
 
   /* The refusal that has to say where to write instead. A tool that says only
      "no" leaves somebody with a decision they cannot record anywhere, and the
@@ -267,7 +301,8 @@ function setStep(
   const long = tooLong(step.body)
   if (long) return { ok: false, error: long }
 
-  const parsed = stepSchema.parse(step)
+  const before = at && at <= journey.steps.length ? journey.steps[at - 1] : undefined
+  const parsed = stepSchema.parse({ ...before, ...step })
   if (at && at <= journey.steps.length) journey.steps[at - 1] = parsed
   else journey.steps.push(parsed)
   const where = at && at <= journey.steps.length ? at : journey.steps.length
@@ -330,7 +365,7 @@ interface ToolCall {
  * What an agent can do to this store.
  *
  * These are Kehikot's own epic tools over this app's store instead of the
- * Kehikot's: list, get, `set_step` and `set_dependency`, plus `remove_step`,
+ * Kehikot's: list, get, `create_journey`, `set_step` and `set_dependency`, plus `remove_step`,
  * which is here because `set_step`'s refusal on a projected journey creates the
  * need for it — a stored step nothing reads and nothing can remove would sit in
  * the file forever.
@@ -426,6 +461,37 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
             'not "none".\n\n'
           : ''
       return preamble + JSON.stringify(journey, null, 2)
+    },
+  },
+
+  create_journey: {
+    description:
+      'Begin the journey for an epic that has none yet: the first record, from which this app owns that epic’s ' +
+      'steps, its groups (the epic’s parts) and the prose around them. It is NOT made empty. The record starts as ' +
+      'everything the host holds for that epic — this reads the host’s own file, ' +
+      '.kehikot/kehikko/epics/<slug>.json in the project, once and without changing it — because from the moment ' +
+      'a record exists a host answers from the record and not from its file, and an empty one would hide every ' +
+      'step already written. Refused, with nothing written, if the journey already exists or if that file does ' +
+      'not read as a journey. If no host holds that epic here, pass `title` to make a journey that stands on its ' +
+      'own; no canvas will point at it until an epic with that slug exists.',
+    schema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Absolute path of the project folder' },
+        slug: { type: 'string', description: 'The epic’s slug, e.g. modes-are-modules' },
+        title: {
+          type: 'string',
+          description: 'Used only when no host holds this epic. The host’s title wins when there is one.',
+        },
+      },
+      required: ['project', 'slug'],
+    },
+    run(args) {
+      const named = projectArg(args.project)
+      if ('error' in named) return named.error
+      const out = createJourney(named.project, str(args.slug, MAX_SLUG), { title: str(args.title, MAX_TITLE) })
+      if (!out.ok) return out.error
+      return begun(out, dataFile(named.project).path)
     },
   },
 
@@ -535,6 +601,39 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
       return gates.length ? `${ref} now waits on ${gates.join(', ')}.` : `${ref} has no blockers.`
     },
   },
+}
+
+/**
+ * What was made, in words, for whoever asked for it.
+ *
+ * Said the same from both doors, and it says where the record CAME FROM,
+ * because that is the thing a caller cannot see and most needs to: a journey
+ * begun from nine steps and a journey begun from none look identical in "ok".
+ */
+function begun(out: Extract<ReturnType<typeof createJourney>, { ok: true }>, where: string | null): string {
+  const plan = planOf(out.journey)
+  const steps =
+    plan.kind === 'stored'
+      ? `${plan.steps.length} ${plan.steps.length === 1 ? 'step' : 'steps'}`
+      : plan.kind === 'elsewhere'
+        ? `steps kept in ${plan.from.where}`
+        : 'no steps'
+  const parts = out.journey.groups.length
+  const held = `${steps}${parts ? ` and ${parts} ${parts === 1 ? 'group' : 'groups'}` : ''}`
+  const kept = `It is in ${where ?? 'this project'}, and its steps are edited here from now on.`
+  if (out.from === 'host-file') {
+    return (
+      `Began ${out.journey.slug} from the host’s own file, ${out.file}: ${held}, and everything else that file `
+      + `held. ${kept} That file was read and not changed; a host now answers from this record instead of it.`
+    )
+  }
+  if (out.from === 'host-answer') {
+    return `Began ${out.journey.slug} from what the host holds for that epic: ${held}. ${kept}`
+  }
+  return (
+    `Began ${out.journey.slug} with a title and nothing else: no host holds an epic by that name in this project. `
+    + `${kept} No canvas will point at it until an epic with that slug exists.`
+  )
 }
 
 /** A status and a document. Nothing here writes bytes; the adapter does that. */
@@ -724,6 +823,38 @@ export function answer(
       })
       if (!out.ok) return bad(out.error)
       return ok({ ok: true, journey: view(out.journey) })
+    }
+
+    /**
+     * Begin a journey for the epic the canvas is standing on.
+     *
+     * `seed` is what the host answered `epic.get` with, when the page was
+     * framed and was answered; absent, the host's own file is read instead.
+     * See `createJourney` for why the record is never begun empty. It arrives
+     * from a page, so it is bounded before it is looked at — as one document,
+     * by its length — and then held to the journey schema like anything else
+     * that is about to be written.
+     */
+    if (path === '/api/journey') {
+      const seed = body.seed
+      if (seed !== undefined && seed !== null) {
+        let size = MAX_SEED + 1
+        try {
+          size = JSON.stringify(seed).length
+        } catch {
+          /* Not JSON at all; refused as too large, which it effectively is. */
+        }
+        if (size > MAX_SEED) {
+          return bad(
+            `what the host holds for that epic is ${size > MAX_SEED + 1 ? `${size} characters` : 'not something'} this `
+              + `app will take in one piece (the bound is ${MAX_SEED}). Nothing was created: a record made from part `
+              + 'of it would hide the rest.',
+          )
+        }
+      }
+      const out = createJourney(project, slug, { seed, title: str(body.title, MAX_TITLE) })
+      if (!out.ok) return bad(out.error)
+      return ok({ ok: true, journey: view(out.journey), from: out.from, said: begun(out, dataFile(project).path) })
     }
 
     if (path === '/api/dependency') {

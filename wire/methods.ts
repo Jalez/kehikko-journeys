@@ -24,13 +24,17 @@ import { METHOD_NAMES } from 'kehikot-module-protocol'
  * app that runs, asks a method no host knows, and shows a refusal that blames
  * the host for this app's stale vocabulary.
  *
- * ## What is deliberately absent
+ * ## What is deliberately absent, and the one thing that no longer is
  *
- * There is no `LIST_EPICS` and no `GET_EPIC` here, and that is the whole claim
- * of this module rather than an oversight: this app holds its own journeys and
- * reads them off its own store over `/api`. Asking a host which epics exist
- * would put a second answer to that question on the same screen. See the
- * manifest for the long version.
+ * There is no `LIST_EPICS` and no `LIST_STEPS` here, and that is the whole
+ * claim of this module rather than an oversight: this app holds its own
+ * journeys and reads them off its own store over `/api`. Asking a host which
+ * epics exist, or what an epic's steps are, would put a second answer to that
+ * question on the same screen.
+ *
+ * `GET_EPIC` used to be on that list. It is below now, and it is asked at
+ * exactly one moment: when a person begins a journey for an epic this app has
+ * no record of. See its own note, and the manifest for the long version.
  */
 
 /**
@@ -57,6 +61,18 @@ function required(what: string, candidates: readonly string[]): string {
       `it exports ${METHOD_NAMES.join(', ')}. Journeys cannot ask a question the protocol does not name.`,
   )
 }
+
+/**
+ * What the host holds for one epic, asked ONCE, to begin a journey from.
+ *
+ * Not a read this page draws from, and never asked to show anything. A host
+ * answers an epic's steps out of this app's record, and out of its own file
+ * only where there is no record — so the first record has to be what the host
+ * held, or making it hides every step the host had. This is the page asking
+ * for that, from a press, so that the handover changes whose the steps are
+ * and nothing about what they say. `createJourney` in `store.ts` has the rest.
+ */
+export const GET_EPIC = required('asking a host what it holds for an epic', ['epic.get'])
 
 /**
  * What the trackers last said about the refs this journey names, from the

@@ -1,8 +1,10 @@
 import { useEffect, useSyncExternalStore } from 'react'
+import type { EpicPart } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
 
-import { clearPick, getSnapshot, grow, pick, subscribe } from './journeys.ts'
+import { narrowedSaid, narrowing, shownSteps, type Shown } from './focus.ts'
+import { begin, clearPick, getSnapshot, grow, pick, subscribe } from './journeys.ts'
 import type { JourneyView, Live } from './kinds.ts'
 import { cardsUnder } from './live/lookup.ts'
 import { pickedState } from './refs.ts'
@@ -89,12 +91,20 @@ export function App() {
          * work as absent.
          */}
         <Nothing state={state} />
+        {/* Only for an epic the store is KNOWN not to hold, and never while
+            the file will not read: `unwritten` is set after the index was
+            read again, and a file that would not parse has no honest answer
+            to "is there a journey for this". */}
+        {state.framed && !state.journey && !state.trouble && !state.nowhere && state.unwritten === state.epic && state.epic && (
+          <Begin epic={state.epic} busy={state.beginning} />
+        )}
         {state.journey && (
           <Journey
             journey={state.journey}
             live={state.live}
             editing={state.editing}
             selection={state.selection}
+            parts={state.parts}
             framed={state.framed}
           />
         )}
@@ -159,6 +169,79 @@ function Nothing({ state }: { state: ReturnType<typeof getSnapshot> }) {
   return null
 }
 
+/**
+ * The press that begins a journey for the epic the canvas is standing on.
+ *
+ * ## Why the words are about the host's steps and not about an empty page
+ *
+ * The obvious button says "new journey" and makes an empty one. It would be
+ * the most destructive control in this app. A host answers an epic's steps out
+ * of this app's record and out of its own file only where there is none, so a
+ * record made empty takes every step the host held off every module on the
+ * canvas — and the file that still holds them is read by nothing afterwards.
+ *
+ * So the press says what it does: it brings across what the host holds. The
+ * work is `begin` in `src/journeys.ts`, which asks the host `epic.get` and
+ * hands the answer to the store. The line under the page then says how many
+ * steps came across, or the store's own sentence for why nothing was made.
+ *
+ * Disabled while it runs, because a second press would be answered "already
+ * holds a journey" — true, and a strange thing to be told about a button
+ * pressed once. Whether it is running is in the page's state with everything
+ * else, for the reason at the top of `src/journeys.ts`: the components here
+ * hold none.
+ */
+function Begin({ epic, busy }: { epic: string; busy: boolean }) {
+  return (
+    <section className="mt-3 flex min-w-0 flex-col items-start gap-1.5">
+      <p className="text-[0.82rem] leading-6 text-muted-foreground">
+        The host holds <span className="font-mono text-[0.9em] [overflow-wrap:anywhere]">{epic}</span>, and this app
+        keeps no journey for it yet. Beginning one copies what the host holds for it — its steps, its groups and its
+        prose — into this project’s journeys, and from then on the steps are edited here and the host reads them from
+        here. The host’s own file is left as it is.
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        size="container"
+        disabled={busy}
+        onClick={() => void begin()}
+      >
+        {busy ? 'beginning…' : `begin the journey for ${epic}`}
+      </Button>
+    </section>
+  )
+}
+
+/**
+ * What the canvas is narrowed to, said where the steps are about to be fewer.
+ *
+ * Drawn only when the host says some of the epic's parts are picked out. A
+ * list that is shorter than it was for a reason nobody can see is the failure
+ * parts are arranged against, so this is not a tooltip and not a badge: it is
+ * a sentence, above the steps, with both numbers in it — how many are shown
+ * and how many are outside — and how many of those are in no part at all,
+ * which is the number that explains a page showing none.
+ *
+ * It offers nothing to press. The focus is the person's and the host holds it
+ * for every module on the canvas; a "show the rest" here would be one pane
+ * quietly disagreeing with the panes beside it. It says where the picking is
+ * done instead.
+ */
+function Narrowed({ parts, journey }: { parts: readonly EpicPart[]; journey: JourneyView }) {
+  const said = narrowing(parts, journey.steps)
+  if (!said) return null
+  const { lead, rest } = narrowedSaid(said)
+  return (
+    <p
+      data-narrowed={said.shown}
+      className="mb-3 rounded-md border border-l-2 border-l-primary bg-card px-3 py-2 text-[0.85rem] leading-6 text-muted-foreground"
+    >
+      <b className="text-foreground">{lead}</b> {rest}
+    </p>
+  )
+}
+
 /** A section heading, in the muted register the page uses for its own furniture. */
 function Rubric({ children }: { children: React.ReactNode }) {
   return (
@@ -171,14 +254,20 @@ function Journey({
   live,
   editing,
   selection,
+  parts,
   framed,
 }: {
   journey: JourneyView
   live: Live | null
   editing: number
   selection: readonly string[]
+  parts: readonly EpicPart[]
   framed: boolean
 }) {
+  /* Worked out once, here, and handed to both things that act on "the steps":
+     the pair of presses above them and the list itself. Two filters would be
+     a "pick every step" that picked steps nobody can see. */
+  const shown = journey.plan === 'stored' ? shownSteps(parts, journey.steps) : []
   const meta = [
     journey.umbrella ? `umbrella ${journey.umbrella}` : '',
     journey.written ? `written ${journey.written}` : '',
@@ -200,10 +289,11 @@ function Journey({
       )}
 
       <Rubric>The journey</Rubric>
-      {framed && journey.plan === 'stored' && journey.steps.length > 0 && (
-        <Picking journey={journey} live={live} selection={selection} />
+      {journey.plan === 'stored' && <Narrowed parts={parts} journey={journey} />}
+      {framed && journey.plan === 'stored' && shown.length > 0 && (
+        <Picking shown={shown} live={live} selection={selection} />
       )}
-      <Plan journey={journey} editing={editing} selection={selection} framed={framed} />
+      <Plan journey={journey} shown={shown} editing={editing} selection={selection} framed={framed} />
     </article>
   )
 }
@@ -231,11 +321,12 @@ function Journey({
  * app's to pick; `Plan` explains that at length and this stays out of its way.
  */
 function Picking({
-  journey,
+  shown,
   live,
   selection,
 }: {
-  journey: JourneyView
+  /** The steps on the page: every step, or the ones in the picked parts. */
+  shown: readonly Shown[]
   live: Live | null
   selection: readonly string[]
 }) {
@@ -244,7 +335,7 @@ function Picking({
      changes a tracker attaches to an issue are cards, are picked by the step's
      tick, and are in no `refs` array — a press here that sent less than the
      ticks would leave every such step drawn as partly picked. */
-  const named = [...new Set(journey.steps.flatMap((step) => cardsUnder(live, step.refs ?? []).map((c) => c.ref)))]
+  const named = [...new Set(shown.flatMap(({ step }) => cardsUnder(live, step.refs ?? []).map((c) => c.ref)))]
   const all = pickedState(selection, named) === 'all'
   return (
     <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8rem] text-muted-foreground">
@@ -293,11 +384,14 @@ function Picking({
  */
 function Plan({
   journey,
+  shown,
   editing,
   selection,
   framed,
 }: {
   journey: JourneyView
+  /** The steps to draw, each with its own position in the journey. See `focus.ts`. */
+  shown: readonly Shown[]
   editing: number
   selection: readonly string[]
   framed: boolean
@@ -342,8 +436,18 @@ function Plan({
           </p>
         </div>
       )}
-      {journey.steps.map((step, i) => (
-        <StepBlock key={i} step={step} index={i} editing={editing === i} selection={selection} framed={framed} />
+      {/* By the step's own position, shown or not: narrowing must not
+          renumber a step, re-key its editor or move what `kehikot.goto` calls
+          step seven. */}
+      {shown.map(({ step, index }) => (
+        <StepBlock
+          key={index}
+          step={step}
+          index={index}
+          editing={editing === index}
+          selection={selection}
+          framed={framed}
+        />
       ))}
     </>
   )
