@@ -35,6 +35,8 @@ export interface Group {
   heading: string
   refs: string[]
   id?: string
+  /** The files of the epic's paper this part owns, relative to the paper's folder. Absent means none. */
+  files?: string[]
 }
 
 export interface StepsFrom {

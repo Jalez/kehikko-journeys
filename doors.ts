@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 
 import { tooLong } from './limits.ts'
 import { ID, MANIFEST, VERSION } from './manifest.ts'
-import { assign, notAPart, partsIn, pinned, removalSaid, unassigned, withPart, withoutPart } from './parts.ts'
+import { FILE_EXAMPLE, assign, filesSaid, notAPart, partsIn, pinned, removalSaid, unassigned, withPart, withoutPart } from './parts.ts'
 import {
   type Held,
   type Journey,
@@ -445,19 +445,22 @@ function assignSteps(project: string | null, slug: string, at: number[], part: s
 function setPart(
   project: string | null,
   slug: string,
-  given: { id: string | null; heading: string; refs?: string[] },
+  given: { id: string | null; heading: string; refs?: string[]; files?: unknown },
 ): Arranged & { id?: string } {
   let id: string | undefined
   const out = arrange(project, slug, (journey) => {
     const made = withPart(journey, given)
     if (!made.ok) return made
     id = made.id
-    const said = made.created
+    const about = made.created
       ? `Made the part “${made.heading}”, with the id ${made.id}. No step is in it yet: file steps under that id.`
       : made.was !== null && made.was !== made.heading
         ? `“${made.was}” is now called “${made.heading}”. Its id is still ${made.id}, so every step in it stays in `
           + 'it and a focus on it still holds.'
         : `Kept “${made.heading}” (${made.id}).`
+    /* Said only when the call was about files: a rename that mentioned none
+       answers in the words it always did. */
+    const said = made.files === null ? about : `${about} ${filesSaid(made.record, made.id)}`
     return { ok: true, record: made.record, said }
   })
   return out.ok ? { ...out, id } : out
@@ -487,13 +490,21 @@ function partsSaid(journey: Journey): string {
   if (!parts.length) return ''
   const lines = parts.map((part) => {
     const at = journey.steps.flatMap((step, i) => (step.part === part.id ? [i + 1] : []))
-    return `  ${part.id}\t“${part.heading}”\t${count(part.refs.length, 'ref')}\t${at.length ? `steps ${at.join(', ')}` : 'no steps'}`
+    /* The files come last and only when there are some, so the four columns
+       an agent already reads are the four they were. */
+    const files = part.files?.length ? `\tfiles ${part.files.join(', ')}` : ''
+    return `  ${part.id}\t“${part.heading}”\t${count(part.refs.length, 'ref')}\t${at.length ? `steps ${at.join(', ')}` : 'no steps'}${files}`
   })
+  const owning = parts.some((part) => part.files?.length)
   const loose = unassigned(journey).map((i) => i + 1)
   return (
     'PARTS: this journey is divided into the parts below. A step is in a part because its `part` names that '
     + 'part’s id, and a step in none is hidden from anybody whose canvas is focused on a part. File steps with '
-    + '`assign_steps` (or `part` on `set_step`); make, reword and remove parts with `set_part` and `remove_part`.\n'
+    + '`assign_steps` (or `part` on `set_step`); make, reword and remove parts with `set_part` and `remove_part`. '
+    + (owning
+      ? `A part’s files are the files of this epic’s paper it owns, each named from the paper’s folder `
+        + `(.kehikot/paper/${journey.slug}/); set them with \`files\` on \`set_part\`.\n`
+      : `No part names a file of the paper yet; \`files\` on \`set_part\` gives it some (e.g. ${FILE_EXAMPLE}).\n`)
     + `${lines.join('\n')}\n`
     + (loose.length
       ? `  IN NO PART: ${count(loose.length, 'step')} of ${journey.steps.length} — ${loose.join(', ')}\n`
@@ -792,8 +803,14 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
       'that steps are filed under; a host shows the parts beside the epic so a person can narrow every module ' +
       'to some of them. Omit `id` to make a new part with this heading — the answer says the id it was given. ' +
       'Pass `id` to reword an existing part: its id does not change, so the steps in it stay in it. `refs`, ' +
-      'when given, replaces the references listed under the heading; omitted, they are left alone. Refused if ' +
-      'another part already has that heading.',
+      'when given, replaces the references listed under the heading; omitted, they are left alone. `files`, ' +
+      'when given, replaces the files of the epic’s paper this part owns — the module that shows the paper then ' +
+      'shows only those files and their pages while the part is picked. Each is a path relative to the paper’s ' +
+      `folder (<project>/.kehikot/paper/<slug>/), with forward slashes and its extension: "${FILE_EXAMPLE}", not ` +
+      '"chapters/design" and not an absolute path. Omitted, the files are left alone; an empty list takes them ' +
+      'all away. A name that is not in that form refuses the whole call and nothing is written. Whether the file ' +
+      'exists is not checked here: this app cannot read the paper. With `id`, `heading` may be left out to keep ' +
+      'the heading as it is. Refused if another part already has that heading.',
     schema: {
       type: 'object',
       properties: {
@@ -806,8 +823,15 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
           items: { type: 'string' },
           description: 'References listed under the heading. Omit to leave them as they are.',
         },
+        files: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            `Files of the paper this part owns, relative to the paper’s folder, e.g. ["${FILE_EXAMPLE}"]. Omit to ` +
+            'leave them as they are; [] removes them.',
+        },
       },
-      required: ['project', 'slug', 'heading'],
+      required: ['project', 'slug'],
     },
     run(args) {
       const named = projectArg(args.project)
@@ -816,6 +840,10 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
         id: str(args.id, MAX_PART) || null,
         heading: str(args.heading, MAX_TITLE),
         ...(Array.isArray(args.refs) ? { refs: list(args.refs, MAX_REF) } : {}),
+        /* Handed on as it arrived, and not through `list`: that helper drops
+           what it cannot read, and a file that is not one has to be REFUSED
+           by name (`filesGiven`). Null is "not given", as JSON says it. */
+        ...(args.files === undefined || args.files === null ? {} : { files: args.files }),
       })
       return out.ok ? out.said : out.error
     },
@@ -1125,6 +1153,10 @@ export function answer(
         id: str(body.id, MAX_PART) || null,
         heading: str(body.heading, MAX_TITLE),
         ...(Array.isArray(body.refs) ? { refs: list(body.refs, MAX_REF) } : {}),
+        /* Handed on as it arrived, and not through `list`: that helper drops
+           what it cannot read, and a file that is not one has to be REFUSED
+           by name (`filesGiven`). Null is "not given", as JSON says it. */
+        ...(body.files === undefined || body.files === null ? {} : { files: body.files }),
       })
       if (!out.ok) return bad(out.error, out.status)
       return ok({ ok: true, journey: view(out.journey), said: out.said, id: out.id })

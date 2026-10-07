@@ -591,6 +591,19 @@ export function savePart(id: string | null, heading: string): Promise<boolean> {
   return arranged('/api/part', { ...(id === null ? {} : { id }), heading })
 }
 
+/**
+ * Say which files of the epic's paper a part owns: the whole list, as the part
+ * should hold it after this. `[]` takes them all away.
+ *
+ * The heading is deliberately not sent. The store keeps a part's heading when
+ * a write names the part and says none, so this cannot reword anything — and
+ * a refusal (a name that is not a file's) comes back as the store's own
+ * sentence, through `arranged`, with the list on the page as it was.
+ */
+export function savePartFiles(id: string, files: readonly string[]): Promise<boolean> {
+  return arranged('/api/part', { id, files: [...files] })
+}
+
 /** Take a part out. Its steps stay and become unassigned; see `withoutPart`. */
 export function removePart(id: string): Promise<boolean> {
   return arranged('/api/part/remove', { id })

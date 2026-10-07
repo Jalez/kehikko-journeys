@@ -271,6 +271,82 @@ describe('the parts themselves, from the page', () => {
   })
 })
 
+describe('the files a part owns, from the page', () => {
+  const owning = {
+    ...divided,
+    groups: [GROUPS[0], { ...GROUPS[1], files: ['chapters/page.tex'] }],
+  } as unknown as typeof JOURNEY
+
+  test('are shown back on the row, and counted, without opening anything', async () => {
+    store.journey = owning
+    await framed()
+    fireEvent.click(button('2 parts'))
+    const row = box().querySelector('[data-part="what-the-page-shows"]') as HTMLElement
+    expect(row.textContent).toContain('1 step · 1 reference · 1 file')
+    expect(row.querySelector('[data-files]')?.textContent).toBe('owns chapters/page.tex')
+    /* A part with none says nothing about files on its row. */
+    const none = box().querySelector('[data-part="the-agent-seam"]') as HTMLElement
+    expect(none.textContent).toContain('0 steps · 2 references')
+    expect(none.textContent).not.toContain(' file')
+    expect(none.querySelector('[data-files]')).toBeNull()
+  })
+
+  test('the editor says the form with an example, and adding sends the whole list and no heading', async () => {
+    store.journey = owning
+    await framed()
+    fireEvent.click(button('2 parts'))
+    const row = () => box().querySelector('[data-part="what-the-page-shows"]') as HTMLElement
+    fireEvent.click(button('files', row()))
+    const editor = () => row().querySelector('[data-files-of]') as HTMLElement
+    expect(editor().textContent).toContain('named from the paper’s folder, with its extension — for example chapters/design.tex')
+    expect(editor().textContent).toContain('This app cannot read the paper')
+    fireEvent.change(editor().querySelector('input') as Element, { target: { value: './chapters/more.tex' } })
+    fireEvent.submit(editor().querySelector('form') as Element)
+    await settle()
+    expect(store.arranged).toEqual([
+      expect.objectContaining({ path: '/api/part', body: expect.objectContaining({ id: 'what-the-page-shows', files: ['chapters/page.tex', './chapters/more.tex'] }) }),
+    ])
+    expect(Object.hasOwn(store.arranged[0]!.body, 'heading')).toBe(false)
+    /* What the store kept is what is shown: tidied, and the box is cleared. */
+    expect([...editor().querySelectorAll('li code')].map((one) => one.textContent)).toEqual(['chapters/page.tex', 'chapters/more.tex'])
+    expect((editor().querySelector('input') as HTMLInputElement).value).toBe('')
+    expect(row().textContent).toContain('2 files')
+  })
+
+  test('a name that is not a file’s is refused in words, and stays in the box to be corrected', async () => {
+    store.journey = owning
+    await framed()
+    fireEvent.click(button('2 parts'))
+    const row = () => box().querySelector('[data-part="what-the-page-shows"]') as HTMLElement
+    fireEvent.click(button('files', row()))
+    const editor = () => row().querySelector('[data-files-of]') as HTMLElement
+    fireEvent.change(editor().querySelector('input') as Element, { target: { value: '../other/main.tex' } })
+    fireEvent.submit(editor().querySelector('form') as Element)
+    await settle()
+    /* Beside the box, in the store's own words, and nothing was sent. */
+    expect(editor().querySelector('[role="alert"]')?.textContent).toContain('"../other/main.tex" is not a name a part can hold for a file')
+    expect(store.arranged).toEqual([])
+    expect((editor().querySelector('input') as HTMLInputElement).value).toBe('../other/main.tex')
+    expect([...editor().querySelectorAll('li code')].map((one) => one.textContent)).toEqual(['chapters/page.tex'])
+    /* Correcting it takes the sentence down. */
+    fireEvent.change(editor().querySelector('input') as Element, { target: { value: 'other/main.tex' } })
+    expect(editor().querySelector('[role="alert"]')).toBeNull()
+  })
+
+  test('taking the last one out sends an empty list, and the row says nothing about files again', async () => {
+    store.journey = owning
+    await framed()
+    fireEvent.click(button('2 parts'))
+    const row = () => box().querySelector('[data-part="what-the-page-shows"]') as HTMLElement
+    fireEvent.click(button('files', row()))
+    fireEvent.click(button('take out', row()))
+    await settle()
+    expect(store.arranged.at(-1)?.body).toMatchObject({ id: 'what-the-page-shows', files: [] })
+    expect(row().textContent).toContain('This part owns no file yet.')
+    expect(row().textContent).not.toContain('1 file')
+  })
+})
+
 describe('a journey with no steps', () => {
   test('can be given its first from the page', async () => {
     store.journey = { ...JOURNEY, plan: 'none', steps: [] } as unknown as typeof JOURNEY

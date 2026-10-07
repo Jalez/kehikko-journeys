@@ -3,12 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterAll, describe, expect, test } from 'bun:test'
-import { KEHIKOT_DIR, moduleFolder, partIdsOf, partsOf, stepPart } from 'kehikot-module-protocol'
+import { KEHIKOT_DIR, LIMITS, moduleFolder, partIdsOf, partsOf, stepPart } from 'kehikot-module-protocol'
 
 import { answer, writeTicketFor } from '../doors.ts'
 import { ID } from '../manifest.ts'
 import {
   assign,
+  filesGiven,
+  filesSaid,
   holding,
   notAPart,
   pinned,
@@ -289,6 +291,106 @@ describe('the parts themselves', () => {
   })
 })
 
+describe('the files a part owns', () => {
+  test('are kept in the protocol’s form, once each, and only what cannot change the file is tidied', () => {
+    expect(filesGiven([' chapters/design.tex ', './chapters/protocol.tex', 'chapters/design.tex', 'main.tex'])).toEqual({
+      ok: true,
+      files: ['chapters/design.tex', 'chapters/protocol.tex', 'main.tex'],
+    })
+    expect(filesGiven([])).toEqual({ ok: true, files: [] })
+  })
+
+  test('one name that is not a file’s refuses the whole list, and is named', () => {
+    for (const bad of ['../other/main.tex', '/Users/somebody/paper/main.tex', 'chapters\\design.tex', 'a//b.tex', 'C:paper.tex', '   ']) {
+      const out = filesGiven(['chapters/design.tex', bad])
+      expect(out.ok).toBe(false)
+      if (!out.ok) {
+        expect(out.error).toContain(`"${bad}" is not a name a part can hold for a file`)
+        expect(out.error).toContain('chapters/design.tex')
+        expect(out.error).toContain('Nothing was changed.')
+      }
+    }
+    const notText = filesGiven(['chapters/design.tex', 42])
+    expect(!notText.ok && notText.error).toContain('42 is not a name')
+    const notAList = filesGiven('chapters/design.tex')
+    expect(!notAList.ok && notAList.error).toContain('are a list of names')
+  })
+
+  test('more than a host will send is refused, not cut', () => {
+    const many = Array.from({ length: LIMITS.PART_FILES + 1 }, (_, i) => `chapters/${i}.tex`)
+    const out = filesGiven(many)
+    expect(!out.ok && out.error).toContain(`at most ${LIMITS.PART_FILES} files, and that was ${LIMITS.PART_FILES + 1}`)
+    expect(filesGiven(many.slice(1)).ok).toBe(true)
+    /* The same name thirty-three times is one file. */
+    expect(filesGiven(many.map(() => 'main.tex'))).toEqual({ ok: true, files: ['main.tex'] })
+  })
+
+  test('a list replaces, an empty list takes the key away, and absent leaves them alone', () => {
+    const before = awkward()
+    const given = withPart(before, { id: 'later', files: ['./chapters/later.tex'] })
+    if (!given.ok) throw new Error(given.error)
+    expect(given.record.groups[1]).toEqual({ heading: 'Later', refs: ['gh#3'], id: 'later', files: ['chapters/later.tex'] })
+    expect(given.files).toEqual(['chapters/later.tex'])
+    expect(partsOf(given.record)[1]?.files).toEqual(['chapters/later.tex'])
+    /* Nothing else a reader sees moved, and no other group was given the key. */
+    expect(seen(given.record)).toEqual(seen(before))
+    expect(given.record.groups.filter((group) => 'files' in group)).toHaveLength(1)
+
+    /* Absent: a rewording says nothing about files. */
+    const reworded = withPart(given.record, { id: 'later', heading: 'Afterwards' })
+    if (!reworded.ok) throw new Error(reworded.error)
+    expect(reworded.record.groups[1]).toMatchObject({ heading: 'Afterwards', files: ['chapters/later.tex'] })
+    expect(reworded.files).toBeNull()
+
+    const replaced = withPart(reworded.record, { id: 'later', files: ['main.tex', 'chapters/b.tex'] })
+    if (!replaced.ok) throw new Error(replaced.error)
+    expect(replaced.record.groups[1]?.files).toEqual(['main.tex', 'chapters/b.tex'])
+    /* And the heading it had is the heading it has: files are not a rewording. */
+    expect(replaced.record.groups[1]?.heading).toBe('Afterwards')
+
+    const emptied = withPart(replaced.record, { id: 'later', files: [] })
+    if (!emptied.ok) throw new Error(emptied.error)
+    expect(Object.hasOwn(emptied.record.groups[1]!, 'files')).toBe(false)
+    expect('files' in partsOf(emptied.record)[1]!).toBe(false)
+  })
+
+  test('a refused file changes nothing, and a new part can be made with its files', () => {
+    const before = awkward()
+    const refused = withPart(before, { id: 'later', heading: 'Reworded as well', files: ['ok.tex', '../no.tex'] })
+    expect(refused.ok).toBe(false)
+    const made = withPart(before, { heading: 'The design', files: ['chapters/design.tex'] })
+    if (!made.ok) throw new Error(made.error)
+    expect(made.record.groups.at(-1)).toEqual({ heading: 'The design', refs: [], files: ['chapters/design.tex'], id: 'the-design' })
+    /* A heading left out is only allowed for a part that already has one. */
+    expect(withPart(before, { files: ['a.tex'] }).ok).toBe(false)
+  })
+
+  test('a group with no heading of its own keeps none when only its files are set', () => {
+    const out = withPart(awkward(), { id: 'part-3', files: ['a.tex'] })
+    if (!out.ok) throw new Error(out.error)
+    expect(out.record.groups[2]).toEqual({ heading: '', refs: ['gh#4'], id: 'part-3', files: ['a.tex'] })
+    expect(partIdsOf(out.record.groups)).toEqual(partIdsOf(awkward().groups))
+  })
+
+  test('what is said afterwards names the files, a file two parts own, and a name with no extension', () => {
+    const record = {
+      steps: [],
+      groups: [
+        { heading: 'The design', refs: [], files: ['chapters/design.tex', 'chapters/shared.tex'] },
+        { heading: 'The protocol', refs: [], files: ['chapters/shared.tex', 'chapters/protocol'] },
+        { heading: 'Empty', refs: [] },
+      ],
+    }
+    expect(filesSaid(record, 'the-design')).toBe(
+      'It owns 2 files of the paper, named from the paper’s folder: chapters/design.tex, chapters/shared.tex. '
+        + 'chapters/shared.tex is also owned by “The protocol”: a file may be in more than one part, and is shown when '
+        + 'any of them is picked.',
+    )
+    expect(filesSaid(record, 'the-protocol')).toContain('chapters/protocol has no extension.')
+    expect(filesSaid(record, 'empty')).toBe('It owns no file of the paper.')
+  })
+})
+
 /* ------------------------------------------------------------------ *
  * The doors
  * ------------------------------------------------------------------ */
@@ -508,6 +610,87 @@ describe('set_part and remove_part', () => {
     const gone = post('/api/part/remove', { slug: 'divided', id: 'later' })?.body as { said: string; journey: { groups: unknown[] } }
     expect(gone.said).toContain('No step is in it; it lists no references. No step is deleted.')
     expect(gone.journey.groups).toHaveLength(2)
+  })
+})
+
+describe('a part’s files, through both doors', () => {
+  test('set_part writes the tidied names onto the group and says them back', () => {
+    const { on, call } = project()
+    expect(call('set_part', { slug: 'divided', id: 'the-agent-seam', files: ['./chapters/seam.tex', ' chapters/agents.tex '] })).toBe(
+      'Kept “The agent seam” (the-agent-seam). It owns 2 files of the paper, named from the paper’s folder: '
+        + 'chapters/seam.tex, chapters/agents.tex.',
+    )
+    expect(on().groups[0]).toEqual({ heading: 'The agent seam', refs: ['gh#1', 'gh#2'], id: 'the-agent-seam', files: ['chapters/seam.tex', 'chapters/agents.tex'] })
+    /* The other group, and what it carries that this app does not name, untouched. */
+    expect(on().groups[1]).toEqual({ heading: 'What the page shows', refs: ['gh#3'], colour: 'teal' })
+  })
+
+  test('absent leaves them, a rename leaves them, and an empty list removes the key', () => {
+    const { on, call } = project()
+    call('set_part', { slug: 'divided', id: 'the-agent-seam', files: ['chapters/seam.tex'] })
+    call('set_part', { slug: 'divided', id: 'the-agent-seam', heading: 'The seam', refs: ['gh#1'] })
+    expect(on().groups[0]).toMatchObject({ heading: 'The seam', refs: ['gh#1'], files: ['chapters/seam.tex'] })
+    expect(call('set_part', { slug: 'divided', id: 'the-agent-seam', files: [] })).toBe('Kept “The seam” (the-agent-seam). It owns no file of the paper.')
+    expect(Object.hasOwn(on().groups[0]!, 'files')).toBe(false)
+  })
+
+  test('a name that is not a file’s is refused by name, and the file is as it was', () => {
+    const { file, call, post } = project()
+    const before = readFileSync(file, 'utf8')
+    const said = call('set_part', { slug: 'divided', id: 'the-agent-seam', files: ['chapters/seam.tex', '../../etc/passwd'] })
+    expect(said).toContain('"../../etc/passwd" is not a name a part can hold for a file')
+    expect(call('set_part', { slug: 'divided', id: 'the-agent-seam', files: 'chapters/seam.tex' })).toContain('are a list of names')
+    const refused = post('/api/part', { slug: 'divided', id: 'the-agent-seam', files: ['/abs/olute.tex'] })
+    expect(refused?.status).toBe(400)
+    expect((refused?.body as { error: string }).error).toContain('"/abs/olute.tex" is not a name')
+    const many = Array.from({ length: LIMITS.PART_FILES + 1 }, (_, i) => `c/${i}.tex`)
+    expect(call('set_part', { slug: 'divided', id: 'the-agent-seam', files: many })).toContain(`at most ${LIMITS.PART_FILES} files`)
+    expect(readFileSync(file, 'utf8')).toBe(before)
+  })
+
+  test('the page’s door takes the list without a heading and answers with what was kept', () => {
+    const { on, post } = project()
+    const reply = post('/api/part', { slug: 'divided', id: 'what-the-page-shows', files: ['./chapters/page.tex'] })
+    expect(reply?.status).toBe(200)
+    const body = reply?.body as { said: string; journey: { groups: { files?: string[]; heading: string }[] } }
+    expect(body.journey.groups[1]).toMatchObject({ heading: 'What the page shows', files: ['chapters/page.tex'] })
+    expect(body.said).toContain('chapters/page.tex')
+    expect(on().groups[1]).toEqual({ heading: 'What the page shows', refs: ['gh#3'], colour: 'teal', id: 'what-the-page-shows', files: ['chapters/page.tex'] })
+    /* `null` is JSON's "not given", and leaves them. */
+    post('/api/part', { slug: 'divided', id: 'what-the-page-shows', heading: 'Seen', files: null })
+    expect(on().groups[1]).toMatchObject({ heading: 'Seen', files: ['chapters/page.tex'] })
+  })
+
+  test('a file two parts own is allowed, and said', () => {
+    const { on, call } = project()
+    call('set_part', { slug: 'divided', id: 'the-agent-seam', files: ['chapters/shared.tex'] })
+    const said = call('set_part', { slug: 'divided', id: 'what-the-page-shows', files: ['chapters/shared.tex'] })
+    expect(said).toContain('chapters/shared.tex is also owned by “The agent seam”')
+    expect(on().groups.map((group) => group.files)).toEqual([['chapters/shared.tex'], ['chapters/shared.tex']])
+  })
+
+  test('get_journey prints each part’s files, and says where the names are counted from', () => {
+    const { call } = project()
+    expect(call('get_journey', { slug: 'divided' })).toContain('No part names a file of the paper yet')
+    call('set_part', { slug: 'divided', id: 'what-the-page-shows', files: ['chapters/page.tex', 'figures/page.tex'] })
+    const said = call('get_journey', { slug: 'divided' })
+    expect(said).toContain('what-the-page-shows\t“What the page shows”\t1 ref\tsteps 2\tfiles chapters/page.tex, figures/page.tex')
+    /* A part with none prints the four columns it always printed. */
+    expect(said).toContain('the-agent-seam\t“The agent seam”\t2 refs\tno steps\n')
+    expect(said).toContain('(.kehikot/paper/divided/)')
+  })
+
+  test('the tool says the field, its form and an example', () => {
+    const tools = (
+      answer('POST', '/mcp', new URLSearchParams(), { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)?.body as {
+        result: { tools: { name: string; description: string; inputSchema: { required: string[]; properties: Record<string, unknown> } }[] }
+      }
+    ).result.tools
+    const setPart = tools.find((tool) => tool.name === 'set_part')!
+    expect(Object.keys(setPart.inputSchema.properties)).toContain('files')
+    expect(setPart.description).toContain('chapters/design.tex')
+    expect(setPart.description).toContain('relative to the paper’s folder')
+    expect(setPart.inputSchema.required).toEqual(['project', 'slug'])
   })
 })
 

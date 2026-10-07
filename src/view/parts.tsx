@@ -6,8 +6,8 @@ import { Input } from '@/components/ui/input.tsx'
 
 import { cn } from '@/lib/utils.ts'
 
-import { partOfStep, partsIn, proposed, removalOf, removalSaid, unassigned, type Arrangeable } from '../../parts.ts'
-import { assignSteps, removePart, savePart, setArranging } from '../journeys.ts'
+import { FILE_EXAMPLE, filesGiven, partOfStep, partsIn, proposed, removalOf, removalSaid, unassigned, type Arrangeable } from '../../parts.ts'
+import { assignSteps, removePart, savePart, savePartFiles, setArranging } from '../journeys.ts'
 import type { JourneyView, Live } from '../kinds.ts'
 import { cardsUnder } from '../live/lookup.ts'
 import { pickedState } from '../refs.ts'
@@ -74,8 +74,11 @@ export function PartChooser({
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
-/** What is open under one part's row. One at a time: they are three answers to one press. */
-type Open = { kind: 'rename' | 'remove' | 'propose'; id: string } | null
+/** What is open under one part's row. One at a time: they are four answers to one press. */
+type Open = { kind: Under; id: string } | null
+
+/** The four things a part's row can have open beneath it. */
+type Under = 'rename' | 'files' | 'remove' | 'propose'
 
 /**
  * Where a journey is arranged into parts: the parts themselves, and which
@@ -369,8 +372,23 @@ export function Parts({
 }
 
 /**
- * One part: what it is called, what is in it, and the three things that can be
+ * One part: what it is called, what is in it, and the four things that can be
  * done to it.
+ *
+ * ## Its files are typed, and the page says in what form
+ *
+ * A part may own files of the epic's paper (protocol 0.32.0), and a module
+ * that shows the paper narrows to them. They are edited here because the
+ * parts are this app's; they are TYPED because the paper is not — this app
+ * holds no path into another module's folder, so there is no list to tick
+ * from. What it can do is say the form with one example, hand the name to the
+ * store, and show back exactly what the store kept (`./chapters/a.tex` comes
+ * back as `chapters/a.tex`) or the store's sentence for why it kept nothing.
+ * Each press is one write of the whole list, like every other press in this
+ * box; there is no "apply".
+ *
+ * A name another part of the journey already holds is allowed. See
+ * `filesSaid` in `parts.ts`: the store says so in the line it answers with.
  *
  * ## "by references" shows before it does
  *
@@ -398,11 +416,17 @@ function PartRow({
   record: Arrangeable
   /** False for a journey whose steps are kept elsewhere: there is nothing here to file. */
   storesSteps: boolean
-  under: 'rename' | 'remove' | 'propose' | null
-  setUnder: (kind: 'rename' | 'remove' | 'propose' | null) => void
+  under: Under | null
+  setUnder: (kind: Under | null) => void
 }) {
   const [name, setName] = useState(part.heading)
-  const press = (kind: 'rename' | 'remove' | 'propose') => {
+  const [file, setFile] = useState('')
+  /* Why the name in the box was not kept, said beside the box. The page's one
+     line for what the store answered is at the foot of the journey, which is
+     a screen away from a part's row in a narrow container. */
+  const [refused, setRefused] = useState('')
+  const files = part.files ?? []
+  const press = (kind: Under) => {
     if (kind === 'rename') setName(part.heading)
     setUnder(under === kind ? null : kind)
   }
@@ -415,6 +439,7 @@ function PartRow({
         <span className="min-w-0 flex-[1_1_9rem] font-medium [overflow-wrap:anywhere]">{part.heading}</span>
         <span className="text-xs text-muted-foreground">
           {plural(part.steps, 'step')} · {plural(part.refs.length, 'reference')}
+          {files.length > 0 && ` · ${plural(files.length, 'file')}`}
         </span>
         <span className="flex flex-wrap gap-x-0.5">
           <Button
@@ -426,6 +451,17 @@ function PartRow({
             onClick={() => press('rename')}
           >
             rename
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="container"
+            className="text-muted-foreground"
+            aria-expanded={under === 'files'}
+            title="Say which files of this epic’s paper are this part’s. A module that shows the paper then shows only those while the part is picked."
+            onClick={() => press('files')}
+          >
+            files
           </Button>
           {storesSteps && (
             <Button
@@ -473,6 +509,98 @@ function PartRow({
             rename
           </Button>
         </form>
+      )}
+
+      {/* What is stored, shown back, whether or not the editor is open: a
+          part that owns files narrows a paper to them, and a row that kept
+          that behind a press would be a focus nobody could read off the page. */}
+      {files.length > 0 && under !== 'files' && (
+        <p data-files={part.id} className="mt-0.5 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+          owns{' '}
+          {files.map((one, index) => (
+            <span key={one}>
+              {index > 0 && ', '}
+              <code className="font-mono">{one}</code>
+            </span>
+          ))}
+        </p>
+      )}
+
+      {under === 'files' && (
+        <div data-files-of={part.id} className="mt-1 grid gap-1.5 rounded border border-dashed px-2 py-1.5">
+          <p className="text-muted-foreground">
+            The files of this epic’s paper that are this part’s. While the part is picked, a module showing the
+            paper shows only these. Type each as it is named from the paper’s folder, with its extension — for
+            example <code className="font-mono">{FILE_EXAMPLE}</code>. This app cannot read the paper, so a name
+            is kept as typed; the paper’s own module says when a picked part names a file the paper does not have.
+          </p>
+          {files.length === 0 ? (
+            <p className="italic text-muted-foreground">This part owns no file yet.</p>
+          ) : (
+            <ul className="grid gap-0.5">
+              {files.map((one) => (
+                <li key={one} className="flex min-w-0 items-baseline gap-2">
+                  <code className="min-w-0 flex-1 font-mono text-xs [overflow-wrap:anywhere]">{one}</code>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="container"
+                    className="shrink-0 text-muted-foreground"
+                    aria-label={`Take ${one} out of ${part.heading}`}
+                    onClick={() => void savePartFiles(part.id, files.filter((kept) => kept !== one))}
+                  >
+                    take out
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form
+            className="flex flex-wrap items-center gap-1.5"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (!file.trim()) return
+              /* Asked here first, of the function the store itself asks
+                 (`filesGiven`), so a name that is not a file's is refused
+                 beside the box it was typed in and nothing is sent. Then the
+                 whole list goes, with the new name last, and the store
+                 answers with the form it kept. Either way a refused name
+                 stays in the box to be corrected. */
+              const read = filesGiven([...files, file])
+              if (!read.ok) {
+                setRefused(read.error)
+                return
+              }
+              setRefused('')
+              void savePartFiles(part.id, [...files, file]).then((done) => {
+                if (done) setFile('')
+              })
+            }}
+          >
+            <Input
+              aria-label={`A file of the paper for ${part.heading}`}
+              placeholder={FILE_EXAMPLE}
+              value={file}
+              onChange={(event) => {
+                setFile(event.target.value)
+                setRefused('')
+              }}
+              aria-invalid={refused ? true : undefined}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              className="h-7 min-w-[9rem] flex-1 font-mono text-xs"
+            />
+            <Button type="submit" variant="outline" size="container" disabled={!file.trim()}>
+              add file
+            </Button>
+          </form>
+          {refused && (
+            <p role="alert" data-refused className="text-block">
+              {refused}
+            </p>
+          )}
+        </div>
       )}
 
       {under === 'propose' && (
