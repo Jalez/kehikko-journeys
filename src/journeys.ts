@@ -326,6 +326,14 @@ export async function open(slug: string | null): Promise<void> {
 
 /** Put a journey on screen from the store, or say why there is none: `open`, without the trackers. */
 async function load(slug: string | null): Promise<void> {
+  /* Only the newest load may write, for the reason `fill` numbers its asks: two
+     epic switches in a row leave two of these in flight, and the one that
+     finishes last is not necessarily the one the canvas is standing on. The
+     number is also advanced by `context` when the canvas moves, so a load for
+     the epic just left is dropped even if no other load follows it. */
+  const mine = ++loading
+  const within = standingIn
+  const current = () => mine === loading && standingIn === within
   if (!slug) {
     set({ journey: null })
     return
@@ -362,6 +370,7 @@ async function load(slug: string | null): Promise<void> {
    */
   if (!listed(slug)) {
     await readIndex()
+    if (!current()) return
     if (!listed(slug)) {
       set({ journey: null, editing: -1, said: '' })
       return
@@ -371,6 +380,7 @@ async function load(slug: string | null): Promise<void> {
     '/api/journey',
     `slug=${encodeURIComponent(slug)}`,
   )
+  if (!current()) return
   set({
     journey: out.ok && out.journey ? out.journey : null,
     editing: -1,
@@ -381,6 +391,9 @@ async function load(slug: string | null): Promise<void> {
     said: out.ok || state.nowhere ? '' : (out.error ?? 'no such journey here'),
   })
 }
+
+/** Which `load` is the newest. See the comment inside it. */
+let loading = 0
 
 /** Whether the index this page last read names that journey. */
 function listed(slug: string): boolean {
@@ -1344,7 +1357,10 @@ function context(next: ModuleContext): void {
   standingOn = slug
   /* A read owed to the journey this container was standing on is not owed to
      the one it is about to open. */
-  if (moved) owed = false
+  if (moved) {
+    owed = false
+    loading += 1
+  }
 
   if (relocated) {
     /* Everything read out of the old store goes, before anything is fetched
@@ -1387,7 +1403,10 @@ function context(next: ModuleContext): void {
   }
 
   if (moved) {
-    set({ live: null, withheld: null })
+    /* The journey goes with the epic, as it does with the project: until the
+       new one arrives the previous one would be drawn under the new epic's name
+       with its tracker states blank. */
+    set({ journey: null, live: null, withheld: null })
     /* The selection is applied AFTER the journey is on screen, not beside the
        request for it. A walk into a document that has not been fetched finds
        nothing, and `goTo` would honestly report so; the reader would see the
