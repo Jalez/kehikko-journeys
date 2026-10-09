@@ -123,8 +123,3 @@ export async function post<T>(path: string, body: Record<string, unknown>): Prom
   const asked = await ask<T>(path, { body: { ...body, project, ...(path === '/api/ticket' ? {} : { ticket: write ?? '' }) } })
   return asked.ok ? asked.body : refusal(asked)
 }
-
-/** Ask this app's own server whether it is there, for the cover's Try again. The answer is the standing `ask` records. */
-export async function knock(): Promise<void> {
-  await ask('/healthz')
-}

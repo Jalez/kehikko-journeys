@@ -1,9 +1,8 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { mailbox, resetServerStanding } from 'kehikot-module-protocol/client'
+import { held as heldStore, mailbox, resetServerStanding } from 'kehikot-module-protocol/client'
 
 import { App } from '../src/app.tsx'
-import { readDrafts } from '../src/store/held.ts'
 import { JOURNEY, PROJECT, settle, started, store, stubHost, type Wire } from './host.ts'
 
 /**
@@ -55,7 +54,8 @@ async function awayAndBack(project: string) {
 }
 const fresh = () => `${PROJECT}-held-${(n += 1)}`
 const title = () => screen.getByLabelText('Step title') as HTMLInputElement
-const held = (project: string) => readDrafts(project)
+/* The page's own store, by its name: the key somebody's tab already holds drafts under. */
+const held = (project: string) => heldStore('kehikot.journeys.drafts').at(project).all()
 
 describe('typed words are held across the page going away, aimed at what they were typed into', () => {
   test('a step: typed → away and back → its editor is open on the same step, with every field as it was left', async () => {
@@ -172,5 +172,40 @@ describe('typed words are held across the page going away, aimed at what they we
     expect(title().value).toBe('A third thing')
     expect(title().closest('[data-adding]')).not.toBeNull()
     expect((screen.getByLabelText('Heading of a new part') as HTMLInputElement).value).toBe('Reading the track')
+  })
+
+  test('a part’s rename or file row that was closed: its words are not held, and nothing reopens', async () => {
+    const project = fresh()
+    store.journey = { ...JOURNEY, groups: [{ id: 'reading', heading: 'Reading', refs: [] }] } as unknown as typeof JOURNEY
+    await on(project)
+    render(<App />)
+    wire.setArranging(true)
+    await settle()
+    /* The row's own toggles, which say whether what they open is open; the form under one has a button of the same name. */
+    const press = (name: string) => fireEvent.click([...document.querySelectorAll('button[aria-expanded]')].find((one) => one.textContent === name) as HTMLButtonElement)
+
+    press('rename')
+    fireEvent.change(screen.getByLabelText('New heading for Reading'), { target: { value: 'Reading the track' } })
+    expect(Object.keys(held(project))).toEqual(['probe|part:rename:reading'])
+    /* Closed by its own button. */
+    press('rename')
+    expect(held(project)).toEqual({})
+
+    press('files')
+    fireEvent.change(screen.getByLabelText('A file of the paper for Reading'), { target: { value: 'chapters/track.tex' } })
+    expect(Object.keys(held(project))).toEqual(['probe|part:file:reading'])
+    /* Closed by opening another row over it. */
+    press('remove')
+    expect(held(project)).toEqual({})
+
+    /* A row left open is still held, and still comes back. */
+    press('rename')
+    fireEvent.change(screen.getByLabelText('New heading for Reading'), { target: { value: 'Left open' } })
+    await awayAndBack(project)
+    expect((screen.getByLabelText('New heading for Reading') as HTMLInputElement).value).toBe('Left open')
+    press('rename')
+    await awayAndBack(project)
+    expect(screen.queryByLabelText('New heading for Reading')).toBeNull()
+    expect(held(project)).toEqual({})
   })
 })
