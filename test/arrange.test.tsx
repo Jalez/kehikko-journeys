@@ -91,7 +91,7 @@ describe('a journey that is not divided into parts', () => {
     fireEvent.click(button('add part'))
     await settle()
     expect(store.arranged).toEqual([
-      { path: '/api/part', body: { slug: 'probe', heading: 'Reading the trackers', project: projectPath } },
+      { path: '/api/part', body: { slug: 'probe', heading: 'Reading the trackers', project: projectPath, ticket: 't' } },
     ])
     /* Every container on the epic is told: the host's picker reads its parts from this. */
     expect(host.asked('content.changed').map((one) => one.params)).toEqual([{ epic: 'probe' }])
@@ -519,7 +519,7 @@ describe('dividing an epic this project has no journey for', () => {
     host.answer('epic.get', hosted)
     await settle()
     await settle()
-    expect(store.begun).toEqual([{ slug: 'probe', seed: hosted, project: projectPath }])
+    expect(store.begun).toEqual([{ slug: 'probe', seed: hosted, project: projectPath, ticket: 't' }])
     expect(store.arranged).toEqual([
       { path: '/api/parts/chapters', body: expect.objectContaining({ slug: 'probe', files: ['chapters/1_introduction.tex', 'chapters/2_results.tex'] }) },
     ])

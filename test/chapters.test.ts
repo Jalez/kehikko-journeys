@@ -6,7 +6,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { KEHIKOT_DIR, LIMITS, PAPER_MODULE, moduleFolder, partsOf, type JourneyPart } from 'kehikot-module-protocol'
 
 import { chaptersOf, executed, fileOf, leftOutSaid, namedAfter, nothingSaid, pulledIn, titleOf, type ReadFile } from '../chapters.ts'
-import { answer, writeTicketFor } from '../doors.ts'
+import { TICKET, answer, writeTicketFor } from '../doors.ts'
 import { ID } from '../manifest.ts'
 import { chaptersIn, paperFolder, paperReader } from '../paper.ts'
 
@@ -292,7 +292,7 @@ function project(files: Record<string, string> = THESIS, journey?: Record<string
     ).result.content[0]!.text
   const get = (slug = 'thesis') => answer('GET', '/api/chapters', new URLSearchParams({ project: root, slug }), null, null)
   const post = (path: string, body: Record<string, unknown>) =>
-    answer('POST', path, new URLSearchParams(), { project: root, slug: 'thesis', ...body }, writeTicketFor(root))
+    answer('POST', path, new URLSearchParams(), { project: root, slug: 'thesis', ticket: writeTicketFor(root), ...body }, TICKET)
   const on = () => (JSON.parse(readFileSync(file, 'utf8')) as { journeys: Record<string, { groups: Record<string, unknown>[]; steps: unknown[] }> }).journeys.thesis!
   return { root, paper, file, call, get, post, on }
 }

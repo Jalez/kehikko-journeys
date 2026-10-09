@@ -6,7 +6,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { KEHIKOT_DIR, journeyIn as recordIn, moduleFolder, partInFocus, partsOf, stepPart } from 'kehikot-module-protocol'
 import { readJourneys } from 'kehikot-module-protocol/serve'
 
-import { answer, writeTicketFor } from '../doors.ts'
+import { TICKET, answer, writeTicketFor } from '../doors.ts'
 import { ID } from '../manifest.ts'
 import { held, journeyIn, journeySchema, writeJourney } from '../store.ts'
 
@@ -237,7 +237,7 @@ describe('saving a journey', () => {
 
 describe('writing a step through the door', () => {
   const post = (root: string, body: Record<string, unknown>) =>
-    answer('POST', '/api/step', new URLSearchParams(), { ...body, project: root }, writeTicketFor(root))
+    answer('POST', '/api/step', new URLSearchParams(), { ...body, project: root, ticket: writeTicketFor(root) }, TICKET)
 
   test('replacing a step keeps the part it was assigned to, and what this door cannot say', () => {
     const { root, file } = project(document)

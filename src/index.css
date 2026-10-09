@@ -16,8 +16,8 @@
  * lighter than the page around it is the first thing anybody notices about a
  * protocol.
  *
- * So the class is the single source, `theme.ts` is the only thing that writes
- * it, and `kehikot.context.theme` is the only thing that tells it what to
+ * So the class is the single source, the protocol's `applyTheme` (called from
+ * `journeys.ts`) is the only thing that writes it once this page is running, and `kehikot.context.theme` is the only thing that tells it what to
  * write. The machine's preference is consulted exactly once — as the seed for a
  * page nobody has framed — and is overruled the instant a host speaks. Tokens
  * and `dark:` utilities therefore cannot disagree, which is the thing a media

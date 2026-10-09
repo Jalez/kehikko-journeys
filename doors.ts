@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 
+import { establishBuild, mintTicket, refuseTicket, sameTicket, type Reply } from 'kehikot-module-protocol/serve'
+
 import { tooLong } from './limits.ts'
 import { leftOutSaid, nothingSaid, type Chapters } from './chapters.ts'
 import { ID, MANIFEST, VERSION } from './manifest.ts'
@@ -168,7 +170,19 @@ function position(value: unknown): number | undefined {
  * not, and was never, an authorization check. Saying so here is cheaper than
  * somebody later reading it as one.
  */
-export const TICKET = crypto.randomUUID()
+export const TICKET = mintTicket()
+
+/** What this process is built from and when it started; `doors()` says it wherever a build is said. */
+export const BUILD = establishBuild({ version: VERSION, dir: import.meta.dirname })
+
+/**
+ * What a request without the process ticket is told. Said through the protocol's `refuseTicket`,
+ * whose mark (`refused: 'ticket'`) is how this app's page tells "I am older than my server" — and
+ * reloads itself — from every other refusal, the project one below included.
+ */
+const NOT_THIS_PAGE =
+  'that request did not come from this app’s own page — or the page is from a previous run of this server, in '
+  + 'which case reloading the pane gives it the ticket this run minted.'
 
 /**
  * The ticket a write has to carry NOW, which is bound to the project it writes
@@ -1085,12 +1099,8 @@ function begun(out: Extract<ReturnType<typeof createJourney>, { ok: true }>, whe
   )
 }
 
-/** A status and a document. Nothing here writes bytes; the adapter does that. */
-export interface Reply {
-  status: number
-  /** `null` means "answer with no body", which is what a notification gets. */
-  body: unknown
-}
+/** A status and a document. Nothing here writes bytes; the protocol's `doors()` does that. */
+export type { Reply }
 
 const ok = (body: unknown): Reply => ({ status: 200, body })
 const bad = (why: string, status = 400): Reply => ({ status, body: { ok: false, error: why } })
@@ -1191,7 +1201,7 @@ export function answer(
    * The write ticket for one project, handed only to something that already
    * holds the process ticket.
    *
-   * `page/document.ts` argues that `GET /api/ticket` would be "the ticket
+   * `vite.config.ts` argues that `GET /api/ticket` would be "the ticket
    * abolished with extra steps", and it is right about a GET: an ungated route
    * that hands over the write credential is the same as not having one. This is
    * not that route. It is a POST, it is refused without the process ticket
@@ -1204,7 +1214,8 @@ export function answer(
    * moved project can take out its ticket in the same breath as it re-reads.
    */
   if (path === '/api/ticket' && method === 'POST') {
-    if (ticket !== TICKET) return bad('that request did not come from this app’s own page', 403)
+    const stale = refuseTicket(ticket, TICKET, NOT_THIS_PAGE)
+    if (stale) return stale
     const project = str(body?.project, MAX_PROJECT)
     const write = writeTicketFor(project)
     if (write === null) {
@@ -1272,13 +1283,26 @@ export function answer(
 
   if (method === 'POST' && path.startsWith('/api/')) {
     if (!body) return bad('that was not a request')
+    /*
+     * Two questions, so two credentials, and they travel apart.
+     *
+     * The HEADER (`x-module-ticket`, the one every module uses) carries the process ticket printed
+     * into the page: is this this app's own page, served by THIS process? A no there is the
+     * protocol's marked refusal, which a page reads as "I am older than my server" and reloads on.
+     *
+     * The BODY carries the project ticket, beside the project it was taken out for: was this write
+     * composed against the project it names? A no there is this module's own refusal, and no
+     * reload would fix it.
+     */
+    const stale = refuseTicket(ticket, TICKET, NOT_THIS_PAGE)
+    if (stale) return stale
     const project = str(body.project, MAX_PROJECT)
     /* The ticket is checked against the PROJECT THIS WRITE NAMES, so a ticket
        taken out while another project was open does not redeem here. See the
        essay on `writeTicketFor`: the failure it catches is a save composed
        against project A arriving after the host moved the page to project B. */
     const expected = writeTicketFor(project)
-    if (expected === null || ticket !== expected) {
+    if (expected === null || !sameTicket(typeof body.ticket === 'string' ? body.ticket : null, expected)) {
       return bad(
         'that write did not come from this app’s own page, on this project. A ticket is taken out for one project '
           + 'and does not redeem against another: if the canvas has just moved, re-open the journey before saving, '

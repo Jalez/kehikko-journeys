@@ -6,7 +6,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { KEHIKOT_DIR, journeyIn as recordIn, moduleFolder, stepPart, stepsOf } from 'kehikot-module-protocol'
 import { readJourneys } from 'kehikot-module-protocol/serve'
 
-import { answer, writeTicketFor } from '../doors.ts'
+import { TICKET, answer, writeTicketFor } from '../doors.ts'
 import { ID } from '../manifest.ts'
 import { createJourney, held, hostEpic, journeyIn } from '../store.ts'
 
@@ -186,7 +186,7 @@ describe('from the MCP door, which has a project path and no host to ask', () =>
 
 describe('from the page, which hands over what the host answered', () => {
   const post = (root: string, body: Record<string, unknown>, ticket: string | null = writeTicketFor(root)) =>
-    answer('POST', '/api/journey', new URLSearchParams(), { ...body, project: root }, ticket)
+    answer('POST', '/api/journey', new URLSearchParams(), { ...body, project: root, ticket }, TICKET)
 
   test('the host’s answer becomes the record, and the reply says where it came from', () => {
     /* No file on disk at all: the host's word is the source, wherever the

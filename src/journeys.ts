@@ -15,7 +15,17 @@ import {
   type ModuleContext,
   type TrackerReading,
 } from 'kehikot-module-protocol'
-import { HostRefused, connect, type Connection } from 'kehikot-module-protocol/client'
+import {
+  HostRefused,
+  applyTheme,
+  connect,
+  pageTheme,
+  reloadWhenStale,
+  serverStanding,
+  systemTheme,
+  type Connection,
+} from 'kehikot-module-protocol/client'
+import { GREETING_GRACE_MS, type Where } from 'kehikot-module-protocol/client/react'
 import { HIDE_GROUP, countFacets, hiddenIn, offer, type Facet } from 'kehikot-module-protocol/facets'
 
 import { ID } from '../manifest.ts'
@@ -25,8 +35,7 @@ import type { Brief, JourneyView, Live, Target } from './kinds.ts'
 import { cardsUnder, facetsOfRef, readingOf, refsOf, unreadLinks, type Around } from './live/lookup.ts'
 import { shownSteps, stepInFocus } from './focus.ts'
 import { bounded, firstShown, samePick, togglePick } from './refs.ts'
-import { get, post, standIn } from './store/api.ts'
-import { apply as applyTheme } from './theme.ts'
+import { get, knock, post, standIn } from './store/api.ts'
 
 /**
  * The browser half of the app: everything it holds, and everything it decides.
@@ -186,6 +195,16 @@ export interface State {
   /** A journey is being begun: the host is being asked, or the store is writing. */
   beginning: boolean
   framed: boolean
+  /**
+   * Whether anything is framing this page, in the protocol's three states: `listening` until a
+   * host greets or the grace runs out, then `hosted` or `unhosted`. `framed` above is the older
+   * boolean and cannot say the first of them — which is why this page used to draw "Nothing is
+   * framing this page" for the first moments of every framed load. The cover in `app.tsx` reads
+   * this one.
+   */
+  where: Where
+  /** Where the host says the project is on disk, or null. What the cover asks `coverFor` about. */
+  projectPath: string | null
   /** The host said no to something we asked. */
   refused: string | null
   /** Which step has its editor open, or -1. */
@@ -265,6 +284,8 @@ let state: State = {
   unwritten: null,
   beginning: false,
   framed: false,
+  where: 'listening',
+  projectPath: null,
   refused: null,
   editing: -1,
   adding: false,
@@ -370,7 +391,7 @@ export async function readChapters(): Promise<void> {
   if (!slug) return
   const project = standingIn
   try {
-    const out = await get<{ ok: boolean } & Record<string, unknown>>('/api/chapters', `slug=${encodeURIComponent(slug)}`)
+    const out = await get<{ ok: boolean } & Record<string, unknown>>('/api/chapters', { slug })
     if (standingIn !== project || (state.journey?.slug ?? standingOn) !== slug) return
     if (!out.ok) return
     set({ chapters: { ...out, slug } as unknown as PaperChapters })
@@ -501,7 +522,7 @@ async function load(slug: string | null): Promise<void> {
   }
   const out = await get<{ ok: boolean; error?: string; journey?: JourneyView }>(
     '/api/journey',
-    `slug=${encodeURIComponent(slug)}`,
+    { slug },
   )
   if (!current()) return
   set({
@@ -1019,7 +1040,7 @@ async function reload(): Promise<void> {
   if (had) {
     const out = await get<{ ok: boolean; error?: string; journey?: JourneyView }>(
       '/api/journey',
-      `slug=${encodeURIComponent(slug)}`,
+      { slug },
     )
     if (!current()) return
     if (out.ok && out.journey) {
@@ -1608,6 +1629,22 @@ let host: Connection | null = null
  * number for the previous page. Fire and forget either way — a host is entitled
  * to ignore it, and this page is readable in whatever height it is given.
  */
+/**
+ * The cover's Try again, after this app's own server did not answer.
+ *
+ * Asks whether it is there (which is what moves the cover), and only if it is: takes the project's
+ * write ticket out again — the failed attempt left none — reads the index again, and opens the
+ * journey the canvas is standing on IF nothing is open. A journey that is already on screen is
+ * left exactly as it is, editor and all: this must not cost anybody what they had typed.
+ */
+export async function retry(): Promise<void> {
+  await knock()
+  if (serverStanding() !== 'up') return
+  if (typeof standingIn === 'string') await standIn(standingIn)
+  await readIndex()
+  if (!state.journey && standingOn) await open(standingOn)
+}
+
 export function grow(): void {
   host?.resize(document.body.scrollHeight + 32)
 }
@@ -1727,7 +1764,8 @@ let standingIn: string | null | undefined = undefined
  * true within one store.
  */
 function context(next: ModuleContext): void {
-  applyTheme(next.theme)
+  /* The protocol's: `dark` or `light` on <html>, both spelled, and remembered for the next load's first paint. */
+  applyTheme(next.theme === 'dark' ? 'dark' : 'light', { remember: true })
 
   const named = next.epic ?? ''
   const slug = /^[a-z0-9-]{1,80}$/.test(named) ? named : null
@@ -1770,6 +1808,8 @@ function context(next: ModuleContext): void {
   material = stamp
   set({
     framed: true,
+    where: 'hosted',
+    projectPath: typeof next.projectPath === 'string' && next.projectPath.trim() ? next.projectPath : null,
     refused: null,
     epic: slug,
     selection: picked,
@@ -2076,6 +2116,23 @@ export function start(): void {
      in the client. */
   host = live
   live.listen()
+
+  /*
+   * The grace: a page cannot know at load whether it is framed, so it waits this long for a
+   * greeting before saying nobody is there. The protocol's number, and the same three lines
+   * `useHost` runs — this module keeps `connect()` and a store of its own, so it runs them itself.
+   */
+  setTimeout(() => {
+    if (host !== live || live.greeted()) return
+    set({ where: 'unhosted' })
+    /* Nothing has said a theme and nothing will: the machine's own, if the document decided none. */
+    if (pageTheme() === null) applyTheme(systemTheme())
+  }, GREETING_GRACE_MS)
+
+  /* A page older than its server — a ticket refused as not this process's, or an answer stamped
+     with another build — reloads itself once, a moment after saying so. `useHost` arranges this
+     for a module that uses it; this one arranges it here. */
+  reloadWhenStale()
 
   const where = fromHash()
   /*

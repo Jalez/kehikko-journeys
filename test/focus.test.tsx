@@ -250,7 +250,7 @@ describe('an epic this project has no journey for', () => {
     expect(store.begun).toEqual([])
     host.answer('epic.get', hosted)
     await settle()
-    expect(store.begun).toEqual([{ slug: 'probe', seed: hosted, project: projectPath }])
+    expect(store.begun).toEqual([{ slug: 'probe', seed: hosted, project: projectPath, ticket: 't' }])
     /* Every container on the epic is told, and this one opens what was made. */
     expect(host.asked('content.changed').map((one) => one.params)).toEqual([{ epic: 'probe' }])
     expect(drawn()).toEqual(['1', '2'])
@@ -266,7 +266,7 @@ describe('an epic this project has no journey for', () => {
     host.refuse('kehikot.journeys may not read epics.', 'epic.get')
     await settle()
     /* No `seed` key at all, which is what makes the store read the host's file. */
-    expect(store.begun).toEqual([{ slug: 'probe', project: projectPath }])
+    expect(store.begun).toEqual([{ slug: 'probe', project: projectPath, ticket: 't' }])
   })
 
   test('opening an epic with no journey writes nothing by itself', async () => {
