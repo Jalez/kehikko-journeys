@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import type { EpicPart, JourneyPart } from 'kehikot-module-protocol'
+import { useFocus } from 'kehikot-module-protocol/client/react'
 
 import { Button } from '@/components/ui/button.tsx'
 
@@ -340,10 +341,12 @@ function Begin({
 function Narrowed({
   parts,
   journey,
+  editing,
   canFile,
 }: {
   parts: readonly EpicPart[]
   journey: JourneyView
+  editing: number
   /**
    * Whether this journey's own record has parts to file a step under. The
    * parts in the sentence are the host's; they are this record's groups
@@ -352,7 +355,7 @@ function Narrowed({
    */
   canFile: boolean
 }) {
-  const said = narrowing(parts, journey.steps)
+  const said = narrowing(parts, journey.steps, editing)
   if (!said) return null
   const { lead, rest, file } = narrowedSaid(said)
   return (
@@ -417,13 +420,14 @@ function Journey({
   /* Worked out once, here, and handed to both things that act on "the steps":
      the pair of presses above them and the list itself. Two filters would be
      a "pick every step" that picked steps nobody can see. */
-  const shown = journey.plan === 'stored' ? shownSteps(parts, journey.steps) : []
+  const focus = useFocus({ parts })
+  const shown = journey.plan === 'stored' ? shownSteps(focus.parts, journey.steps, editing) : []
   /* The journey's own parts, read off the record this app's store answered
      with — not `parts` above, which is the host's later reading of the same
      record and is there only when a host is. What a step is FILED under is
      this app's material; what is PICKED is the host's. */
   const own = partsIn(arrangeable(journey))
-  const narrowed = parts.some((part) => part.picked)
+  const narrowed = focus.focused
   const meta = [
     journey.umbrella ? `umbrella ${journey.umbrella}` : '',
     journey.written ? `written ${journey.written}` : '',
@@ -445,7 +449,7 @@ function Journey({
       )}
 
       <Rubric>The journey</Rubric>
-      {journey.plan === 'stored' && <Narrowed parts={parts} journey={journey} canFile={own.length > 0} />}
+      {journey.plan === 'stored' && <Narrowed parts={focus.parts} journey={journey} editing={editing} canFile={own.length > 0} />}
       <Parts
         journey={journey}
         open={arranging}

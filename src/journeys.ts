@@ -416,7 +416,7 @@ function everyCard(): { ref: string; under: boolean; owner: string | null }[] {
   /* Only the steps in front of the person. A step outside the picked parts is
      not drawn, so its cards are not cards on this page: counting them in the
      filter's offer would be a number about things nobody can see. */
-  for (const { step } of shownSteps(state.parts, journey.steps)) {
+  for (const { step } of shownSteps(state.parts, journey.steps, state.editing)) {
     let owner: string | null = null
     for (const card of cardsUnder(state.live, step.refs ?? [])) {
       if (!card.under) owner = card.ref
