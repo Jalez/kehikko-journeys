@@ -36,6 +36,7 @@ import { cardsUnder, facetsOfRef, readingOf, refsOf, unreadLinks, type Around } 
 import { shownSteps, stepInFocus } from './focus.ts'
 import { bounded, firstShown, samePick, togglePick } from './refs.ts'
 import { get, knock, post, standIn } from './store/api.ts'
+import { keepDraft, readDraft, readDrafts, type Draft } from './store/held.ts'
 
 /**
  * The browser half of the app: everything it holds, and everything it decides.
@@ -351,11 +352,94 @@ export function say(what: string): void {
 }
 
 export function setEditing(which: number): void {
+  /* Closing an editor, or opening another step's over it, leaves the words that were in it — as it
+     always has. Their held copy goes with them: that is a person throwing them away on purpose. */
+  if (state.editing >= 0) hold(`step:${state.editing}`, null)
   set({ editing: state.editing === which ? -1 : which })
+}
+
+/* ------------------------------------------------------------------ *
+ * What is being typed, held across a reload of this page
+ *
+ * A page older than its server reloads itself — on the Save press that found
+ * it out, or on a read — and the write is not retried. So every box on this
+ * page writes its words as they change (`store/held.ts`), under the project
+ * and under what they were aimed at: the journey's slug, then `step:<position>`
+ * for an open step, `add` for a step not written yet, and `part:new`,
+ * `part:rename:<id>`, `part:file:<id>` for the three boxes of the parts.
+ * A draft is cleared by the write that kept it, by emptying the box, and by
+ * closing the editor.
+ * ------------------------------------------------------------------ */
+
+/** A held draft counts only if the person changed it: an untouched one loses to whatever the store holds now. */
+const touched = (one: Draft | null): Draft | null => (one && one.text !== one.base && one.text.trim() ? one : null)
+
+/** The words held for one box of the journey that is open, or null. */
+export function held(target: string): Draft | null {
+  const slug = state.journey?.slug
+  return slug ? touched(readDraft(state.projectPath, `${slug}|${target}`)) : null
+}
+
+/** Hold the words in one box of the journey that is open; `null` forgets them. */
+export function hold(target: string, draft: Draft | null): void {
+  const slug = state.journey?.slug
+  if (slug) keepDraft(state.projectPath, `${slug}|${target}`, draft && draft.text !== draft.base && draft.text.trim() ? draft : null)
+}
+
+/** Every held draft for the journey that is open, by target. */
+function heldHere(): [string, Draft][] {
+  const slug = state.journey?.slug
+  if (!slug) return []
+  return Object.entries(readDrafts(state.projectPath))
+    .filter(([target, one]) => target.startsWith(`${slug}|`) && touched(one))
+    .map(([target, one]) => [target.slice(slug.length + 1), one])
+}
+
+/**
+ * Reopen whatever was open with words in it when this page last went away: the editor of the
+ * step, the box for a new step, the parts. Called when a journey has landed on screen. It opens;
+ * the boxes themselves read their words (`held`) as they mount.
+ */
+export function reopenHeld(): void {
+  const journey = state.journey
+  if (!journey) return
+  for (const [target] of heldHere()) {
+    if (target === 'add') set({ adding: true })
+    else if (target.startsWith('step:')) {
+      const at = Number(target.slice('step:'.length))
+      if (state.editing < 0 && at >= 0 && at < journey.steps.length) set({ editing: at })
+    } else if (target.startsWith('part:')) setArranging(true)
+  }
+}
+
+/**
+ * Held words whose target is gone from the journey that is open: a step past the end (steps were
+ * removed), a part that no longer exists. They are shown, with what they were about, rather than
+ * opened over something they were not aimed at, or dropped.
+ */
+export function heldStrays(): { target: string; draft: Draft }[] {
+  const journey = state.journey
+  if (!journey) return []
+  const parts = new Set((journey.groups ?? []).map((part) => part.id))
+  return heldHere()
+    .filter(([target]) => {
+      if (target.startsWith('step:')) return Number(target.slice('step:'.length)) >= journey.steps.length
+      const part = /^part:(?:rename|file):(.*)$/.exec(target)
+      return part ? !parts.has(part[1] ?? '') : false
+    })
+    .map(([target, draft]) => ({ target, draft }))
+}
+
+/** Throw one held draft away, from the kept-words list. */
+export function discardHeld(target: string): void {
+  hold(target, null)
+  /* Nothing in state changed; the list is read from storage, so the page is told to look again. */
+  set({})
 }
 
 /** Open or close the editor for a step that is not written yet. */
 export function setAdding(on: boolean): void {
+  if (!on) hold('add', null)
   set({ adding: on })
 }
 
@@ -691,6 +775,9 @@ export async function saveStep(
      under the new project's index. Same rule as `fill` below: an answer to a
      question nobody is waiting on is noise with a timestamp. */
   if (state.journey !== being) return
+  /* Kept by the store: there is nothing left to hold for that box. */
+  /* `position` is the step's number, from one; one past the end is a step that was not there. */
+  hold(position > being.steps.length ? 'add' : `step:${position - 1}`, null)
   set({ editing: -1, adding: false, journey: out.journey, said: 'kept' })
   /* The step may name references it did not name before, and the reading on
      screen was asked for the old ones. Not awaited: the save is done, and the

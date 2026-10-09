@@ -12,7 +12,10 @@ import {
   clearPick,
   getSnapshot,
   grow,
+  discardHeld,
+  heldStrays,
   pick,
+  reopenHeld,
   retry,
   setAdding,
   setArranging,
@@ -95,6 +98,15 @@ export function App() {
    */
   const server = useServerStanding()
   const cover = coverOf(state, server)
+
+  /* A journey has landed: reopen whatever was open with words in it when this page last went away
+     (a stale page reloads itself). See "What is being typed" in `journeys.ts`. */
+  const landed = state.journey ? `${state.projectPath ?? ''}|${state.journey.slug}` : null
+  useEffect(() => {
+    /* After this commit, not inside it: the store tells its listeners with `flushSync`. */
+    if (landed) queueMicrotask(reopenHeld)
+  }, [landed])
+  const strays = heldStrays()
   const whole = cover !== null && cover !== 'no-epic'
 
   return (
@@ -171,6 +183,25 @@ export function App() {
         {/* The one line this app uses to answer the reader. Polite rather than
             assertive: it is an answer to something they just did, not an
             interruption of what they are reading. */}
+        {strays.length > 0 && (
+          <section data-kept-words className="mt-4 grid gap-1.5 rounded border border-dashed px-2 py-1.5 text-[0.82rem] leading-6">
+            <p className="text-muted-foreground">
+              Typed here and not saved. What {strays.length === 1 ? 'it was' : 'they were'} written into is no longer in this journey, so{' '}
+              {strays.length === 1 ? 'it is' : 'they are'} kept here rather than put somewhere else:
+            </p>
+            {strays.map(({ target, draft }) => (
+              <div key={target} data-kept={target} className="grid gap-1 border-t pt-1.5">
+                <p className="text-muted-foreground">{draft.aim}</p>
+                <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{wordsOf(draft.text)}</p>
+                <div>
+                  <Button type="button" variant="ghost" size="container" onClick={() => discardHeld(target)}>
+                    discard
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
         <p aria-live="polite" className="mt-4 min-h-[1.4em] text-[0.82rem] text-muted-foreground">
           {state.said}
         </p>
@@ -178,6 +209,17 @@ export function App() {
       </div>
     </ReadingProvider>
   )
+}
+
+/** A held draft's words for reading: a step's four fields on their own lines, anything else as it is. */
+function wordsOf(text: string): string {
+  try {
+    const one = JSON.parse(text) as Record<string, unknown> | null
+    if (one && typeof one === 'object') return Object.values(one).filter((value) => typeof value === 'string' && value.trim()).join('\n')
+  } catch {
+    /* Not a step's fields: a heading or a file name, held as plain words. */
+  }
+  return text
 }
 
 /** Which cover the page is under, if any. Pure, so every standing can be asserted without a host. */
@@ -718,7 +760,7 @@ function Adding({ at, open, first = false }: { at: number; open: boolean; first?
       >
         {open ? 'close' : first ? 'write the first step' : 'add a step'}
       </Button>
-      {open && <Editor step={{ title: '', body: '', refs: [], notes: [] }} position={at} />}
+      {open && <Editor step={{ title: '', body: '', refs: [], notes: [] }} position={at} target="add" />}
     </section>
   )
 }
