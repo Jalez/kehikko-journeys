@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto'
 
 import { tooLong } from './limits.ts'
+import { leftOutSaid, nothingSaid, type Chapters } from './chapters.ts'
 import { ID, MANIFEST, VERSION } from './manifest.ts'
+import { MAIN, chaptersIn } from './paper.ts'
 import { FILE_EXAMPLE, assign, filesSaid, notAPart, partsIn, pinned, removalSaid, unassigned, withPart, withoutPart } from './parts.ts'
 import {
   type Held,
@@ -94,6 +96,8 @@ const MAX_NOTE = 200
 const MAX_LIST = 200
 /** A part's id: the protocol's `PART_ID` is eighty characters of slug. */
 const MAX_PART = 80
+/** A file's name from the paper's folder, as long as the protocol's `LIMITS.PART_FILE` lets one be. */
+const MAX_FILE = 256
 /** As many steps as one call may file at once. No journey here is a tenth of it. */
 const MAX_STEPS = 2000
 /** As long as a path may be, matching the protocol's own `LIMITS.PATH`. */
@@ -476,6 +480,111 @@ function removePart(project: string | null, slug: string, id: string): Arranged 
 }
 
 /**
+ * What the epic's paper says about parts, for a project and an epic — whether
+ * or not the journey has been begun.
+ *
+ * Asked without a journey on purpose. The person this was written for had a
+ * thesis, two epics and no journey record, and the first thing they need to
+ * see is what beginning one and dividing it would MAKE; a list that could
+ * only be read after the record existed would put the decision before the
+ * information. With no record there are no parts to skip, so every chapter
+ * file is proposed.
+ *
+ * `paper: false` is "this epic has no paper here" — no folder, or no
+ * `main.tex` — and is an answer, not a refusal: most epics have none, and the
+ * page then offers what it always did.
+ */
+function chapters(project: string | null, slug: string): { ok: false; error: string; status?: number } | { ok: true; chapters: Chapters | null; begun: boolean } {
+  if (!isSlug(slug)) return { ok: false, error: 'that is not a journey name' }
+  const store = held(project)
+  const nothing = nothingToReadIn(store)
+  if (nothing) return { ok: false, error: nothing, status: 409 }
+  const journey = journeyIn(store, slug)
+  return { ok: true, chapters: chaptersIn(project, slug, journey ? partsIn(journey) : []), begun: journey !== null }
+}
+
+/**
+ * Make a part for each of the chapter files named, in one write.
+ *
+ * `files` is what the person left ticked in the list they were shown: the
+ * files `main.tex` pulls in, by name. The proposal is worked out AGAIN here,
+ * from the disk, and a name that is not in it now refuses the whole call —
+ * the paper changed between the list and the press, or the file became some
+ * part's in another window, and what would be made is no longer what was
+ * read. Nothing is taken from the caller but which rows: the heading and the
+ * files each part gets are this side's reading, so a page cannot be made to
+ * write a part the paper does not have.
+ *
+ * Each part is made by `withPart`, the function `set_part` makes one by, so
+ * the ids, the limit and every refusal are that function's. All of them or
+ * none: `arrange` writes once, after the last.
+ */
+function makeChapterParts(project: string | null, slug: string, files: string[]): Arranged {
+  return arrange(project, slug, (journey) => {
+    const found = chaptersIn(project, slug, partsIn(journey))
+    if (!found) {
+      return {
+        ok: false,
+        error: `this epic has no paper in this project (no ${MAIN} in .kehikot/paper/${slug}/), so there are no chapter files to make parts of.`,
+      }
+    }
+    if (!files.length) return { ok: false, error: 'which chapter files? None was named, so nothing was made.' }
+    const stale = files.filter((file) => !found.parts.some((part) => part.file === file))
+    if (stale.length) {
+      return {
+        ok: false,
+        error:
+          `${stale.join(', ')} ${stale.length === 1 ? 'is' : 'are'} not among the chapter files ${MAIN} would make a part of now — `
+          + 'the paper changed, or a part took the file, since the list was shown. Nothing was made; list them again.',
+      }
+    }
+    let record = journey
+    const made: string[] = []
+    for (const part of found.parts) {
+      if (!files.includes(part.file)) continue
+      const out = withPart(record, { heading: part.heading, files: part.files })
+      if (!out.ok) return out
+      record = out.record
+      made.push(`“${out.heading}” (${part.files.join(', ')})`)
+    }
+    return {
+      ok: true,
+      record,
+      said:
+        `Made ${count(made.length, 'part')} from the paper’s chapter files, each owning its file: ${made.join('; ')}. `
+        + 'No step is filed under them yet. Tick them in the host’s bar to see one chapter at a time.',
+    }
+  })
+}
+
+/**
+ * A proposal as an agent reads it: what would be made, with the call that
+ * makes each, and what is left out and why.
+ */
+function chaptersSaid(slug: string, found: Chapters, begun: boolean): string {
+  const nothing = nothingSaid(found)
+  const left = leftOutSaid(found)
+  const lines = found.parts.map(
+    (part, i) =>
+      `  ${i + 1}. “${part.heading}”${part.titled ? '' : ' (named after the file: it has no \\chapter or \\section)'}\t${part.files.join(', ')}\n`
+      + `     set_part { slug: "${slug}", heading: ${JSON.stringify(part.heading)}, files: ${JSON.stringify(part.files)} }`,
+  )
+  return (
+    (nothing
+      ? `${nothing}\n`
+      : `PROPOSAL — nothing has been made. ${MAIN} of this epic’s paper pulls in ${count(found.parts.length, 'chapter file')} `
+        + 'that no part owns. One part each, in the paper’s order, called what the file’s first \\chapter or \\section '
+        + 'calls it and owning that file and the files it pulls in itself:\n'
+        + `${lines.join('\n')}\n`
+        + (begun
+          ? 'Make the ones you want with `set_part`, as written above; leave out any that is not a part of the work.\n'
+          : `This project holds no journey for ${slug} yet, and \`set_part\` needs one: call \`create_journey\` first, then `
+            + '`set_part` as written above.\n'))
+    + (left.length ? `LEFT OUT: ${left.join(' ')}\n` : '')
+  )
+}
+
+/**
  * A journey's parts and which step is in which, in lines an agent can read.
  *
  * Printed above the document by `get_journey`. The document alone does not
@@ -504,7 +613,8 @@ function partsSaid(journey: Journey): string {
     + (owning
       ? `A part’s files are the files of this epic’s paper it owns, each named from the paper’s folder `
         + `(.kehikot/paper/${journey.slug}/); set them with \`files\` on \`set_part\`.\n`
-      : `No part names a file of the paper yet; \`files\` on \`set_part\` gives it some (e.g. ${FILE_EXAMPLE}).\n`)
+      : `No part names a file of the paper yet; \`files\` on \`set_part\` gives it some (e.g. ${FILE_EXAMPLE}), and `
+        + '`propose_chapter_parts` lists the paper’s chapter files.\n')
     + `${lines.join('\n')}\n`
     + (loose.length
       ? `  IN NO PART: ${count(loose.length, 'step')} of ${journey.steps.length} — ${loose.join(', ')}\n`
@@ -809,8 +919,9 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
       `folder (<project>/.kehikot/paper/<slug>/), with forward slashes and its extension: "${FILE_EXAMPLE}", not ` +
       '"chapters/design" and not an absolute path. Omitted, the files are left alone; an empty list takes them ' +
       'all away. A name that is not in that form refuses the whole call and nothing is written. Whether the file ' +
-      'exists is not checked here: this app cannot read the paper. With `id`, `heading` may be left out to keep ' +
-      'the heading as it is. Refused if another part already has that heading.',
+      'exists is not checked here, so a part may be given a file before it is written; `propose_chapter_parts` ' +
+      'lists the files the paper actually has. With `id`, `heading` may be left out to keep the heading as it is. ' +
+      'Refused if another part already has that heading.',
     schema: {
       type: 'object',
       properties: {
@@ -846,6 +957,38 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
         ...(args.files === undefined || args.files === null ? {} : { files: args.files }),
       })
       return out.ok ? out.said : out.error
+    },
+  },
+
+  propose_chapter_parts: {
+    description:
+      'List the parts this epic’s PAPER is already divided into, without making any. It reads main.tex in the ' +
+      'paper’s folder (<project>/.kehikot/paper/<slug>/) and answers one proposed part for each file main.tex ' +
+      'pulls in with \\input, \\include or \\subfile after \\begin{document}, in document order: its heading (the ' +
+      'file’s first \\chapter or \\section title, or the file’s name when it has neither) and the files it would ' +
+      'own (that file and every file it pulls in itself). Files a part already owns are skipped and said, as are ' +
+      'files pulled in by the preamble and files that are not on disk; main.tex is never a part. READ-ONLY: ' +
+      'nothing is written. Each proposal is printed with the `set_part` call that makes it, so make the ones ' +
+      'you want with `set_part`. Works before the journey exists, and then says to call `create_journey` first. ' +
+      'Answers "no paper" for an epic with no main.tex there.',
+    schema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Absolute path of the project folder' },
+        slug: { type: 'string', description: 'The epic’s slug, e.g. thesis' },
+      },
+      required: ['project', 'slug'],
+    },
+    run(args) {
+      const named = projectArg(args.project)
+      if ('error' in named) return named.error
+      const slug = str(args.slug, MAX_SLUG)
+      const out = chapters(named.project, slug)
+      if (!out.ok) return out.error
+      if (!out.chapters) {
+        return `No paper for ${slug} in ${named.project}: there is no ${MAIN} in .kehikot/paper/${slug}/, so there are no chapter files to propose parts from.`
+      }
+      return chaptersSaid(slug, out.chapters, out.begun)
     },
   },
 
@@ -975,7 +1118,9 @@ function mcp(rpc: Rpc): Reply {
         'A journey may say its steps are kept somewhere this app cannot read; an empty steps array on one of ' +
         'those means "not here", never "none". A journey may be divided into parts (its groups), and a step is ' +
         'in a part only because its `part` names that part’s id: `get_journey` lists the ids and which steps ' +
-        'are in none, `assign_steps` files steps, and `set_part` / `remove_part` make, reword and remove parts.',
+        'are in none, `assign_steps` files steps, and `set_part` / `remove_part` make, reword and remove parts. ' +
+        'Where the epic has a paper, `propose_chapter_parts` lists — and does not make — one part for each chapter ' +
+        'file its main.tex pulls in.',
     })
   }
   /* A notification carries no id and is answered with nothing. */
@@ -1104,6 +1249,27 @@ export function answer(
     return ok({ ok: true, journey: view(journey) })
   }
 
+  /**
+   * What the epic's paper says about parts. A read, like the two above it,
+   * and answered whether or not the journey exists — see `chapters`.
+   */
+  if (path === '/api/chapters' && method === 'GET') {
+    const slug = str(query.get('slug'), MAX_SLUG)
+    const out = chapters(str(query.get('project'), MAX_PROJECT), slug)
+    if (!out.ok) return bad(out.error, out.status)
+    if (!out.chapters) return ok({ ok: true, slug, paper: false })
+    return ok({
+      ok: true,
+      slug,
+      paper: true,
+      ...out.chapters,
+      /* The two sentences the page prints, worked out where the MCP door's
+         are, so a person and an agent are told the same thing. */
+      nothing: nothingSaid(out.chapters),
+      leftOut: leftOutSaid(out.chapters),
+    })
+  }
+
   if (method === 'POST' && path.startsWith('/api/')) {
     if (!body) return bad('that was not a request')
     const project = str(body.project, MAX_PROJECT)
@@ -1160,6 +1326,12 @@ export function answer(
       })
       if (!out.ok) return bad(out.error, out.status)
       return ok({ ok: true, journey: view(out.journey), said: out.said, id: out.id })
+    }
+
+    if (path === '/api/parts/chapters') {
+      const out = makeChapterParts(project, slug, list(body.files, MAX_FILE))
+      if (!out.ok) return bad(out.error, out.status)
+      return ok({ ok: true, journey: view(out.journey), said: out.said })
     }
 
     if (path === '/api/part/remove') {

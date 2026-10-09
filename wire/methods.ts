@@ -104,3 +104,36 @@ export const REFRESH_TRACKER = required('reading the trackers again', ['tracker.
  * nothing else — never from a read, which is what answers it.
  */
 export const REPORT_CHANGE = required('saying this app’s own material changed', ['content.changed'])
+
+/**
+ * The reference a host walks this app to when it means "the place where this
+ * epic is divided into parts".
+ *
+ * ## Why a reference, and why this one
+ *
+ * A host draws the parts of an epic in its own bar, and for an epic with none
+ * it can only say where they are made: here. It gets a person here the way it
+ * gets them anywhere inside a module — `kehikot.goto`, which names a
+ * reference for the module to find on its own page and is answered
+ * `kehikot.went`, found or not. This is that walk with a reference no tracker
+ * could have issued: a tracker's are `gh#41`, `#2274`, `!1801`, and a colon
+ * is in none of them.
+ *
+ * It was chosen over the two other ways a host can point at this page. The
+ * fragment (`/app#epic=x`) says nothing back and, set from outside the
+ * frame, may reload a document somebody is typing into. A field in
+ * `kehikot.context` would be state — re-sent with every context, on every
+ * reload — where this is a press that happens once. A walk is answered, and
+ * a host can tell a Journeys that opened its parts from one too old to know
+ * the word: that one looks for a card called `journeys:parts`, finds none,
+ * and says so.
+ *
+ * ## It belongs in the protocol
+ *
+ * The host spells this string too, in its own source, and two spellings of
+ * one word across two repositories are how they come to differ. It is a
+ * constant for `kehikot-module-protocol` beside `JOURNEYS_MODULE`. It is here
+ * because the change that needed it was three repositories wide without the
+ * protocol being one of them.
+ */
+export const PARTS_REF = 'journeys:parts'

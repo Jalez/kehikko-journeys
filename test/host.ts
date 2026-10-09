@@ -33,6 +33,26 @@ export const JOURNEY = {
 
 export const PROJECT = '/Users/somebody/Projects/probe'
 
+const NO_PAPER: Record<string, unknown> = { ok: true, slug: 'probe', paper: false }
+
+/** A paper of two chapters and a preamble file, as `/api/chapters` answers it for a journey with no parts. */
+export const PAPER = {
+  ok: true,
+  slug: 'probe',
+  paper: true,
+  parts: [
+    { heading: 'Introduction', titled: true, file: 'chapters/1_introduction.tex', files: ['chapters/1_introduction.tex'] },
+    { heading: 'Results', titled: false, file: 'chapters/2_results.tex', files: ['chapters/2_results.tex', 'generated/table.tex'] },
+  ],
+  owned: [],
+  preamble: ['macros.tex'],
+  missing: [],
+  beyond: [],
+  files: ['macros.tex', 'chapters/1_introduction.tex', 'chapters/2_results.tex', 'generated/table.tex'],
+  nothing: null,
+  leftOut: ['macros.tex is pulled in before \\begin{document} — macros and settings, not a chapter — and is not made a part.'],
+}
+
 /**
  * What the stand-in store holds and what it has been asked, for the cases that
  * are about WHEN this page reads — a re-read after somebody else's write is a
@@ -69,11 +89,17 @@ export const store = {
   begun: [] as Record<string, unknown>[],
   /** Every write that arranged the journey into parts, as the page sent it. */
   arranged: [] as { path: string; body: Record<string, unknown> }[],
+  /**
+   * What `/api/chapters` answers: what the epic's paper says about parts.
+   * No paper, unless a case gives it one.
+   */
+  chapters: NO_PAPER as Record<string, unknown>,
   reset: () => {
     store.journey = JOURNEY
     store.listed = true
     store.begun = []
     store.arranged = []
+    store.chapters = NO_PAPER
     held = null
   },
 }
@@ -87,7 +113,23 @@ function stubStore() {
     store.asked.push(`${init?.method ?? 'GET'} ${url}`)
     let refusal: string | null = null
     let said = 'Began probe from what the host holds for that epic: 2 steps.'
-    if (/\/api\/(assign|part)/.test(url)) {
+    if (url.includes('/api/parts/chapters')) {
+      /* What the real door does: the proposal's own heading and files for
+         each row named, made by `withPart`, all in one answer. */
+      const body = JSON.parse(String(init?.body)) as { files: string[] }
+      store.arranged.push({ path: '/api/parts/chapters', body })
+      let record = { ...store.journey, groups: (store.journey as { groups?: unknown[] }).groups ?? [] } as Arrangeable
+      const proposed = (store.chapters.parts ?? []) as { heading: string; file: string; files: string[] }[]
+      for (const part of proposed.filter((one) => body.files.includes(one.file))) {
+        const out = withPart(record, { heading: part.heading, files: part.files })
+        if (out.ok) record = out.record
+        else refusal = out.error
+      }
+      if (refusal === null) {
+        store.journey = record as unknown as typeof JOURNEY
+        said = `Made ${body.files.length} parts from the paper’s chapter files.`
+      }
+    } else if (/\/api\/(assign|part)/.test(url)) {
       /* The store's own arithmetic, so that what the page draws after a press
          is what the real door would have answered — `parts.ts` is the half of
          the store a browser can load, and so can a test. */
@@ -131,6 +173,8 @@ function stubStore() {
           ok: true,
           journeys: store.listed ? [{ slug: 'probe', title: 'A journey', tab: null, plan: 'stored', steps: 2 }] : [],
         }
+      : url.includes('/api/chapters')
+        ? store.chapters
       : refusal !== null
         ? { ok: false, error: refusal }
         : url.includes('/api/journey') || url.includes('/api/step') || /\/api\/(assign|part)/.test(url)
@@ -210,11 +254,15 @@ export const settle = () => new Promise((done) => setTimeout(done, 20))
    a context that is the echo of this page's own pick must not scroll, and one
    that is somebody else's must. */
 let scrolled = 0
-Element.prototype.scrollIntoView = () => {
+let scrolledTo: { element: Element; block: string | undefined } | null = null
+Element.prototype.scrollIntoView = function (this: Element, how?: boolean | ScrollIntoViewOptions) {
   scrolled += 1
+  scrolledTo = { element: this, block: typeof how === 'object' ? how.block : undefined }
 }
 export const scrolls = {
   count: () => scrolled,
+  /** The element last scrolled to, and which edge of the page it was brought to. */
+  last: () => scrolledTo,
   reset: () => {
     scrolled = 0
   },
