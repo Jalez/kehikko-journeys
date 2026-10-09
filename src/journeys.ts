@@ -11,21 +11,10 @@ import {
   type DispositionValue,
   type EpicPart,
   type FilterChoice,
-  type Goto,
   type ModuleContext,
   type TrackerReading,
 } from 'kehikot-module-protocol'
-import {
-  HostRefused,
-  applyTheme,
-  connect,
-  pageTheme,
-  reloadWhenStale,
-  serverStanding,
-  systemTheme,
-  type Connection,
-} from 'kehikot-module-protocol/client'
-import { GREETING_GRACE_MS, type Where } from 'kehikot-module-protocol/client/react'
+import { HostRefused, held as heldStore, hostStore, probeServer, type Draft, type HostStanding, type Where } from 'kehikot-module-protocol/client'
 import { HIDE_GROUP, countFacets, hiddenIn, offer, type Facet } from 'kehikot-module-protocol/facets'
 
 import { ID } from '../manifest.ts'
@@ -35,8 +24,7 @@ import type { Brief, JourneyView, Live, Target } from './kinds.ts'
 import { cardsUnder, facetsOfRef, readingOf, refsOf, unreadLinks, type Around } from './live/lookup.ts'
 import { shownSteps, stepInFocus } from './focus.ts'
 import { bounded, firstShown, samePick, togglePick } from './refs.ts'
-import { get, knock, post, standIn } from './store/api.ts'
-import { keepDraft, readDraft, readDrafts, type Draft } from './store/held.ts'
+import { get, post, standIn } from './store/api.ts'
 
 /**
  * The browser half of the app: everything it holds, and everything it decides.
@@ -181,7 +169,7 @@ export interface State {
    * drawn; see `focus.ts`. Held verbatim: which steps that is, is worked out
    * where it is drawn, by the protocol's own function.
    */
-  parts: EpicPart[]
+  parts: readonly EpicPart[]
   /**
    * The epic this project is KNOWN to hold no journey for: the index was read
    * again and does not list it.
@@ -363,7 +351,7 @@ export function setEditing(which: number): void {
  *
  * A page older than its server reloads itself — on the Save press that found
  * it out, or on a read — and the write is not retried. So every box on this
- * page writes its words as they change (`store/held.ts`), under the project
+ * page writes its words as they change (the protocol's `held`), under the project
  * and under what they were aimed at: the journey's slug, then `step:<position>`
  * for an open step, `add` for a step not written yet, and `part:new`,
  * `part:rename:<id>`, `part:file:<id>` for the three boxes of the parts.
@@ -371,27 +359,27 @@ export function setEditing(which: number): void {
  * closing the editor.
  * ------------------------------------------------------------------ */
 
-/** A held draft counts only if the person changed it: an untouched one loses to whatever the store holds now. */
-const touched = (one: Draft | null): Draft | null => (one && one.text !== one.base && one.text.trim() ? one : null)
+/** By project, then by the journey's slug and the box. An untouched or emptied draft is never one: the protocol's reader drops it. */
+const drafts = heldStore('kehikot.journeys.drafts')
 
 /** The words held for one box of the journey that is open, or null. */
 export function held(target: string): Draft | null {
   const slug = state.journey?.slug
-  return slug ? touched(readDraft(state.projectPath, `${slug}|${target}`)) : null
+  return slug ? drafts.at(state.projectPath).read(`${slug}|${target}`) : null
 }
 
 /** Hold the words in one box of the journey that is open; `null` forgets them. */
 export function hold(target: string, draft: Draft | null): void {
   const slug = state.journey?.slug
-  if (slug) keepDraft(state.projectPath, `${slug}|${target}`, draft && draft.text !== draft.base && draft.text.trim() ? draft : null)
+  if (slug) drafts.at(state.projectPath).keep(`${slug}|${target}`, draft)
 }
 
 /** Every held draft for the journey that is open, by target. */
 function heldHere(): [string, Draft][] {
   const slug = state.journey?.slug
   if (!slug) return []
-  return Object.entries(readDrafts(state.projectPath))
-    .filter(([target, one]) => target.startsWith(`${slug}|`) && touched(one))
+  return Object.entries(drafts.at(state.projectPath).all())
+    .filter(([target]) => target.startsWith(`${slug}|`))
     .map(([target, one]) => [target.slice(slug.length + 1), one])
 }
 
@@ -961,7 +949,7 @@ export async function begin(): Promise<void> {
 
 async function beginFrom(slug: string, here: () => boolean): Promise<void> {
   let seed: unknown = undefined
-  if (host?.greeted()) {
+  if (greeted()) {
     try {
       seed = await host.request(GET_EPIC, { epic: slug })
     } catch {
@@ -1022,7 +1010,7 @@ async function beginFrom(slug: string, here: () => boolean): Promise<void> {
  * not hear this sees the folder move like any other outside write.
  */
 function report(slug: string): void {
-  if (!host?.greeted()) return
+  if (!greeted()) return
   void host.request(REPORT_CHANGE, { epic: slug }).catch(() => {})
 }
 
@@ -1175,7 +1163,7 @@ async function reload(): Promise<void> {
  */
 async function fill(): Promise<void> {
   const being = state.journey
-  if (!host?.greeted() || !being) return
+  if (!greeted() || !being) return
   /*
    * An answer to a question nobody is waiting on any more is dropped, and
    * there are two ways to stop waiting.
@@ -1250,11 +1238,10 @@ function inGroups(refs: readonly string[]): string[][] {
  * app's words, not a reading with holes in it.
  */
 async function ask(refs: readonly string[]): Promise<TrackerReading[]> {
-  const asked = host
-  if (!asked) return []
+  if (!host.connection()) return []
   return Promise.all(
     inGroups(refs).map(async (group) => {
-      const read = trackerReadingResult.safeParse(await asked.request(GET_TRACKER, { refs: group }))
+      const read = trackerReadingResult.safeParse(await host.request(GET_TRACKER, { refs: group }))
       if (!read.success) throw new Error(`the host answered ${GET_TRACKER} in a shape this app could not read`)
       return read.data
     }),
@@ -1292,12 +1279,11 @@ function busyNow(): boolean {
  */
 export async function refresh(): Promise<void> {
   const being = state.journey
-  if (!host?.greeted() || !being || pressed) return
+  if (!greeted() || !being || pressed) return
   const refs = [...new Set([...refsOf(being), ...everyCard().map((card) => card.ref)])].filter(
     (ref) => readTrackerRef(ref) !== null,
   )
   if (!refs.length) return
-  const asked = host
   pressed = true
   set({ busy: true })
   let why = ''
@@ -1305,7 +1291,7 @@ export async function refresh(): Promise<void> {
     const outcomes = await Promise.all(
       inGroups(refs).map(async (group) =>
         trackerRefreshResult.safeParse(
-          await asked.request(REFRESH_TRACKER, { refs: group }, { within: TRACKER_REFRESH_WITHIN_MS }),
+          await host.request(REFRESH_TRACKER, { refs: group }, { within: TRACKER_REFRESH_WITHIN_MS }),
         ),
       ),
     )
@@ -1355,7 +1341,7 @@ let refreshOffer: string | null = null
  * press, which says when somebody asked and not what the page is showing.
  */
 function offerRefresh(): void {
-  if (!host) return
+  if (!host.connection()) return
   const offer = {
     can: state.framed && refsOf(state.journey).length > 0,
     at: state.live?.at ?? null,
@@ -1392,7 +1378,7 @@ function offerRefresh(): void {
 let offered: string | null = null
 
 function announce(): void {
-  if (!host) return
+  if (!host.connection()) return
   const facets = (ref: string) => facetsOfRef(state.live, ref, around())
   const counts = countFacets(
     everyCard().map((card) => card.ref),
@@ -1421,7 +1407,7 @@ function announce(): void {
 async function reveal(ref: string): Promise<string | null> {
   const blocking = facetsOfRef(state.live, ref, around()).filter((facet) => state.hidden.includes(facet))
   if (!blocking.length) return null
-  if (!host?.greeted()) return `${ref} is hidden by the filter, and there is no host to lift it.`
+  if (!greeted()) return `${ref} is hidden by the filter, and there is no host to lift it.`
   const rest = state.hidden.filter((facet) => !blocking.includes(facet))
   const { [HIDE_GROUP]: _hide, ...others } = state.filters
   const filters: FilterChoice = rest.length ? { ...others, [HIDE_GROUP]: rest } : others
@@ -1456,7 +1442,7 @@ export async function markDisposition(
   value: DispositionValue | null,
   target?: string,
 ): Promise<void> {
-  if (!host?.greeted()) {
+  if (!greeted()) {
     say('Nothing is framing this page, so there is nowhere to keep that mark.')
     return
   }
@@ -1705,7 +1691,43 @@ window.addEventListener('hashchange', () => {
  * The host, when there is one
  * ------------------------------------------------------------------ */
 
-let host: Connection | null = null
+/*
+ * The protocol's `hostStore`: the listener, the grace before saying nobody is framing this page,
+ * the theme on <html>, and the reload of a page older than its server. Its standing arrives
+ * flattened and steady; `context` below is what this page makes of it. Handlers are called after
+ * the standing has changed, so a greeting is `context` and then `grow`, in that order.
+ */
+const host = hostStore(
+  ID,
+  {
+    onHello: () => grow(),
+    /* A press on the host's refresh control, or the interval somebody set for
+       this container. The same either way; see `refresh`. */
+    onRefresh: () => void refresh(),
+    onGoto: (goto, answer) => {
+      /* The one reference that is not a card: a host asking for the place
+         this epic is divided into parts. See `PARTS_REF`. */
+      if (goto.ref === PARTS_REF) {
+        const out = openParts(goto.epic)
+        answer(out.found, out.why)
+        return
+      }
+      void goTo({ ref: goto.ref, step: goto.step, slug: goto.epic }).then((out) => answer(out.found, out.why))
+    },
+  },
+  /* 900ms, this module's own number rather than the client's 500, because
+     `goTo` above is async: it may have to load a journey before it can
+     honestly say whether the reference is in it. */
+  { gotoBackstop: 900 },
+)
+host.subscribe(() => {
+  const standing = host.get()
+  if (standing.context) context(standing, standing.context)
+  else set({ where: standing.where })
+})
+
+/** Whether a host has greeted this page: whether there is anybody to ask. */
+const greeted = (): boolean => host.connection()?.greeted() ?? false
 
 /**
  * Say how tall we would like to be.
@@ -1725,15 +1747,14 @@ let host: Connection | null = null
  * left exactly as it is, editor and all: this must not cost anybody what they had typed.
  */
 export async function retry(): Promise<void> {
-  await knock()
-  if (serverStanding() !== 'up') return
+  if ((await probeServer()) !== 'up') return
   if (typeof standingIn === 'string') await standIn(standingIn)
   await readIndex()
   if (!state.journey && standingOn) await open(standingOn)
 }
 
 export function grow(): void {
-  host?.resize(document.body.scrollHeight + 32)
+  host.resize(document.body.scrollHeight + 32)
 }
 
 /**
@@ -1850,12 +1871,8 @@ let standingIn: string | null | undefined = undefined
  * journey, and the comparison that says "you are already showing this" is only
  * true within one store.
  */
-function context(next: ModuleContext): void {
-  /* The protocol's: `dark` or `light` on <html>, both spelled, and remembered for the next load's first paint. */
-  applyTheme(next.theme === 'dark' ? 'dark' : 'light', { remember: true })
-
-  const named = next.epic ?? ''
-  const slug = /^[a-z0-9-]{1,80}$/.test(named) ? named : null
+function context({ epic: named, projectPath: project, selection: chosen, chosen: filters, parts }: HostStanding, next: ModuleContext): void {
+  const slug = named !== null && /^[a-z0-9-]{1,80}$/.test(named) ? named : null
 
   /* `epic` goes into state beside `framed`, in the same patch, because the two
      are one fact about this context and a page rendered between them would be
@@ -1866,7 +1883,6 @@ function context(next: ModuleContext): void {
      nothing named: it is not a name this app could hold a journey under, and
      quoting somebody else's malformed field back at a reader who can do
      nothing with it is not information. */
-  const chosen = next.selection ?? []
   /* The echo of this page's own pick is still the truth about the canvas and
      goes into state like any other — it is only the WALK that is skipped. See
      `asked`. */
@@ -1878,7 +1894,6 @@ function context(next: ModuleContext): void {
   /* The selection rides in the same patch as `framed` and `epic`: all three are
      one fact about this context, and a page rendered between them would draw a
      step as picked under a heading the host had not yet named. */
-  const filters = next.filters ?? {}
   /* The tracker signal: re-read when the reading moved, and say busy while
      somebody is reading. Only a CHANGE of `at` is news — the first context
      sets it, and the journey that context opens is read anyway. */
@@ -1896,7 +1911,7 @@ function context(next: ModuleContext): void {
   set({
     framed: true,
     where: 'hosted',
-    projectPath: typeof next.projectPath === 'string' && next.projectPath.trim() ? next.projectPath : null,
+    projectPath: project,
     refused: null,
     epic: slug,
     selection: picked,
@@ -1904,14 +1919,13 @@ function context(next: ModuleContext): void {
        page rendered between them would draw every step under a bar that says
        it is narrowed. Nothing is fetched for it — the steps are already here,
        and which of them are shown is decided where they are drawn. */
-    parts: next.parts ?? [],
+    parts,
     marks: next.dispositions ?? [],
     filters,
     hidden: hiddenIn(filters),
     busy: busyNow(),
   })
 
-  const project = typeof next.projectPath === 'string' && next.projectPath.trim() ? next.projectPath : null
   const relocated = standingIn !== project
   standingIn = project
 
@@ -2117,7 +2131,7 @@ export function clearPick(): void {
 }
 
 function send(wanted: string[]): void {
-  if (!host?.greeted()) {
+  if (!greeted()) {
     /* Standalone. Not a refusal — there is nobody to refuse — but a press that
        did nothing needs a sentence, and the controls are hidden when the page
        knows it is alone, so reaching this means the host has gone quiet. */
@@ -2144,7 +2158,7 @@ function send(wanted: string[]): void {
  * which epic is open and that wins; if none ever does, the page is already
  * whole.
  *
- * `connect` is called BEFORE the first fetch, and that ordering is the whole
+ * The host is listened for BEFORE the first fetch, and that ordering is the whole
  * point of the client's `mailbox`: the greeting arrives on the frame's `load`
  * event and is replayed to whoever subscribes, so the only way to lose it is to
  * subscribe from inside something that resolves later than a network call. It
@@ -2154,72 +2168,7 @@ function send(wanted: string[]): void {
  * ------------------------------------------------------------------ */
 
 export function start(): void {
-  const live = connect(
-    ID,
-    {
-      /**
-       * The greeting, and the second thing it carries.
-       *
-       * `state` is whatever the host is keeping for this module. The copy of
-       * the wire that used to stand in this repository declared `onHello` with
-       * one parameter, so the value was parsed off the greeting and then had
-       * nowhere to go — this page could not read what the host was holding for
-       * it even if it wanted to. The parameter is back, named and ignored:
-       * this app keeps its journeys in its own store and declares no
-       * `state:keep`, and the point is that the plumbing is here rather than
-       * waiting to be rediscovered.
-       */
-      onHello: (heard, _kept) => {
-        context(heard)
-        grow()
-      },
-      onContext: (heard) => context(heard),
-      /* A press on the host's refresh control, or the interval somebody set for
-         this container. The same either way; see `refresh`. */
-      onRefresh: () => {
-        void refresh()
-      },
-      onGoto: (goto: Goto, answer) => {
-        /* The one reference that is not a card: a host asking for the place
-           this epic is divided into parts. See `PARTS_REF`. */
-        if (goto.ref === PARTS_REF) {
-          const out = openParts(goto.epic)
-          answer(out.found, out.why)
-          return
-        }
-        void goTo({ ref: goto.ref, step: goto.step, slug: goto.epic }).then((out) => answer(out.found, out.why))
-      },
-    },
-    /* 900ms, this module's own number rather than the client's 500, because
-       `goTo` above is async: it may have to load a journey before it can
-       honestly say whether the reference is in it. The client takes the option
-       so that adoption keeps each module's timing instead of unifying it by
-       accident. */
-    { gotoBackstop: 900 },
-  )
-  /* Stored BEFORE it is told to listen. The mailbox replays synchronously
-     inside `listen()`, and `onHello` calls `grow()`, which reaches for this
-     module's own state — so the assignment has to have happened. See `listen`
-     in the client. */
-  host = live
-  live.listen()
-
-  /*
-   * The grace: a page cannot know at load whether it is framed, so it waits this long for a
-   * greeting before saying nobody is there. The protocol's number, and the same three lines
-   * `useHost` runs — this module keeps `connect()` and a store of its own, so it runs them itself.
-   */
-  setTimeout(() => {
-    if (host !== live || live.greeted()) return
-    set({ where: 'unhosted' })
-    /* Nothing has said a theme and nothing will: the machine's own, if the document decided none. */
-    if (pageTheme() === null) applyTheme(systemTheme())
-  }, GREETING_GRACE_MS)
-
-  /* A page older than its server — a ticket refused as not this process's, or an answer stamped
-     with another build — reloads itself once, a moment after saying so. `useHost` arranges this
-     for a module that uses it; this one arranges it here. */
-  reloadWhenStale()
+  host.start()
 
   const where = fromHash()
   /*

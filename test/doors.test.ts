@@ -6,7 +6,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { KEHIKOT_DIR, moduleFolder } from 'kehikot-module-protocol'
 
 import { BUILD, MANIFEST, TICKET, answer, writeTicketFor } from '../doors.ts'
-import { through } from './through-doors.ts'
+import { doorsFetch } from 'kehikot-module-protocol/serve'
 import { ID } from '../manifest.ts'
 
 /** This module's own folder inside `.kehikot/`, spelled the way the app spells it. */
@@ -197,25 +197,29 @@ describe('writing, and the ticket that names one project', () => {
   })
 
   test('through the doors: x-module-ticket and the project ticket together write; the old header does not', async () => {
-    const DOORS = { manifest: MANIFEST, answer, build: BUILD, page: { title: 'Journeys', ticket: TICKET } }
+    const doors = doorsFetch({ manifest: MANIFEST, answer, build: BUILD, page: { title: 'Journeys', ticket: TICKET } })
+    const through = async (method: string, url: string, { body, headers }: { body?: unknown; headers?: Record<string, string> } = {}) => {
+      const sent = (await doors(new Request(`http://127.0.0.1${url}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })))!
+      return { status: sent.status, headers: sent.headers, json: (await sent.clone().json().catch(() => null)) as Record<string, unknown>, text: await sent.text() }
+    }
     const step = { project, slug: 'a-stored-journey', position: 0, title: 'the first thing', ticket: write }
-    const old = await through(DOORS, 'POST', '/api/step', { body: step, headers: { 'x-journeys-ticket': write } })
+    const old = await through('POST', '/api/step', { body: step, headers: { 'x-journeys-ticket': write } })
     expect(old.status).toBe(403)
-    expect(old.json().refused).toBe('ticket')
+    expect(old.json.refused).toBe('ticket')
 
-    const taken = await through(DOORS, 'POST', '/api/ticket', { body: { project }, headers: { 'x-module-ticket': TICKET } })
-    expect(taken.json().ticket).toBe(write)
-    const sent = await through(DOORS, 'POST', '/api/step', { body: step, headers: { 'x-module-ticket': TICKET } })
+    const taken = await through('POST', '/api/ticket', { body: { project }, headers: { 'x-module-ticket': TICKET } })
+    expect(taken.json.ticket).toBe(write)
+    const sent = await through('POST', '/api/step', { body: step, headers: { 'x-module-ticket': TICKET } })
     expect(sent.status).toBe(200)
-    expect(sent.json().ok).toBe(true)
-    expect(sent.headers['x-module-build']).toBeTruthy()
+    expect(sent.json.ok).toBe(true)
+    expect(sent.headers.get('x-module-build')).toBeTruthy()
 
-    const page = await through(DOORS, 'GET', '/app')
+    const page = await through('GET', '/app')
     expect(page.text).toContain(`<script id="ticket" type="application/json">${JSON.stringify(TICKET)}</script>`)
     expect(page.text).toContain('<script id="build" type="application/json">')
-    expect(page.headers['cache-control']).toBe('no-store')
-    const health = await through(DOORS, 'GET', '/healthz')
-    expect((health.json().build as { version: string }).version).toBe(BUILD.version)
+    expect(page.headers.get('cache-control')).toBe('no-store')
+    const health = await through('GET', '/healthz')
+    expect((health.json.build as { version: string }).version).toBe(BUILD.version)
   })
 
   test('the ticket door hands one over to something holding the process ticket', () => {

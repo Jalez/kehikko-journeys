@@ -175,6 +175,16 @@ export function Parts({
     }
     return null
   })
+  /* Closing a rename or a file row — by its own button, by Cancel, by opening another over it —
+     is throwing its words away on purpose, the held copy with them: a row somebody closed does not
+     reopen after a reload. Saving closes it too, and by then the store has the words. */
+  const openUnder = (next: Open) => {
+    if (under && (under.kind !== next?.kind || under.id !== next.id)) {
+      if (under.kind === 'rename') hold(`part:rename:${under.id}`, null)
+      if (under.kind === 'files') hold(`part:file:${under.id}`, null)
+    }
+    setUnder(next)
+  }
   const [every, setEvery] = useState(false)
   const [heading, setHeading] = useState(() => held('part:new')?.text ?? '')
   const [offering, setOffering] = useState(false)
@@ -296,7 +306,7 @@ export function Parts({
               paperFiles={paper ? paper.files : null}
               storesSteps={journey.plan === 'stored'}
               under={under?.id === part.id ? under.kind : null}
-              setUnder={(kind) => setUnder(kind ? { kind, id: part.id } : null)}
+              setUnder={(kind) => openUnder(kind ? { kind, id: part.id } : null)}
             />
           ))}
         </ul>
@@ -582,9 +592,7 @@ function PartRow({
           onSubmit={(event) => {
             event.preventDefault()
             void savePart(part.id, name).then((done) => {
-              if (!done) return
-              setUnder(null)
-              hold(`part:rename:${part.id}`, null)
+              if (done) setUnder(null)
             })
           }}
         >
