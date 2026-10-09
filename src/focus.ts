@@ -1,4 +1,4 @@
-import { focusCount, partInFocus, pickedParts, stepPart, type EpicPart } from 'kehikot-module-protocol'
+import { anchorInFocus, narrowToFocus, pickedParts, stepPart, type Anchor, type EpicPart } from 'kehikot-module-protocol'
 
 import type { Step } from './kinds.ts'
 
@@ -14,8 +14,8 @@ import type { Step } from './kinds.ts'
  * it was before it read the field.
  *
  * With some picked, a step is shown when the part it SAYS it is in is one of
- * them — `partInFocus(parts, stepPart(step))`, the protocol's two functions and
- * not a rule of this app's own. A step is in a part because it carries
+ * them — its anchor is `{ part: stepPart(step) }`, and the protocol's one rule
+ * (`anchorInFocus`, `narrowToFocus`) decides, not a rule of this app's own. A step is in a part because it carries
  * `part: <id>` and for no other reason. It is never filed by the references it
  * names: a step often names a reference it merely depends on, and a rule that
  * filed it under that reference's heading would move steps between parts
@@ -62,14 +62,24 @@ export interface Shown {
   index: number
 }
 
+/** What ties a step to a part: the part it says it is in, and nothing else. */
+const anchorOf = (step: Step): Anchor => ({ part: stepPart(step) })
+
 /** Whether one step is in front of the person. True for every step when nothing is picked. */
 export function stepInFocus(parts: readonly EpicPart[], step: Step): boolean {
-  return partInFocus(parts, stepPart(step))
+  return anchorInFocus(parts, anchorOf(step))
 }
 
-/** The steps to draw, in the journey's order, each with its own position. */
-export function shownSteps(parts: readonly EpicPart[], steps: readonly Step[]): Shown[] {
-  return steps.map((step, index) => ({ step, index })).filter(({ step }) => stepInFocus(parts, step))
+/**
+ * The steps to draw, in the journey's order, each with its own position.
+ *
+ * `editing` is the position of the step whose editor is open, or -1. That one
+ * is drawn though it is outside: a tick in another control does not take a
+ * half-written step out of somebody's hands. It is still counted outside.
+ */
+export function shownSteps(parts: readonly EpicPart[], steps: readonly Step[], editing = -1): Shown[] {
+  const each = steps.map((step, index) => ({ step, index }))
+  return narrowToFocus(parts, each, ({ step }) => anchorOf(step), { keep: ({ index }) => index === editing }).shown
 }
 
 export interface Narrowing {
@@ -80,26 +90,28 @@ export interface Narrowing {
   outside: number
   /** How many of `outside` say no part at all, or name one the epic does not have. */
   unassigned: number
+  /** Whether the step being edited is one of `outside`, and drawn anyway. */
+  held: boolean
 }
 
 /**
  * What the page says about the focus, as data; null when nothing is picked,
  * which is the cue to say nothing at all.
  *
- * `focusCount` is the protocol's, so that three modules do not count three
- * ways. `unassigned` is this app's own addition to the sentence, because it is
+ * The count is the protocol's (`narrowToFocus`), so that no two modules count
+ * two ways. `unassigned` is this app's own addition to the sentence, because it is
  * the half of `outside` a person can do something about.
  */
-export function narrowing(parts: readonly EpicPart[], steps: readonly Step[]): Narrowing | null {
+export function narrowing(parts: readonly EpicPart[], steps: readonly Step[], editing = -1): Narrowing | null {
   const picked = pickedParts(parts)
   if (picked.length === 0) return null
-  const { shown, outside } = focusCount(parts, steps, (step) => stepInFocus(parts, step))
+  const { shown, outside, kept } = narrowToFocus(parts, steps, anchorOf, { keep: (step) => steps[editing] === step })
   const has = new Set(parts.map((part) => part.id))
   const unassigned = steps.filter((step) => {
     const part = stepPart(step)
     return part === null || !has.has(part)
   }).length
-  return { picked: picked.map((part) => part.heading || part.id), shown, outside, unassigned }
+  return { picked: picked.map((part) => part.heading || part.id), shown: shown.length - kept, outside, unassigned, held: kept > 0 }
 }
 
 /** `narrowing`, in the words the page prints. */
@@ -118,7 +130,9 @@ export function narrowedSaid(said: Narrowing): { lead: string; rest: string; fil
         ', and not shown.'
   return {
     lead,
-    rest: `${count} The parts are picked in the host’s bar, beside the epic; clear them there to see every step.`,
+    rest:
+      `${count} The parts are picked in the host’s bar, beside the epic; clear them there to see every step.`
+      + (said.held ? ' The step you are editing is outside, and stays until you close it.' : ''),
     /* Said only when there is something a person can do about it here. A step
        in ANOTHER part is where somebody put it; a step in none is waiting to
        be put somewhere, and is hidden under every focus until it is. */

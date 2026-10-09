@@ -5,6 +5,7 @@ import { mailbox } from 'kehikot-module-protocol/client'
 
 import { App } from '../src/app.tsx'
 import { narrowedSaid, narrowing, shownSteps } from '../src/focus.ts'
+import { setEditing } from '../src/journeys.ts'
 import type { Step } from '../src/kinds.ts'
 import { JOURNEY, settle, started, store, stubHost, type Wire } from './host.ts'
 
@@ -56,6 +57,7 @@ describe('which steps are in front of the person', () => {
       shown: 3,
       outside: 2,
       unassigned: 2,
+      held: false,
     })
   })
 
@@ -166,6 +168,23 @@ describe('the page under a focus', () => {
     await settle()
     expect(drawn()).toEqual(['1', '2', '3', '4', '5'])
     expect(document.querySelector('[data-narrowed]')).toBeNull()
+  })
+
+  test('a tick does not take away the step somebody is editing', async () => {
+    store.journey = divided
+    const { context } = await framed({ parts: PARTS })
+    setEditing(2)
+    context({ parts: pick('the-agent-seam') })
+    await settle()
+    /* Step three is in the other part: drawn in its place, and counted outside. */
+    expect(drawn()).toEqual(['1', '3', '5'])
+    const said = document.querySelector('[data-narrowed]')?.textContent ?? ''
+    expect(said).toContain('2 of 5 steps shown · 3 outside the picked part')
+    expect(said).toContain('The step you are editing is outside, and stays until you close it.')
+    setEditing(2)
+    await settle()
+    expect(drawn()).toEqual(['1', '5'])
+    expect(document.querySelector('[data-narrowed]')?.textContent).not.toContain('you are editing')
   })
 
   test('a journey nobody has assigned shows none of its steps under a focus, and says why', async () => {
