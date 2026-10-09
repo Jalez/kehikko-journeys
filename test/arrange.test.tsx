@@ -4,7 +4,7 @@ import type { EpicPart } from 'kehikot-module-protocol'
 import { mailbox } from 'kehikot-module-protocol/client'
 
 import { App } from '../src/app.tsx'
-import { JOURNEY, PAPER, settle, started, store, stubHost, type Wire } from './host.ts'
+import { JOURNEY, PAPER, scrolls, settle, started, store, stubHost, type Wire } from './host.ts'
 
 /**
  * Arranging a journey into parts, from the page.
@@ -530,6 +530,10 @@ describe('dividing an epic this project has no journey for', () => {
     expect(said).toContain('Began probe from what the host holds')
     expect(said).toContain('Made 2 parts from the paper’s chapter files.')
     expect(document.querySelector('[data-divide]')).toBeNull()
+    /* And the box is what is in front of the person: the journey this press
+       began replaced the page it was pressed on, and left them at its title. */
+    expect(scrolls.last()).toEqual({ element: box(), block: 'start' })
+    expect(box().getAttribute('data-found')).toBe('true')
   })
 
   test('with no paper it says so, and offers to begin and make parts by hand', async () => {
@@ -571,11 +575,18 @@ describe('a host walking this page to its parts', () => {
     store.listed = false
     store.chapters = PAPER
     const { host } = await framed()
+    scrolls.reset()
     walk(host)
     await settle()
     expect(went(host)).toMatchObject({ id: 'g1', found: true })
     expect(document.querySelector('[data-divide]')?.getAttribute('data-divide')).toBe('open')
     expect(button('begin the journey and make these 2 parts')).toBeDefined()
+    /* Brought to the TOP of the page: it was one line tall when scrolled to,
+       and the list that then arrived under it has to be on screen. */
+    expect(scrolls.last()).toEqual({ element: document.querySelector('[data-divide]')!, block: 'start' })
+    /* Twice: when it opened, and again when the list had arrived in it —
+       until then the page ended just under it and could not scroll that far. */
+    expect(scrolls.count()).toBe(2)
   })
 
   test('a walk that arrives before the journey has loaded is kept until it has', async () => {

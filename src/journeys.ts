@@ -374,6 +374,10 @@ export async function readChapters(): Promise<void> {
     if (standingIn !== project || (state.journey?.slug ?? standingOn) !== slug) return
     if (!out.ok) return
     set({ chapters: { ...out, slug } as unknown as PaperChapters })
+    /* A box a walk has just brought the person to (it still wears the mark)
+       was scrolled to before this list was in it, when the page ended a line
+       under it and could not be scrolled far enough. Now it can. */
+    document.querySelector('[data-found="true"]:is([data-parts], [data-divide])')?.scrollIntoView({ block: 'start' })
   } catch {
     /* Left as it was. */
   }
@@ -565,11 +569,24 @@ function settleParts(): void {
   else if (state.unwritten === slug) setDividing(true)
   else return
   partsWanted = null
-  /* `set` flushed, so the box is in the document to be scrolled to and
-     marked — the mark `goTo` leaves on a card, for the same reason. */
+  showParts()
+}
+
+/**
+ * Bring the place parts are made to the top of the page, and mark it — the
+ * mark `goTo` leaves on a card, for the same reason. Called after a `set`,
+ * which flushed, so the box is in the document.
+ *
+ * To the TOP, not merely into view. The box is one line tall when it is
+ * scrolled to — what the paper offers is still being read — and a container
+ * on a canvas is a few hundred pixels: scrolled only far enough to be seen,
+ * that line sat on the bottom edge and the list of chapters arrived under
+ * it, out of sight, which is the thing the person was sent here for.
+ */
+function showParts(): void {
   const box = document.querySelector('[data-parts="open"], [data-divide]')
   if (!box) return
-  box.scrollIntoView({ block: 'nearest' })
+  box.scrollIntoView({ block: 'start' })
   box.removeAttribute('data-found')
   void (box as HTMLElement).offsetWidth
   box.setAttribute('data-found', 'true')
@@ -773,6 +790,10 @@ export async function makeChapterParts(files: readonly string[]): Promise<boolea
     const done = await arranged('/api/parts/chapters', { files: [...files] })
     if (!done) return false
     set({ arranging: true, dividing: false, said: began ? `${began} ${state.said}` : state.said })
+    /* The parts are in the box now, and the box may not be on screen: a
+       journey begun by this press replaced the page the press was on, which
+       left a person who had just made seven parts looking at a title. */
+    showParts()
     void readChapters()
     return true
   } finally {

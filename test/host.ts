@@ -254,11 +254,15 @@ export const settle = () => new Promise((done) => setTimeout(done, 20))
    a context that is the echo of this page's own pick must not scroll, and one
    that is somebody else's must. */
 let scrolled = 0
-Element.prototype.scrollIntoView = () => {
+let scrolledTo: { element: Element; block: string | undefined } | null = null
+Element.prototype.scrollIntoView = function (this: Element, how?: boolean | ScrollIntoViewOptions) {
   scrolled += 1
+  scrolledTo = { element: this, block: typeof how === 'object' ? how.block : undefined }
 }
 export const scrolls = {
   count: () => scrolled,
+  /** The element last scrolled to, and which edge of the page it was brought to. */
+  last: () => scrolledTo,
   reset: () => {
     scrolled = 0
   },
