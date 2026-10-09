@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, test } from 'bun:test'
 import { KEHIKOT_DIR, moduleFolder } from 'kehikot-module-protocol'
 
-import { TICKET, answer, writeTicketFor } from '../doors.ts'
+import { BUILD, MANIFEST, TICKET, answer, writeTicketFor } from '../doors.ts'
+import { through } from './through-doors.ts'
 import { ID } from '../manifest.ts'
 
 /** This module's own folder inside `.kehikot/`, spelled the way the app spells it. */
@@ -60,8 +61,15 @@ fill(elsewhere)
 
 const query = (s = '') => new URLSearchParams(s)
 const get = (path: string, q = '') => answer('GET', path, query(q), null, null)
+/**
+ * A POST as this app's own page makes one. The process ticket rides in the header on every one of
+ * them; `ticket` here is the one under test — for `/api/ticket` that IS the header, and for a
+ * write it is the project ticket, which rides in the body beside the project it names.
+ */
 const post = (path: string, body: Record<string, unknown>, ticket: string | null) =>
-  answer('POST', path, query(), body, ticket)
+  path === '/api/ticket'
+    ? answer('POST', path, query(), body, ticket)
+    : answer('POST', path, query(), { ...body, ticket }, TICKET)
 
 /** The write ticket for the temp project, which is what a page would hold. */
 const write = writeTicketFor(project) as string
@@ -169,6 +177,45 @@ describe('writing, and the ticket that names one project', () => {
     const reply = post('/api/step', { project: elsewhere, slug: 'a-stored-journey', title: 'x' }, write)
     expect(reply?.status).toBe(403)
     expect((reply?.body as { error: string }).error).toContain('does not redeem against another')
+  })
+
+  /*
+   * Two credentials, two refusals. The header answers "is this this server's own page": a no is
+   * the protocol's marked refusal, which the page reads as being older than its server and
+   * reloads on. The body answers "was this composed against this project": a no is this module's
+   * own sentence, unmarked, because no reload would fix it.
+   */
+  test('a write without the process ticket in the header is the marked refusal, whatever the body carries', () => {
+    const body = { project, slug: 'a-stored-journey', title: 'x', ticket: write }
+    for (const header of [null, 'not-the-ticket', write]) {
+      const reply = answer('POST', '/api/step', query(), body, header)
+      expect(reply?.status).toBe(403)
+      expect((reply?.body as { refused?: string }).refused).toBe('ticket')
+    }
+    const wrongProject = post('/api/step', { project: elsewhere, slug: 'a-stored-journey', title: 'x' }, write)
+    expect((wrongProject?.body as { refused?: string }).refused).toBeUndefined()
+  })
+
+  test('through the doors: x-module-ticket and the project ticket together write; the old header does not', async () => {
+    const DOORS = { manifest: MANIFEST, answer, build: BUILD, page: { title: 'Journeys', ticket: TICKET } }
+    const step = { project, slug: 'a-stored-journey', position: 0, title: 'the first thing', ticket: write }
+    const old = await through(DOORS, 'POST', '/api/step', { body: step, headers: { 'x-journeys-ticket': write } })
+    expect(old.status).toBe(403)
+    expect(old.json().refused).toBe('ticket')
+
+    const taken = await through(DOORS, 'POST', '/api/ticket', { body: { project }, headers: { 'x-module-ticket': TICKET } })
+    expect(taken.json().ticket).toBe(write)
+    const sent = await through(DOORS, 'POST', '/api/step', { body: step, headers: { 'x-module-ticket': TICKET } })
+    expect(sent.status).toBe(200)
+    expect(sent.json().ok).toBe(true)
+    expect(sent.headers['x-module-build']).toBeTruthy()
+
+    const page = await through(DOORS, 'GET', '/app')
+    expect(page.text).toContain(`<script id="ticket" type="application/json">${JSON.stringify(TICKET)}</script>`)
+    expect(page.text).toContain('<script id="build" type="application/json">')
+    expect(page.headers['cache-control']).toBe('no-store')
+    const health = await through(DOORS, 'GET', '/healthz')
+    expect((health.json().build as { version: string }).version).toBe(BUILD.version)
   })
 
   test('the ticket door hands one over to something holding the process ticket', () => {

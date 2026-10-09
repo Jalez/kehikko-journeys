@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import type { EpicPart, JourneyPart } from 'kehikot-module-protocol'
-import { useFocus } from 'kehikot-module-protocol/client/react'
+import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'kehikot-module-protocol/client/react'
 
 import { Button } from '@/components/ui/button.tsx'
 
@@ -12,7 +12,11 @@ import {
   clearPick,
   getSnapshot,
   grow,
+  discardHeld,
+  heldStrays,
   pick,
+  reopenHeld,
+  retry,
   setAdding,
   setArranging,
   setDividing,
@@ -24,7 +28,7 @@ import { cardsUnder } from './live/lookup.ts'
 import { pickedState } from './refs.ts'
 import { ChapterOffer } from './view/chapters.tsx'
 import { Editor } from './view/editor.tsx'
-import { NoJourneys, NoProject, Trouble } from './view/nowhere.tsx'
+import { NO_PROJECT_SAID, NoJourneys, Trouble, UNHOSTED_SAID } from './view/nowhere.tsx'
 import { Parts, arrangeable } from './view/parts.tsx'
 import { Picker } from './view/picker.tsx'
 import { Prose } from './view/prose.tsx'
@@ -73,6 +77,38 @@ export function App() {
    */
   useEffect(grow)
 
+  /*
+   * Every not-ready moment is the protocol's one cover.
+   *
+   * `coverFor` reads the host's standing — waiting, then unhosted, or hosted with no project
+   * folder, or with no epic — and `listening` comes first, which is what stops this page drawing
+   * "nothing is framing this page" for the first moments of every framed load. A project that was
+   * named and will not read is NOT one of these: that is `Trouble`, with the server's own sentence,
+   * and it outranks "no epic".
+   *
+   * `down` and `stale` are about this app's own server, and can arrive with a step's editor open.
+   * So everything below stays MOUNTED under a cover and is only hidden; Try again asks the server
+   * and re-reads what is missing without touching a journey that is already on screen (`retry`).
+   *
+   * "No epic" covers nothing: it stands where the status line stood, and what the project holds
+   * (or that it holds no journeys yet) is still said underneath.
+   *
+   * The cover is given no height. This page reports its content's height to the host (`grow`), and
+   * a full-frame cover would be this page asking for the height it was given.
+   */
+  const server = useServerStanding()
+  const cover = coverOf(state, server)
+
+  /* A journey has landed: reopen whatever was open with words in it when this page last went away
+     (a stale page reloads itself). See "What is being typed" in `journeys.ts`. */
+  const landed = state.journey ? `${state.projectPath ?? ''}|${state.journey.slug}` : null
+  useEffect(() => {
+    /* After this commit, not inside it: the store tells its listeners with `flushSync`. */
+    if (landed) queueMicrotask(reopenHeld)
+  }, [landed])
+  const strays = heldStrays()
+  const whole = cover !== null && cover !== 'no-epic'
+
   return (
     <ReadingProvider
       value={{
@@ -86,15 +122,24 @@ export function App() {
       }}
     >
       <div className="mx-auto w-full max-w-[44rem] px-3 pt-3 pb-12 @min-[26rem]/container:px-4 @min-[26rem]/container:pt-4">
+        {cover && (
+          <Cover
+            state={cover}
+            name="Journeys"
+            onRetry={() => void retry()}
+            detail={cover === 'unhosted' ? UNHOSTED_SAID : cover === 'no-project' ? NO_PROJECT_SAID : null}
+          />
+        )}
+        <div hidden={whole} className={whole ? undefined : 'contents'}>
         <Head journey={state.journey} />
-        <Sight
+        {cover === 'no-epic' ? null : <Sight
           framed={state.framed}
           refused={state.refused}
           epic={state.epic}
           journey={state.journey}
           live={state.live}
           busy={state.busy}
-        />
+        />}
         {!state.framed && <Picker index={state.index} journey={state.journey} />}
         {/*
          * Where the journeys are, before anything about which one is open.
@@ -138,12 +183,54 @@ export function App() {
         {/* The one line this app uses to answer the reader. Polite rather than
             assertive: it is an answer to something they just did, not an
             interruption of what they are reading. */}
+        {strays.length > 0 && (
+          <section data-kept-words className="mt-4 grid gap-1.5 rounded border border-dashed px-2 py-1.5 text-[0.82rem] leading-6">
+            <p className="text-muted-foreground">
+              Typed here and not saved. What {strays.length === 1 ? 'it was' : 'they were'} written into is no longer in this journey, so{' '}
+              {strays.length === 1 ? 'it is' : 'they are'} kept here rather than put somewhere else:
+            </p>
+            {strays.map(({ target, draft }) => (
+              <div key={target} data-kept={target} className="grid gap-1 border-t pt-1.5">
+                <p className="text-muted-foreground">{draft.aim}</p>
+                <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{wordsOf(draft.text)}</p>
+                <div>
+                  <Button type="button" variant="ghost" size="container" onClick={() => discardHeld(target)}>
+                    discard
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
         <p aria-live="polite" className="mt-4 min-h-[1.4em] text-[0.82rem] text-muted-foreground">
           {state.said}
         </p>
+        </div>
       </div>
     </ReadingProvider>
   )
+}
+
+/** A held draft's words for reading: a step's four fields on their own lines, anything else as it is. */
+function wordsOf(text: string): string {
+  try {
+    const one = JSON.parse(text) as Record<string, unknown> | null
+    if (one && typeof one === 'object') return Object.values(one).filter((value) => typeof value === 'string' && value.trim()).join('\n')
+  } catch {
+    /* Not a step's fields: a heading or a file name, held as plain words. */
+  }
+  return text
+}
+
+/** Which cover the page is under, if any. Pure, so every standing can be asserted without a host. */
+export function coverOf(
+  state: Pick<ReturnType<typeof getSnapshot>, 'where' | 'projectPath' | 'epic' | 'trouble'>,
+  server: ReturnType<typeof useServerStanding>,
+): CoverState | null {
+  if (server === 'stale') return 'stale'
+  const asked = coverFor({ where: state.where, projectPath: state.projectPath, epic: state.epic }, { project: true, epic: true })
+  const notReady = asked === 'no-epic' && state.trouble ? null : asked
+  return notReady ?? (server === 'down' ? 'down' : null)
 }
 
 /**
@@ -191,7 +278,8 @@ function Head({ journey }: { journey: JourneyView | null }) {
  */
 function Nothing({ state }: { state: ReturnType<typeof getSnapshot> }) {
   if (state.trouble) return <Trouble trouble={state.trouble} />
-  if (state.nowhere) return <NoProject unhosted={!state.framed} />
+  /* No project at all is the shared cover's to say; see `App`. */
+  if (state.nowhere) return null
   if (!state.index.length) return <NoJourneys from={state.from} />
   return null
 }
@@ -672,7 +760,7 @@ function Adding({ at, open, first = false }: { at: number; open: boolean; first?
       >
         {open ? 'close' : first ? 'write the first step' : 'add a step'}
       </Button>
-      {open && <Editor step={{ title: '', body: '', refs: [], notes: [] }} position={at} />}
+      {open && <Editor step={{ title: '', body: '', refs: [], notes: [] }} position={at} target="add" />}
     </section>
   )
 }

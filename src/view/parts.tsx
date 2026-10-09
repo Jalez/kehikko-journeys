@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input.tsx'
 import { cn } from '@/lib/utils.ts'
 
 import { FILE_EXAMPLE, filesGiven, partOfStep, partsIn, proposed, removalOf, removalSaid, unassigned, type Arrangeable } from '../../parts.ts'
-import { assignSteps, removePart, savePart, savePartFiles, setArranging, type PaperChapters } from '../journeys.ts'
+import { assignSteps, held, hold, removePart, savePart, savePartFiles, setArranging, type PaperChapters } from '../journeys.ts'
 import type { JourneyView, Live } from '../kinds.ts'
 import { ChapterOffer } from './chapters.tsx'
 import { cardsUnder } from '../live/lookup.ts'
@@ -166,9 +166,17 @@ export function Parts({
   /* Zero-based positions, like every index on this page. */
   const [ticked, setTicked] = useState<readonly number[]>([])
   const [target, setTarget] = useState<string | null>(null)
-  const [under, setUnder] = useState<Open>(null)
+  /* A heading or a file name half typed when the page reloaded comes back in its box, with the box
+     open — the row it was typed under is in the key. See "What is being typed" in `journeys.ts`. */
+  const [under, setUnder] = useState<Open>(() => {
+    for (const part of parts) {
+      if (held(`part:rename:${part.id}`)) return { kind: 'rename', id: part.id }
+      if (held(`part:file:${part.id}`)) return { kind: 'files', id: part.id }
+    }
+    return null
+  })
   const [every, setEvery] = useState(false)
-  const [heading, setHeading] = useState('')
+  const [heading, setHeading] = useState(() => held('part:new')?.text ?? '')
   const [offering, setOffering] = useState(false)
   /* The paper's answer for THIS journey, and only when it has a paper. One
      that arrived for the epic the canvas just left is not this one's. */
@@ -300,7 +308,9 @@ export function Parts({
           event.preventDefault()
           if (!heading.trim()) return
           void savePart(null, heading).then((done) => {
-            if (done) setHeading('')
+            if (!done) return
+            setHeading('')
+            hold('part:new', null)
           })
         }}
       >
@@ -308,7 +318,10 @@ export function Parts({
           aria-label="Heading of a new part"
           placeholder="a new part’s heading"
           value={heading}
-          onChange={(event) => setHeading(event.target.value)}
+          onChange={(event) => {
+            setHeading(event.target.value)
+            hold('part:new', { base: '', text: event.target.value, aim: 'the heading of a new part' })
+          }}
           className="h-7 min-w-[9rem] flex-1 text-[0.85rem]"
         />
         <Button type="submit" variant="outline" size="container" disabled={!heading.trim()}>
@@ -487,8 +500,8 @@ function PartRow({
   under: Under | null
   setUnder: (kind: Under | null) => void
 }) {
-  const [name, setName] = useState(part.heading)
-  const [file, setFile] = useState('')
+  const [name, setName] = useState(() => held(`part:rename:${part.id}`)?.text ?? part.heading)
+  const [file, setFile] = useState(() => held(`part:file:${part.id}`)?.text ?? '')
   /* Why the name in the box was not kept, said beside the box. The page's one
      line for what the store answered is at the foot of the journey, which is
      a screen away from a part's row in a narrow container. */
@@ -569,14 +582,19 @@ function PartRow({
           onSubmit={(event) => {
             event.preventDefault()
             void savePart(part.id, name).then((done) => {
-              if (done) setUnder(null)
+              if (!done) return
+              setUnder(null)
+              hold(`part:rename:${part.id}`, null)
             })
           }}
         >
           <Input
             aria-label={`New heading for ${part.heading}`}
             value={name}
-            onChange={(event) => setName(event.target.value)}
+            onChange={(event) => {
+              setName(event.target.value)
+              hold(`part:rename:${part.id}`, { base: part.heading, text: event.target.value, aim: `a new heading for the part “${part.heading}”` })
+            }}
             className="h-7 min-w-[9rem] flex-1 text-[0.85rem]"
           />
           <Button type="submit" size="container" disabled={!name.trim() || name.trim() === part.heading}>
@@ -694,7 +712,9 @@ function PartRow({
               }
               setRefused('')
               void savePartFiles(part.id, [...files, file]).then((done) => {
-                if (done) setFile('')
+                if (!done) return
+                setFile('')
+                hold(`part:file:${part.id}`, null)
               })
             }}
           >
@@ -704,6 +724,7 @@ function PartRow({
               value={file}
               onChange={(event) => {
                 setFile(event.target.value)
+                hold(`part:file:${part.id}`, { base: '', text: event.target.value, aim: `a file of the paper for the part “${part.heading}”` })
                 setRefused('')
               }}
               aria-invalid={refused ? true : undefined}

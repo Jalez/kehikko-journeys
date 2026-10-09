@@ -1,3 +1,5 @@
+import { AskFailed, ask, type Asked } from 'kehikot-module-protocol/client'
+
 /**
  * Our own server.
  *
@@ -6,11 +8,21 @@
  * This is the line that makes the app an app; the bridge is enrichment, and
  * nothing on this path depends on it.
  *
- * Writes carry a ticket the server minted for this process and printed into
- * this page. See the essay on `TICKET` in `doors.ts` for what it separates —
- * and the one in `vite.config.ts` for why this module declares storage rather
- * than answering CORS permissively, which is the only thing that keeps the
- * ticket worth anything.
+ * Both `get` and `post` go through the protocol's `ask`, which puts the ticket
+ * the server minted for this process and printed into this page in
+ * `x-module-ticket` on every write, and notices when this page is older than
+ * its server (the page then reloads itself; see `reloadWhenStale` in
+ * `main.tsx`). See the essay on `TICKET` in `doors.ts` for what the ticket
+ * separates — and the one in `vite.config.ts` for why this module declares
+ * storage rather than answering CORS permissively, which is the only thing
+ * that keeps the ticket worth anything.
+ *
+ * ## What the callers get back, which is what they always got
+ *
+ * `ask` resolves to one typed result; the store in `journeys.ts` was written
+ * around the door's own JSON (`ok`, `error`, and whatever else — `nowhere`,
+ * `trouble`, `journey`). So an answer is the door's body, and a refusal is the
+ * door's body with `ok: false` and the sentence.
  *
  * ## Every call names a project, and this file is where that is not forgotten
  *
@@ -24,20 +36,6 @@
  * answers honestly that there is nowhere to read, and the page draws that. What
  * is NOT done is guessing, here or on the other side.
  */
-
-export const TICKET: string = (() => {
-  const island = document.getElementById('ticket')
-  try {
-    const parsed: unknown = JSON.parse(island?.textContent ?? '""')
-    return typeof parsed === 'string' ? parsed : ''
-  } catch {
-    /* A document served without a ticket is a document this server did not
-       build — a cached file, a proxy, somebody's `curl > page.html`. Every
-       write will be refused, which is the correct outcome and is said in the
-       refusal rather than guessed at here. */
-    return ''
-  }
-})()
 
 /**
  * Which project this page is standing in, and the write ticket for it.
@@ -88,15 +86,21 @@ export async function standIn(next: string | null): Promise<{ ok: boolean; error
   }
 }
 
-/** The project as a query fragment, for the two doors that read. */
-function asking(): string {
-  return project === null ? '' : `project=${encodeURIComponent(project)}`
+/** What a caller in `journeys.ts` is handed for one asking; see the essay at the top. */
+function refusal<T>(asked: Extract<Asked<T>, { ok: false }>): T {
+  const body = asked.body && typeof asked.body === 'object' ? (asked.body as Record<string, unknown>) : {}
+  return { ...body, ok: false, error: asked.error } as T
 }
 
-export async function get<T>(path: string, query = ''): Promise<T> {
-  const parts = [asking(), query].filter(Boolean).join('&')
-  const response = await fetch(parts ? `${path}?${parts}` : path)
-  return (await response.json()) as T
+/**
+ * A read. A server that did not answer THROWS, as `fetch` used to, because the readers in
+ * `journeys.ts` say different things in their `catch` than they do about a refusal.
+ */
+export async function get<T>(path: string, query: Record<string, string> = {}): Promise<T> {
+  const asked = await ask<T>(path, { query: { project, ...query } })
+  if (asked.ok) return asked.body
+  if (asked.kind === 'down') throw new AskFailed(asked)
+  return refusal(asked)
 }
 
 /**
@@ -105,17 +109,22 @@ export async function get<T>(path: string, query = ''): Promise<T> {
  * The project rides in the BODY, beside the ticket that was issued for it,
  * because the server checks the two against each other — and a pair that can be
  * split across two places in one request is a pair somebody will eventually
- * split.
+ * split. The PROCESS ticket rides in the header, put there by `ask`: it answers
+ * a different question (is this page this server's own), and `/api/ticket` is
+ * the one call that carries only that — it is how the project-bound one is
+ * obtained, so it cannot itself carry one.
  *
- * `/api/ticket` is the one call that goes out with the process ticket: it is
- * how the project-bound one is obtained, so it cannot itself carry one.
+ * It never throws. A write nothing answered comes back as `ok: false` with the
+ * sentence saying so, like any refusal — most of the writers in `journeys.ts`
+ * have no `catch`, and a thrown `fetch` there used to be an unhandled rejection
+ * with nothing on screen.
  */
 export async function post<T>(path: string, body: Record<string, unknown>): Promise<T> {
-  const ticket = path === '/api/ticket' ? TICKET : (write ?? '')
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-journeys-ticket': ticket },
-    body: JSON.stringify({ ...body, project }),
-  })
-  return (await response.json()) as T
+  const asked = await ask<T>(path, { body: { ...body, project, ...(path === '/api/ticket' ? {} : { ticket: write ?? '' }) } })
+  return asked.ok ? asked.body : refusal(asked)
+}
+
+/** Ask this app's own server whether it is there, for the cover's Try again. The answer is the standing `ask` records. */
+export async function knock(): Promise<void> {
+  await ask('/healthz')
 }

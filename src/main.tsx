@@ -21,18 +21,18 @@ import './index.css'
 import 'kehikot-module-protocol/client'
 import { App } from './app.tsx'
 import { start } from './journeys.ts'
-import { seed } from './theme.ts'
 
 /**
- * The theme before the first paint, then the conversation, then React.
+ * The conversation, then React.
  *
- * `seed` first because a page that renders light and turns dark one tick later
- * is a flash somebody sees every time they open the container. `start` before
- * `createRoot` for the reason above: it subscribes to the mailbox, and a
- * greeting that has already arrived is replayed to it rather than lost — which
- * cannot be true of anything that first runs in an effect.
+ * `start` before `createRoot` for the reason above: it subscribes to the mailbox, and a greeting
+ * that has already arrived is replayed to it rather than lost — which cannot be true of anything
+ * that first runs in an effect.
+ *
+ * There is no theme seeded here any more. The document `doors()` serves decides `dark` or `light`
+ * in a blocking script in its head, before the first paint and before this bundle has loaded —
+ * from what the host said last time, or the machine's preference for a page nothing frames.
  */
-seed()
 start()
 
 const root = document.getElementById('root')

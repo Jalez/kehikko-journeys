@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, test } from 'bun:test'
 import { KEHIKOT_DIR, LIMITS, moduleFolder, partIdsOf, partsOf, stepPart } from 'kehikot-module-protocol'
 
-import { answer, writeTicketFor } from '../doors.ts'
+import { TICKET, answer, writeTicketFor } from '../doors.ts'
 import { ID } from '../manifest.ts'
 import {
   assign,
@@ -432,7 +432,7 @@ function project(journeys: Record<string, unknown> = { divided, plain: { slug: '
         ?.body as { result: { content: { text: string }[] } }
     ).result.content[0]!.text
   const post = (path: string, body: Record<string, unknown>) =>
-    answer('POST', path, new URLSearchParams(), { ...body, project: root }, writeTicketFor(root))
+    answer('POST', path, new URLSearchParams(), { ...body, project: root, ticket: writeTicketFor(root) }, TICKET)
   return { root, file, on, call, post }
 }
 

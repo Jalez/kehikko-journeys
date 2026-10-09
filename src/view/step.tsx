@@ -263,7 +263,7 @@ export function StepBlock({
       </div>
 
       {editing ? (
-        <Editor step={step} position={index + 1} />
+        <Editor step={step} position={index + 1} target={`step:${index}`} />
       ) : (
         step.body && (
           <p className="mt-1.5 text-[0.95rem] leading-7 @min-[26rem]/container:ml-[2.1rem]">
