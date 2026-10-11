@@ -132,15 +132,15 @@ describe('which part a step is in', () => {
 })
 
 describe('filing several steps at once', () => {
-  test('a focus that hides unfiled steps points at where they are filed, and filing them shows them', async () => {
+  test('under a focus that hides unfiled steps the parts box still says how many are in none, and filing them shows them', async () => {
     store.journey = divided
     await framed({ parts: pick('the-agent-seam') })
     expect(drawn()).toEqual([])
-    const narrowed = document.querySelector('[data-narrowed]') as HTMLElement
-    expect(narrowed.textContent).toContain('0 of 5 steps shown · 5 outside the picked part, 4 of them in no part at all')
-    expect(narrowed.textContent).toContain('The 4 steps in no part are hidden under any focus until filed under a part.')
+    /* The empty place says one sentence; why the steps are missing is on the fold of the parts box. */
+    expect(document.querySelector('[data-narrowed]')?.textContent).toBe('No step is in the picked part.')
+    expect(document.querySelector('[data-parts="closed"]')?.parentElement?.textContent).toBe('2 parts4 of 5 steps in no part')
 
-    fireEvent.click(button('file them under parts', narrowed))
+    fireEvent.click(button('2 parts'))
     /* The steps the page is NOT drawing are the ones listed: by number and title. */
     expect(listed()).toEqual(['1.One', '3.Three', '4.Four', '5.Five'])
     expect(drawn()).toEqual([])
@@ -155,7 +155,8 @@ describe('filing several steps at once', () => {
     /* Shown now, under their own numbers, because they are in the picked part. */
     expect(drawn()).toEqual(['1', '3', '4'])
     expect(listed()).toEqual(['5.Five'])
-    expect(document.querySelector('[data-narrowed]')?.textContent).toContain('3 of 5 steps shown')
+    /* And with a step to show, the sentence is gone with the emptiness it explained. */
+    expect(document.querySelector('[data-narrowed]')).toBeNull()
   })
 
   test('nothing is filed until steps are ticked', async () => {

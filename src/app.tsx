@@ -4,7 +4,7 @@ import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'k
 
 import { Button } from '@/components/ui/button.tsx'
 
-import { narrowedSaid, narrowing, shownSteps, type Shown } from './focus.ts'
+import { saidOfNone, shownSteps, type Shown } from './focus.ts'
 import { partOfStep, partsIn } from '../parts.ts'
 import {
   begin,
@@ -18,7 +18,6 @@ import {
   reopenHeld,
   retry,
   setAdding,
-  setArranging,
   setDividing,
   subscribe,
   type PaperChapters,
@@ -400,81 +399,6 @@ function Begin({
   )
 }
 
-/**
- * What the canvas is narrowed to, said where the steps are about to be fewer.
- *
- * Drawn only when the host says some of the epic's parts are picked out. A
- * list that is shorter than it was for a reason nobody can see is the failure
- * parts are arranged against, so this is not a tooltip and not a badge: it is
- * a sentence, above the steps, with both numbers in it — how many are shown
- * and how many are outside — and how many of those are in no part at all,
- * which is the number that explains a page showing none.
- *
- * It offers nothing that changes the focus. The focus is the person's and the
- * host holds it for every module on the canvas; a "show the rest" here would
- * be one pane quietly disagreeing with the panes beside it. It says where the
- * picking is done instead.
- *
- * ## The one press it does offer is about the steps, not the focus
- *
- * A step in no part is outside every focus, so a journey whose steps nobody
- * has filed shows none of them the moment a part is picked. For two stages
- * that was a sentence with a number in it and nothing to do: which part a
- * step is in was a field in a file. It can be said on this page now, so the
- * sentence ends in the press that opens where it is said. That is not this
- * pane disagreeing with its neighbours — filing a step changes the journey,
- * for every pane, and the steps appear here because they are now in the part
- * the person picked.
- */
-function Narrowed({
-  parts,
-  journey,
-  editing,
-  canFile,
-}: {
-  parts: readonly EpicPart[]
-  journey: JourneyView
-  editing: number
-  /**
-   * Whether this journey's own record has parts to file a step under. The
-   * parts in the sentence are the host's; they are this record's groups
-   * unless the host is answering from somewhere else, and a press that opened
-   * a box with no part in it would be an offer this page cannot keep.
-   */
-  canFile: boolean
-}) {
-  const said = narrowing(parts, journey.steps, editing)
-  if (!said) return null
-  const { lead, rest, file } = narrowedSaid(said)
-  return (
-    <p
-      data-narrowed={said.shown}
-      className="mb-3 rounded-md border border-l-2 border-l-primary bg-card px-3 py-2 text-[0.85rem] leading-6 text-muted-foreground"
-    >
-      <b className="text-foreground">{lead}</b> {rest}
-      {file && canFile && (
-        <>
-          {' '}
-          <span className="text-foreground">{file}</span>{' '}
-          <Button
-            type="button"
-            variant="outline"
-            size="container"
-            data-file="open"
-            className="align-baseline text-foreground"
-            onClick={() => {
-              setArranging(true)
-              document.querySelector('[data-parts]')?.scrollIntoView({ block: 'nearest' })
-            }}
-          >
-            file them under parts
-          </Button>
-        </>
-      )}
-    </p>
-  )
-}
-
 /** A section heading, in the muted register the page uses for its own furniture. */
 function Rubric({ children }: { children: React.ReactNode }) {
   return (
@@ -537,7 +461,6 @@ function Journey({
       )}
 
       <Rubric>The journey</Rubric>
-      {journey.plan === 'stored' && <Narrowed parts={focus.parts} journey={journey} editing={editing} canFile={own.length > 0} />}
       <Parts
         journey={journey}
         open={arranging}
@@ -556,6 +479,7 @@ function Journey({
         editing={editing}
         adding={adding}
         narrowed={narrowed}
+        none={narrowed && shown.length === 0 ? saidOfNone(focus.parts) : null}
         selection={selection}
         framed={framed}
         parts={own}
@@ -654,6 +578,7 @@ function Plan({
   editing,
   adding,
   narrowed,
+  none,
   selection,
   framed,
   parts,
@@ -666,6 +591,8 @@ function Plan({
   adding: boolean
   /** The host says some parts are picked, so not every step is drawn. */
   narrowed: boolean
+  /** The one sentence for a journey the picked parts left no step of, or null. Nothing else is said about a focus. */
+  none: string | null
   selection: readonly string[]
   framed: boolean
   /** The journey's own parts, for each step's chooser. Empty for a journey with none. */
@@ -729,9 +656,17 @@ function Plan({
           inPart={parts.length ? partOfStep(arrangeable(journey), step) : null}
         />
       ))}
+      {/* Where the steps would be, and only when the picked parts left none:
+          an empty journey with no reason reads as broken. Which steps are in
+          no part is on the fold of the parts box above. */}
+      {none && (
+        <p data-narrowed="0" className="text-[0.85rem] leading-6 text-muted-foreground">
+          {none}
+        </p>
+      )}
       {/* Not under a focus. A step written here is in no part, and under a
-          focus that is a step that vanishes the moment it is saved — kept, and
-          counted in the line above, but a strange answer to "add a step". */}
+          focus that is a step that vanishes the moment it is saved — kept,
+          but a strange answer to "add a step". */}
       {!narrowed && <Adding at={journey.steps.length + 1} open={adding} />}
     </>
   )

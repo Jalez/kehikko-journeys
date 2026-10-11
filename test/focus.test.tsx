@@ -4,7 +4,7 @@ import type { EpicPart } from 'kehikot-module-protocol'
 import { mailbox } from 'kehikot-module-protocol/client'
 
 import { App } from '../src/app.tsx'
-import { narrowedSaid, narrowing, shownSteps } from '../src/focus.ts'
+import { saidOfNone, shownSteps } from '../src/focus.ts'
 import { setEditing } from '../src/journeys.ts'
 import type { Step } from '../src/kinds.ts'
 import { JOURNEY, settle, started, store, stubHost, type Wire } from './host.ts'
@@ -36,8 +36,6 @@ describe('which steps are in front of the person', () => {
   test('nothing picked is every step, and nothing is said', () => {
     expect(shownSteps(PARTS, STEPS).map((one) => one.index)).toEqual([0, 1, 2, 3, 4])
     expect(shownSteps([], STEPS)).toHaveLength(5)
-    expect(narrowing(PARTS, STEPS)).toBeNull()
-    expect(narrowing([], STEPS)).toBeNull()
   })
 
   test('a step is shown when the part it SAYS it is in is picked, at its own position', () => {
@@ -52,13 +50,7 @@ describe('which steps are in front of the person', () => {
     const both = pick('the-agent-seam', 'what-the-page-shows')
     expect(shownSteps(both, STEPS).some((one) => one.step.title === 'Two')).toBe(false)
     expect(shownSteps(both, STEPS).some((one) => one.step.title === 'Four')).toBe(false)
-    expect(narrowing(both, STEPS)).toEqual({
-      picked: ['The agent seam', 'What the page shows'],
-      shown: 3,
-      outside: 2,
-      unassigned: 2,
-      held: false,
-    })
+    expect(shownSteps(both, STEPS).map((one) => one.index)).toEqual([0, 2, 4])
   })
 
   test('a step is never filed by the references it names', () => {
@@ -67,22 +59,9 @@ describe('which steps are in front of the person', () => {
     expect(shownSteps(lists, STEPS).map((one) => one.step.title)).toEqual(['One', 'Five'])
   })
 
-  test('the sentence has both numbers, says where the picking is done, and offers nothing to press', () => {
-    const one = narrowedSaid(narrowing(pick('the-agent-seam'), STEPS)!)
-    expect(one.lead).toBe('Narrowed to The agent seam.')
-    expect(one.rest).toContain('2 of 5 steps shown · 3 outside the picked part, 2 of them in no part at all')
-    expect(one.rest).toContain('host’s bar')
-
-    const two = narrowedSaid(narrowing(pick('the-agent-seam', 'what-the-page-shows'), STEPS)!)
-    expect(two.lead).toBe('Narrowed to 2 parts: The agent seam, What the page shows.')
-    expect(two.rest).toContain('3 of 5 steps shown · 2 outside the picked parts, all of them in no part at all')
-
-    /* A journey nobody has assigned yet: the count is what explains the empty page. */
-    const none = narrowedSaid(narrowing(pick('the-agent-seam'), [step('a'), step('b')])!)
-    expect(none.rest).toContain('0 of 2 steps shown · 2 outside the picked part, all of them in no part at all')
-
-    const all = narrowedSaid(narrowing(pick('the-agent-seam'), [step('a', { part: 'the-agent-seam' })])!)
-    expect(all.rest).toContain('All 1 step is in it.')
+  test('the one sentence there is: a journey the pick left no step of says so, and says nothing else', () => {
+    expect(saidOfNone(pick('the-agent-seam'))).toBe('No step is in the picked part.')
+    expect(saidOfNone(pick('the-agent-seam', 'what-the-page-shows'))).toBe('No step is in the picked parts.')
   })
 })
 
@@ -115,6 +94,9 @@ async function framed(more: Record<string, unknown> = {}) {
 }
 
 const drawn = () => [...document.querySelectorAll('[data-step]')].map((el) => el.getAttribute('data-step'))
+/** Anything on the journey that announces the picked parts while there is a step to show: there is to be none. */
+const notice = () =>
+  document.querySelector('[data-narrowed]') !== null || /Narrowed|outside the|picked part|host’s bar|you are editing/.test(document.body.textContent ?? '')
 
 describe('the page under a focus', () => {
   /* The record's own groups are what the host reads the parts from, so a
@@ -140,7 +122,7 @@ describe('the page under a focus', () => {
     expect(document.querySelector('[data-narrowed]')).toBeNull()
   })
 
-  test('picking a part draws its steps, under their own numbers, and says what was left out', async () => {
+  test('picking a part draws its steps, under their own numbers, and no row says what was left out', async () => {
     store.journey = divided
     const { context } = await framed({ parts: PARTS })
     const before = store.asked.length
@@ -148,21 +130,13 @@ describe('the page under a focus', () => {
     await settle()
     /* Step five is still step five. */
     expect(drawn()).toEqual(['1', '5'])
-    const said = document.querySelector('[data-narrowed]')?.textContent ?? ''
-    expect(said).toContain('Narrowed to The agent seam.')
-    expect(said).toContain('2 of 5 steps shown · 3 outside the picked part')
-    expect(said).toContain('host’s bar')
+    expect(notice()).toBe(false)
+    /* The first thing under the heading is the parts box, as with nothing picked: no row was added. */
+    expect(document.querySelector('[data-parts]')).not.toBeNull()
     /* Nothing is fetched for it: the steps were already here. */
     expect(store.asked.slice(before)).toEqual([])
-    /* And there is no way on this page to widen it again. The one press the
-       sentence carries opens where steps are filed under parts, and pressing
-       it draws no step that was not drawn. */
-    const presses = [...document.querySelectorAll('[data-narrowed] button')]
-    expect(presses.map((one) => one.textContent)).toEqual(['file them under parts'])
-    fireEvent.click(presses[0] as Element)
+    /* And there is no way on this page to widen it again. */
     expect(drawn()).toEqual(['1', '5'])
-    expect(document.querySelector('[data-parts="open"]')).not.toBeNull()
-    fireEvent.click([...document.querySelectorAll('[data-parts="open"] button')].find((b) => b.textContent === 'close') as Element)
 
     context({ parts: PARTS })
     await settle()
@@ -176,23 +150,23 @@ describe('the page under a focus', () => {
     setEditing(2)
     context({ parts: pick('the-agent-seam') })
     await settle()
-    /* Step three is in the other part: drawn in its place, and counted outside. */
+    /* Step three is in the other part: drawn in its place, and nothing announces it. */
     expect(drawn()).toEqual(['1', '3', '5'])
-    const said = document.querySelector('[data-narrowed]')?.textContent ?? ''
-    expect(said).toContain('2 of 5 steps shown · 3 outside the picked part')
-    expect(said).toContain('The step you are editing is outside, and stays until you close it.')
+    expect(notice()).toBe(false)
     setEditing(2)
     await settle()
     expect(drawn()).toEqual(['1', '5'])
-    expect(document.querySelector('[data-narrowed]')?.textContent).not.toContain('you are editing')
+    expect(notice()).toBe(false)
   })
 
   test('a journey nobody has assigned shows none of its steps under a focus, and says why', async () => {
     await framed({ parts: pick('the-agent-seam') })
     expect(drawn()).toEqual([])
-    expect(document.querySelector('[data-narrowed]')?.textContent).toContain(
-      '0 of 2 steps shown · 2 outside the picked part, all of them in no part at all',
-    )
+    /* One sentence, where the steps would be — and no bordered paragraph above them. */
+    expect(document.querySelector('[data-narrowed]')?.textContent).toBe('No step is in the picked part.')
+    expect(document.querySelectorAll('[data-narrowed]')).toHaveLength(1)
+    expect(document.body.textContent).not.toContain('host’s bar')
+    expect(document.body.textContent).not.toContain('outside the')
     /* Not the sentence for a journey with no steps: there are two. */
     expect(document.body.textContent).not.toContain('No steps have been written')
   })
