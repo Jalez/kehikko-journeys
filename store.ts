@@ -16,6 +16,7 @@ import {
 } from 'kehikot-module-protocol'
 
 import { ID } from './manifest.ts'
+import { mirrored, simplified, type Fate, type Finding } from './parts.ts'
 
 /**
  * The journeys, on disk, inside the project they are about.
@@ -506,10 +507,17 @@ export const journeySchema = journeyRecordSchema.extend({
     .record(z.string(), z.object({ maker: z.string().optional(), reviewer: z.string().optional() }).passthrough())
     .default({}),
   /**
-   * A heading and the references under it, which a host reads as a PART of the
-   * epic. `id`, when it is written, is what a step's `part` names.
+   * The epic's parts, as a released host reads them: one to a step, in the
+   * steps' order, each with the id its step's `part` names, what the part is
+   * called and the one document it covers. Held to the steps by `mirrored` on
+   * every write; see `parts.ts`.
    */
   groups: z.array(journeyGroupSchema).default([]),
+  /**
+   * Headings of the older shape that were never parts — a heading and the
+   * references once listed under it — set aside by `simplified` and carried.
+   */
+  headings: z.array(journeyGroupSchema).optional(),
   /** Extra refs to track that the narrative never mentions. */
   watch: z.array(ref).default([]),
   /** The GitHub repo a bare `gh#41` belongs to. */
@@ -653,7 +661,40 @@ export interface Held {
   nowhere: boolean
   /** A project was named and this app will not read or write under it. */
   trouble: string | null
+  /**
+   * The journeys whose record ON DISK is still in the older shape of parts,
+   * by slug, with what reading it as the simple one decided. `journeys` holds
+   * the simple reading already; nothing has been written. See `Unsettled`.
+   */
+  unsettled: Record<string, Unsettled>
 }
+
+/**
+ * A journey read out of the older shape and not yet written back.
+ *
+ * ## Reading never writes; the page and the host are still shown one model
+ *
+ * A record from before "one step to a part" may hold a part with three steps
+ * or none, a step in no part, a document two parts cover. Every read answers
+ * it as `simplified` reads it — so the page, both doors and every write start
+ * from the simple model — and leaves the file exactly as it was. The first
+ * deliberate write of that journey stores the simple record, keeps the record
+ * as it was beside the file (`BEFORE`), and says what was decided.
+ */
+export interface Unsettled {
+  findings: Finding[]
+  fates: Fate[]
+  /** Ids the older record answered to that the simple one does not. */
+  gone: string[]
+}
+
+/**
+ * Where a record is kept as it was, the first time it is rewritten as one
+ * step to a part: a file beside the journeys, holding each such record by
+ * slug and what was decided about it. Written once per journey and never
+ * over an entry already there, so it is always the record a PERSON last had.
+ */
+export const BEFORE = 'journeys.before-parts'
 
 export function held(projectPath: string | null | undefined): Held {
   return read(projectPath).held
@@ -672,9 +713,9 @@ export function held(projectPath: string | null | undefined): Held {
  */
 function read(projectPath: string | null | undefined): { held: Held; raw: Record<string, unknown> | null } {
   const { path, trouble } = dataFile(projectPath)
-  if (trouble) return { held: { journeys: {}, from: null, nowhere: false, trouble }, raw: null }
-  if (path === null) return { held: { journeys: {}, from: null, nowhere: true, trouble: null }, raw: null }
-  if (!existsSync(path)) return { held: { journeys: {}, from: path, nowhere: false, trouble: null }, raw: null }
+  if (trouble) return { held: { journeys: {}, from: null, nowhere: false, trouble, unsettled: {} }, raw: null }
+  if (path === null) return { held: { journeys: {}, from: null, nowhere: true, trouble: null, unsettled: {} }, raw: null }
+  if (!existsSync(path)) return { held: { journeys: {}, from: path, nowhere: false, trouble: null, unsettled: {} }, raw: null }
 
   try {
     const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
@@ -685,11 +726,17 @@ function read(projectPath: string | null | undefined): { held: Held; raw: Record
        is a worse answer than ignoring it — the journey it named could never be
        opened anyway, because every door asks `isSlug` before it asks for it. */
     const journeys: Record<string, Journey> = {}
+    const unsettled: Record<string, Unsettled> = {}
     for (const [slug, journey] of Object.entries(parsed.journeys)) {
-      if (isSlug(slug)) journeys[slug] = journey
+      if (!isSlug(slug)) continue
+      /* The older shape of parts is read as the simple one, here and so for
+         every reader, and not written: see `Unsettled`. */
+      const simple = simplified(journey)
+      journeys[slug] = simple.record
+      if (simple.changed) unsettled[slug] = { findings: simple.findings, fates: simple.fates, gone: simple.gone }
     }
     /* `documentSchema` has just accepted it, so it is an object. */
-    return { held: { journeys, from: path, nowhere: false, trouble: null }, raw: raw as Record<string, unknown> }
+    return { held: { journeys, from: path, nowhere: false, trouble: null, unsettled }, raw: raw as Record<string, unknown> }
   } catch (e) {
     return {
       held: {
@@ -700,6 +747,7 @@ function read(projectPath: string | null | undefined): { held: Held; raw: Record
           `${path} could not be read (${e instanceof Error ? (e.message.split('\n')[0] ?? '') : String(e)}), so no `
           + 'journey is being shown and nothing will be written over it. Every step and every sentence in that file is '
           + 'recoverable: fix or move it.',
+        unsettled: {},
       },
       raw: null,
     }
@@ -749,7 +797,18 @@ export const NOWHERE =
   + 'somebody’s journey into a folder they will never look in, and says it saved. Open a project on this canvas, or '
   + 'name one.'
 
-export type Written = { ok: true; journey: Journey } | { ok: false; error: string }
+export type Written =
+  | {
+      ok: true
+      journey: Journey
+      /**
+       * Set when this write is the one that stored a journey of the older
+       * shape as one step to a part: what was decided, and where the record
+       * as it was is kept.
+       */
+      settled: (Unsettled & { before: string }) | null
+    }
+  | { ok: false; error: string }
 
 /**
  * Put one journey into this project's document, whole — and touch nothing
@@ -792,7 +851,11 @@ export type Written = { ok: true; journey: Journey } | { ok: false; error: strin
  * path is where "cannot" is worth one more line.
  */
 export function writeJourney(projectPath: string | null | undefined, journey: Journey): Written {
-  const parsed = journeySchema.parse(journey)
+  /* One part to a step, whatever the caller did to the steps: a step added is
+     given its part, a step removed takes its part with it. Every journey a
+     caller holds came out of `read`, which has been over it with `simplified`
+     — `mirrored` is not the migration and must not be handed the older shape. */
+  const parsed = mirrored(journeySchema.parse(journey))
 
   const { held: store, raw } = read(projectPath)
   if (store.nowhere) return { ok: false, error: NOWHERE }
@@ -823,8 +886,64 @@ export function writeJourney(projectPath: string | null | undefined, journey: Jo
   const record = inTheOrderOf(others[parsed.slug], parsed)
   const document = { ...(raw === null ? { version: 1 } : {}), ...before, journeys: { ...others, [parsed.slug]: record } }
   documentSchema.parse(document)
+
+  /* The record as it was, kept before the one that replaces it is written:
+     if the second write fails, the first has cost nothing. */
+  let settled: (Unsettled & { before: string }) | null = null
+  const unsettled = store.unsettled[parsed.slug]
+  if (unsettled && Object.hasOwn(others, parsed.slug)) {
+    const kept = keepBefore(made.dir, parsed.slug, others[parsed.slug], unsettled)
+    if (!kept.ok) return { ok: false, error: `nothing was written. ${kept.error}` }
+    settled = { ...unsettled, before: kept.path }
+  }
+
   writeFileSync(path, `${JSON.stringify(document, null, 2)}\n`)
-  return { ok: true, journey: parsed }
+  return { ok: true, journey: parsed, settled }
+}
+
+/**
+ * Keep one journey's record exactly as it was on disk, in `BEFORE`, with what
+ * was decided about it. Never written over: an entry already there is the
+ * record from before the FIRST rewrite, and that is the one worth having.
+ */
+function keepBefore(
+  dir: string,
+  slug: string,
+  record: unknown,
+  decided: Unsettled,
+): { ok: true; path: string } | { ok: false; error: string } {
+  const path = join(dir, `${BEFORE}.json`)
+  let document: { journeys: Record<string, unknown>; decided: Record<string, unknown> } & Record<string, unknown> = {
+    about:
+      'Journeys as they were before each was rewritten as one step to a part, by slug, and what was decided about '
+      + 'each. Kept by the Journeys module the first time it rewrites a journey; never read by it and never written over. '
+      + 'Safe to delete once you have looked.',
+    journeys: {},
+    decided: {},
+  }
+  if (existsSync(path)) {
+    try {
+      const had: unknown = JSON.parse(readFileSync(path, 'utf8'))
+      if (!had || typeof had !== 'object' || Array.isArray(had)) throw new Error('not an object')
+      const one = had as Record<string, unknown>
+      const journeys = one.journeys && typeof one.journeys === 'object' && !Array.isArray(one.journeys) ? one.journeys : {}
+      const was = one.decided && typeof one.decided === 'object' && !Array.isArray(one.decided) ? one.decided : {}
+      document = { ...one, journeys: journeys as Record<string, unknown>, decided: was as Record<string, unknown> }
+    } catch {
+      return {
+        ok: false,
+        error:
+          `${path} is where a journey is kept as it was before it is rewritten, and it could not be read, so this `
+          + 'journey was not rewritten over. Move that file aside and save again.',
+      }
+    }
+  }
+  if (!Object.hasOwn(document.journeys, slug)) {
+    document.journeys[slug] = record
+    document.decided[slug] = { findings: decided.findings.map((one) => one.said), parts: decided.fates, gone: decided.gone }
+    writeFileSync(path, `${JSON.stringify(document, null, 2)}\n`)
+  }
+  return { ok: true, path }
 }
 
 /**
@@ -956,6 +1075,8 @@ export type Begun =
       from: 'host-answer' | 'host-file' | 'nothing'
       /** The host's file, when that is what was read. */
       file: string | null
+      /** What reading the host's epic as one step to a part decided; empty when it already was. */
+      findings: Finding[]
     }
   | { ok: false; error: string }
 
@@ -1069,9 +1190,13 @@ export function createJourney(
     }
   }
 
-  const written = writeJourney(projectPath, parsed.data)
+  /* What a host held may be in the older shape of parts. It becomes a record
+     here as one step to a part, and the host's own file — untouched — is the
+     record as it was. */
+  const simple = simplified(parsed.data)
+  const written = writeJourney(projectPath, simple.record)
   if (!written.ok) return written
-  return { ok: true, journey: written.journey, from, file }
+  return { ok: true, journey: written.journey, from, file, findings: simple.findings }
 }
 
 /* ------------------------------------------------------------------ *
@@ -1135,6 +1260,7 @@ export function refsOf(journey: Journey): string[] {
   add(journey.umbrella)
   for (const s of journey.steps) s.refs.forEach(add)
   for (const g of journey.groups) g.refs.forEach(add)
+  for (const g of journey.headings ?? []) g.refs.forEach(add)
   for (const list of Object.values(journey.blockedBy)) list.forEach(add)
   for (const list of Object.values(journey.settledBy)) list.forEach(add)
   journey.containers.forEach(add)

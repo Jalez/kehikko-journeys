@@ -147,7 +147,13 @@ describe('the migration itself', () => {
     expect(landed?.quizzes).toHaveLength(1)
     expect(landed?.vocabulary).toEqual([{ term: 'kehikko', means: 'a canvas' }])
     expect(landed?.owners).toEqual({ '#1': { maker: 'someone', reviewer: 'another' } })
-    expect(landed?.groups).toEqual([{ heading: 'a group', refs: ['#1', '!2'] }])
+    /* The heading and the references under it are carried: it was never a
+       part, so the store reads it as a heading set aside and the step as the
+       part it is. The file itself holds the group exactly as it was. */
+    expect(landed?.headings).toEqual([{ heading: 'a group', refs: ['#1', '!2'] }])
+    expect(landed?.groups).toEqual([{ heading: 'a step', refs: [], id: 'a-step' }])
+    const file = JSON.parse(readFileSync(join(into, '.kehikot', 'journeys', 'journeys.json'), 'utf8')) as { journeys: { one: { groups: unknown } } }
+    expect(file.journeys.one.groups).toEqual([{ heading: 'a group', refs: ['#1', '!2'] }])
     expect(landed?.blockedBy).toEqual({ '#1': ['!2'] })
     expect(landed?.settledBy).toEqual({ '#3': ['gh#4'] })
     expect(landed?.steps[0]?.notes).toEqual(['no ticket'])

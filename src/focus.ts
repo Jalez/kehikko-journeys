@@ -13,28 +13,14 @@ import type { Step } from './kinds.ts'
  * answers with every step and says nothing, and the page is exactly the page
  * it was before it read the field.
  *
- * With some picked, a step is shown when the part it SAYS it is in is one of
+ * With some picked, a step is shown when the part it is the step of is one of
  * them — its anchor is `{ part: stepPart(step) }`, and the protocol's one rule
- * (`anchorInFocus`, `narrowToFocus`) decides, not a rule of this app's own. A step is in a part because it carries
- * `part: <id>` and for no other reason. It is never filed by the references it
- * names: a step often names a reference it merely depends on, and a rule that
- * filed it under that reference's heading would move steps between parts
- * whenever somebody edited a sentence.
+ * (`anchorInFocus`, `narrowToFocus`) decides, not a rule of this app's own.
+ * A step is one part of the epic and a part is one step, so picking a part
+ * is picking its step: there is no step in no part, and none in two.
  *
- * ## A step with no part is outside every focus. That is decided.
- *
- * It belongs to the epic as a whole, so it is in no PICKED part: under a focus
- * it is not drawn. Nor is a step naming a part the epic no
- * longer has. The other rule — show the unassigned ones anyway, since nobody
- * said they were elsewhere — was considered and refused: a journey where no
- * step has been assigned yet would then look the same narrowed and not, and
- * the person who picked a part would be shown everything and told they were
- * looking at one part of it.
- *
- * The cost is real: in a journey whose steps have not been assigned, picking
- * a part shows none of them. What explains that lives where it can be acted
- * on — the fold of the parts box (`view/parts.tsx`) says how many steps are
- * in no part, whatever is picked, and opens onto where they are filed.
+ * (A record read from before that was so is read as if it were — `simplified`
+ * in `parts.ts` — so every step here carries the id of its own part.)
  *
  * ## Nothing here overrides the focus, and nothing announces it
  *

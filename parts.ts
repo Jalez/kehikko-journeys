@@ -1,46 +1,44 @@
-import { LIMITS, partFile, partIdsOf, partsOf, stepPart, type JourneyPart } from 'kehikot-module-protocol'
+import { LIMITS, PART_ID, partFile, slugFrom, stepPart } from 'kehikot-module-protocol'
 
 /**
- * Arranging a journey into parts: which step is in which, and the parts
- * themselves.
+ * A part of an epic and the one step this app holds for it.
  *
- * ## Why this is a file of its own, with nothing in it but arithmetic
+ * ## The model
  *
- * Everything here takes a record and answers with a record, or with a sentence
- * for why not. No file is read and nothing is written, so both halves of this
- * app can load it: `doors.ts` to decide what a write may say, and the page to
- * show what a press WOULD do before it is pressed. Those have to be one
- * function. A page that counted "this would unassign four steps" with its own
- * rule and a store that then unassigned five is a confirmation that lied, and
- * the person agreed to something else.
+ * An epic is divided into PARTS: an id, a name, an order. A part is the
+ * epic's, not this app's. What this app holds for a part is **one step**, and
+ * the step says which part it is the step of in its own `part` field. So a
+ * journey has exactly as many steps as its epic has parts, in the same order,
+ * and nothing here files, assigns or arranges: writing a step makes its part
+ * and removing the step takes the part with it.
  *
- * It is beside `limits.ts` rather than inside `store.ts` for the reason that
- * file gives: the store reads directories and a browser cannot import it.
+ * ## Why the list of parts is still written in this app's record
  *
- * ## What a part is, and who says which group gets which id
+ * Because that is the only place a released host reads it. A host (through
+ * 1.0 of the protocol) reads an epic's parts out of this record's `groups` —
+ * `{ id, heading, refs, files }` — and counts a step into a part when the
+ * step's `part` names the group's id. So the record keeps `groups`, one for
+ * each step, in the steps' order, and it is held to that by `mirrored` on
+ * every write. A group carries what is the part's and not the step's: its
+ * name (`heading`) and the one document the part covers (`files`, zero or
+ * one). Nothing in this file reads what the document IS; it is a name.
  *
- * A part is a group — a heading and the references under it — and a step is in
- * a part because it carries `part: <id>` and for no other reason. Which group
- * has which id is the protocol's to say (`partIdsOf`): a written `id`, else the
- * heading as a slug, else `part-<n>`. Nothing here restates that rule. This
- * file asks it, and it asks it again after every change it makes, because the
- * second and third of those answers MOVE when somebody rewords a heading or
- * takes a group out of the middle — and an id that moves leaves every step
- * that named it in no part at all, and every stored focus that named it
- * pointing at nothing.
+ * The day a host keeps the list with the epic itself, `groups` stops being
+ * written here and this file shrinks to the first paragraph.
  *
- * So there is one discipline, `holding`, and every function below ends in it:
- * **no group that is still there may come out of a change called anything
- * other than what it was called going in.** Where the derivation would have
- * renamed one, the name it had is written onto it as `id`. A written id is the
- * one answer `partIdsOf` does not derive, so from then on that group keeps its
- * name through any rewording.
+ * ## Everything here is arithmetic
+ *
+ * A record goes in and a record comes out, or a sentence for why not. No file
+ * is read and nothing is written, so the store, both doors and the page load
+ * the same functions.
  */
 
 /** As much of a step as this file reads. Anything else on it is carried. */
 export interface PartStep {
   title?: string
+  body?: string
   refs?: string[]
+  notes?: string[]
   part?: string
 }
 
@@ -49,515 +47,645 @@ export interface PartGroup {
   heading?: string
   refs?: string[]
   id?: string
-  /** The files of the epic's paper this part owns, relative to the paper's folder. Absent means none. */
   files?: string[]
 }
 
-/** A record's two lists, which is all of it that arranging touches. */
-export interface Arrangeable<S extends PartStep = PartStep, G extends PartGroup = PartGroup> {
+/** As much of a record as this file reads. */
+export interface Divided<S extends PartStep = PartStep, G extends PartGroup = PartGroup> {
   steps: S[]
   groups: G[]
+  /** Present when the steps are kept somewhere else; see `stepsFrom` in `store.ts`. */
+  stepsFrom?: unknown
+  /** Headings that were never parts, set aside by `simplified`. Carried. */
+  headings?: unknown
 }
 
 export type Refused = { ok: false; error: string }
 
-/** The parts of a record, with their ids: the protocol's, and not a second reading. */
-export function partsIn(record: unknown): JourneyPart[] {
-  return partsOf(record)
-}
-
-/**
- * The part a step is in, or null: it says none, or it names one this journey
- * does not have. Both are "in no part" to a focus, and both are offered for
- * assigning; see `focus.ts` for why a step with no part is outside every focus.
- */
-export function partOfStep(record: Arrangeable, step: PartStep): string | null {
-  const said = stepPart(step)
-  return said !== null && partsOf(record).some((part) => part.id === said) ? said : null
-}
-
-/** Zero-based positions of the steps that are in no part of this journey. */
-export function unassigned(record: Arrangeable): number[] {
-  const has = new Set(partsOf(record).map((part) => part.id))
-  const out: number[] = []
-  record.steps.forEach((step, index) => {
-    const said = stepPart(step)
-    if (said === null || !has.has(said)) out.push(index)
-  })
-  return out
-}
-
-/**
- * Why `id` is not a part of this journey, as a sentence that lists the ones
- * that are; null when it is one.
- *
- * The list is the point. "No such part" leaves an agent guessing at a slug of
- * a heading it has only seen in prose, and the id of a group whose heading
- * was reworded after a step was assigned to it is not guessable at all.
- */
-export function notAPart(record: Arrangeable, id: string): string | null {
-  const parts = partsOf(record)
-  if (parts.some((part) => part.id === id)) return null
-  if (!parts.length) {
-    return (
-      `"${shortened(id)}" is not a part of this journey, which is not divided into parts at all: it has no groups. `
-      + 'Make one first (`set_part` with a heading), then assign steps to the id it answers with.'
-    )
-  }
-  return (
-    `"${shortened(id)}" is not a part of this journey. Its parts are: `
-    + `${parts.map((part) => `${part.id} (“${part.heading}”)`).join(', ')}. Pass one of those ids, or an empty `
-    + '`part` to take the step out of every part.'
-  )
-}
-
-function shortened(text: string): string {
-  return text.length > 80 ? `${text.slice(0, 80)}…` : text
-}
-
-/**
- * The groups, with every one of them called what `named` says it was called.
- *
- * `named[i]` is the id group `i` had before whatever has just been done to the
- * list. Walked in order and asked again at each step, because an id depends on
- * the groups before it and on nothing after: once group `i` answers to its old
- * name, nothing done to a later group can take that away. A group whose name
- * did not move is not touched — writing `id` onto every group of a journey
- * because one step was filed would be this app editing lines of somebody's
- * document nobody asked it to.
- */
-export function holding<G extends PartGroup>(groups: G[], named: readonly (string | null)[]): G[] {
-  let out = groups
-  for (let i = 0; i < out.length; i += 1) {
-    const was = named[i]
-    if (was === null || was === undefined) continue
-    if (partIdsOf(out)[i] === was) continue
-    out = out.map((group, at) => (at === i ? { ...group, id: was } : group))
-  }
-  return out
-}
-
-/**
- * The groups, with `id` written onto the one that answers to it.
- *
- * This is what makes an assignment survive a rewording. A step filed under
- * `the-agent-seam` names a group that is only CALLED that because its heading
- * says "The agent seam"; reword the heading and the group answers to another
- * name, the step names nothing, and it drops out of the part it was put in
- * with no write to the step at all. So the moment a step is filed under a
- * group, the name is written down on the group.
- *
- * It changes nothing a reader sees: the id written is exactly the one the
- * group already answered to, so `partsOf` says the same before and after —
- * same ids, same headings, same references. `test/parts.test.ts` holds it to
- * that, including for a journey with two groups under one heading.
- */
-export function pinned<G extends PartGroup>(groups: G[], id: string): G[] {
-  const named = partIdsOf(groups)
-  const at = named.indexOf(id)
-  if (at < 0) return groups
-  const group = groups[at] as G
-  if (group.id === id) return groups
-  return holding(
-    groups.map((one, i) => (i === at ? { ...one, id } : one)),
-    named,
-  )
-}
-
-export type Assigned<R> =
-  | {
-      ok: true
-      record: R
-      /** One-based positions whose part this changed. */
-      moved: number[]
-      /** One-based positions that already said exactly this. */
-      already: number[]
-      /** The part's heading, or null when the steps were taken out of every part. */
-      heading: string | null
-    }
-  | Refused
-
-/**
- * Put steps in a part, or — `part` null — take them out of every part.
- *
- * `positions` are one-based, as every door of this app counts steps. One that
- * is not a step refuses the whole call and nothing is changed: half an
- * assignment, reported as an error, leaves somebody working out which half.
- *
- * Nothing but `part` is touched on a step, which is the reason this is not
- * `set_step` called in a loop: that door writes a step whole, so an agent
- * filing thirty-eight steps through it would have to say every title, body
- * and reference again, and would be taken to have unsaid whatever it left out.
- */
-export function assign<R extends Arrangeable>(record: R, positions: readonly number[], part: string | null): Assigned<R> {
-  if (part !== null) {
-    const refusal = notAPart(record, part)
-    if (refusal) return { ok: false, error: refusal }
-  }
-  const wanted = [...new Set(positions)]
-  if (!wanted.length) return { ok: false, error: 'which steps? Pass the 1-based positions of the steps to file.' }
-  const missing = wanted.filter((at) => !Number.isInteger(at) || at < 1 || at > record.steps.length)
-  if (missing.length) {
-    return {
-      ok: false,
-      error:
-        `this journey has ${record.steps.length} stored ${record.steps.length === 1 ? 'step' : 'steps'}, and `
-        + `${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not among them. Nothing was changed.`,
-    }
-  }
-
-  const moved: number[] = []
-  const already: number[] = []
-  const steps = record.steps.map((step, index) => {
-    if (!wanted.includes(index + 1)) return step
-    const said = typeof step.part === 'string' ? step.part : null
-    if (said === part) {
-      already.push(index + 1)
-      return step
-    }
-    moved.push(index + 1)
-    if (part === null) {
-      const { part: _gone, ...rest } = step
-      return rest as typeof step
-    }
-    return { ...step, part }
-  })
-  const heading = part === null ? null : (partsOf(record).find((one) => one.id === part)?.heading ?? part)
-  /* Pinned even when every step already said this part: the steps were filed
-     by hand, the group was never told, and this is the first chance to. */
-  const groups = part === null ? record.groups : pinned(record.groups, part)
-  return { ok: true, record: { ...record, steps, groups }, moved, already, heading }
-}
-
-/**
- * The unassigned steps whose references are ALL among a part's, as zero-based
- * positions — a proposal, and never an assignment.
- *
- * ## Why this is offered, and why it never runs by itself
- *
- * `focus.ts` refuses to file a step by the references it names, and that
- * refusal stands: a step often names a reference it merely depends on, and a
- * rule that filed it under that reference's heading would move steps between
- * parts whenever somebody edited a sentence. But a journey somebody has just
- * divided into parts has every step in none, and for most of them the answer
- * a person would give IS the one the references give. So the references are
- * allowed to SUGGEST, once, to somebody who is shown the list and presses
- * again — after which each step says its part in its own words and the
- * references are never consulted about it again.
- *
- * ## What counts
- *
- * A step that is in no part, that names at least one reference, every one of
- * which the part holds. "Holds" is the protocol's answer (`partsOf`): the
- * group's own references and those of the steps already in it. A step with no
- * references is never proposed — "all of none" is true of every part at once,
- * and a suggestion that fits everywhere is not one. A step already in a part
- * is never proposed either: somebody put it there.
- */
-export function proposed(record: Arrangeable, part: string): number[] {
-  const one = partsOf(record).find((candidate) => candidate.id === part)
-  if (!one) return []
-  const held = new Set(one.refs)
-  return unassigned(record).filter((index) => {
-    const refs = (record.steps[index]?.refs ?? []).map((ref) => ref.trim()).filter(Boolean)
-    return refs.length > 0 && refs.every((ref) => held.has(ref))
-  })
-}
-
-export type Parted<R> =
-  | { ok: true; record: R; id: string; heading: string; created: boolean; was: string | null; files: string[] | null }
-  | Refused
-
-/** One example of a part's file, said wherever a person or an agent is asked for one. */
+/** One example of a part's document, said wherever a person or an agent is asked for one. */
 export const FILE_EXAMPLE = 'chapters/design.tex'
 
-/**
- * The files somebody gave for a part, in the form they are stored in — or a
- * sentence naming the one that is not a file of a paper.
- *
- * ## What the names are
- *
- * The protocol's (0.32.0), and `partFile` is the only reading of them: a path
- * RELATIVE TO THE PAPER'S FOLDER, `<project>/.kehikot/paper/<epic>/`, with
- * forward slashes and the extension written — `chapters/design.tex`. That is
- * the name the Paper module lists the file under and the name `fileInFocus`
- * compares, so what is stored here has to be that name exactly; a second
- * tidying rule in this app would be a part that owns a file on this page and
- * owns nothing in the paper.
- *
- * ## Refused, never dropped
- *
- * `partsOf` DROPS an entry that is not in the form, and is right to: it reads
- * a document somebody wrote, and one bad line must not cost an epic its
- * parts. This is the other side — the door the line comes in by — and here a
- * dropped entry is a save that reported success and kept two files of three.
- * So one bad entry refuses the whole list, by name, and nothing is written.
- *
- * What is tidied is only what `partFile` tidies (space around the name, a
- * leading `./`, Unicode to NFC), and a name given twice is one file. More
- * than `LIMITS.PART_FILES` is refused for the reason a thirty-third part is:
- * it would be written and never sent.
- *
- * ## What is NOT checked: that the file exists
- *
- * A part may be given its file before the file is written, and a name is a
- * name: this function is pure, loaded by the page as well as the store, and
- * opens nothing. Where the epic has a paper the page now LISTS its files to
- * tick (`paper.ts` reads them, `chapters.ts` says which they are) and marks a
- * name the paper does not have; the Paper module says the same on its own
- * page when a picked part names a file the paper does not include.
- */
-export function filesGiven(raw: unknown): { ok: true; files: string[] } | Refused {
-  if (!Array.isArray(raw)) {
-    return {
-      ok: false,
-      error: `a part’s files are a list of names, each relative to the paper’s folder — ["${FILE_EXAMPLE}"]. Nothing was changed.`,
-    }
+function shortened(text: string, max = 80): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text
+}
+
+const trimmedRefs = (raw: unknown): string[] => {
+  if (!Array.isArray(raw)) return []
+  const out: string[] = []
+  for (const one of raw) {
+    if (typeof one !== 'string') continue
+    const ref = one.trim()
+    if (ref && !out.includes(ref)) out.push(ref)
   }
-  const files: string[] = []
-  for (const entry of raw) {
-    const file = partFile(entry)
-    if (file === null) {
-      const shown = typeof entry === 'string' ? `"${shortened(entry)}"` : `${shortened(JSON.stringify(entry) ?? String(entry))}`
+  return out
+}
+
+/** A group's documents in the protocol's form, once each. */
+function filesOf(group: PartGroup | undefined): string[] {
+  const out: string[] = []
+  for (const one of Array.isArray(group?.files) ? group.files : []) {
+    const file = partFile(one)
+    if (file !== null && !out.includes(file)) out.push(file)
+  }
+  return out
+}
+
+/* ------------------------------------------------------------------ *
+ * Reading a record that is already simple
+ * ------------------------------------------------------------------ */
+
+/** The part a step is the step of: its group, or undefined in a record that is not simple. */
+export function partOf<G extends PartGroup>(record: { groups: G[] }, step: PartStep): G | undefined {
+  const id = stepPart(step)
+  return id === null ? undefined : record.groups.find((group) => group.id === id)
+}
+
+/** What a step's part is called: the name somebody gave it, else the step's title. */
+export function nameOf(record: { groups: PartGroup[] }, step: PartStep): string {
+  return (partOf(record, step)?.heading ?? '').trim() || (step.title ?? '').trim()
+}
+
+/** The one document a step's part covers, or null. */
+export function fileOf(record: { groups: PartGroup[] }, step: PartStep): string | null {
+  return filesOf(partOf(record, step))[0] ?? null
+}
+
+/**
+ * Whether a part's name was given by a person, as opposed to being the step's
+ * title standing in for one. A name that IS the title follows the title when
+ * the title is reworded; a given one stays.
+ */
+export function named(record: { groups: PartGroup[] }, step: PartStep): boolean {
+  const heading = (partOf(record, step)?.heading ?? '').trim()
+  return heading !== '' && heading !== headingFrom(step.title ?? '')
+}
+
+/** A step's title as a part's name: one line, no longer than a host will carry. */
+function headingFrom(title: string): string {
+  return title.trim().slice(0, LIMITS.TITLE)
+}
+
+/**
+ * An id for a new part, from what it is called.
+ *
+ * A slug of the name, cut at a word and kept short: an id is what a host
+ * stores for a pick and what an agent types, and a ninety-character title is
+ * neither. `taken` is every id it must not be — the ids in the record and, in
+ * a migration, every id the record ever answered to.
+ */
+export function idFor(said: string, taken: ReadonlySet<string> | readonly string[], at = 1): string {
+  const has = taken instanceof Set ? taken : new Set(taken as readonly string[])
+  let base = slugFrom(said)
+  if (base.length > ID_LENGTH) {
+    const cut = base.slice(0, ID_LENGTH)
+    const dash = cut.lastIndexOf('-')
+    base = (dash >= ID_LENGTH / 2 ? cut.slice(0, dash) : cut).replace(/-+$/, '')
+  }
+  if (!base || !PART_ID.test(base)) base = `step-${at}`
+  let id = base
+  for (let n = 2; has.has(id); n += 1) id = `${base}-${n}`
+  return id
+}
+
+/** How long a made id may be. Shorter than the protocol allows (80), so `-2` always fits. */
+const ID_LENGTH = 40
+
+/**
+ * Whether a record is already one part to a step.
+ *
+ * Every step names a part; every part is named by exactly one step; the parts
+ * are in the steps' order; a part lists no references of its own and covers at
+ * most one document, which no other part covers. A record that is all of that
+ * is left exactly as it is by `simplified`.
+ */
+export function isSimple(record: Divided): boolean {
+  const { steps, groups } = record
+  if (steps.length !== groups.length) return false
+  const ids = new Set<string>()
+  const files = new Set<string>()
+  for (let i = 0; i < steps.length; i += 1) {
+    const group = groups[i] as PartGroup
+    const id = group.id
+    if (typeof id !== 'string' || !PART_ID.test(id) || ids.has(id)) return false
+    if (stepPart(steps[i]) !== id) return false
+    ids.add(id)
+    if (typeof group.heading !== 'string' || !group.heading.trim()) return false
+    if ((group.refs ?? []).length) return false
+    const raw = Array.isArray(group.files) ? group.files : []
+    if (raw.length > 1) return false
+    if (raw.length === 1) {
+      const file = partFile(raw[0])
+      if (file === null || file !== raw[0] || files.has(file)) return false
+      files.add(file)
+    }
+    if (Object.hasOwn(group, 'files') && raw.length === 0) return false
+  }
+  return true
+}
+
+/* ------------------------------------------------------------------ *
+ * The older shape, read as the simple one
+ * ------------------------------------------------------------------ */
+
+/**
+ * One thing `simplified` decided that a person should be told. `code` is for
+ * a test and a caller; `said` is the sentence.
+ */
+export interface Finding {
+  code:
+    | 'made' /* a step was made from a part that had none */
+    | 'split' /* a part had several steps; each is now a part */
+    | 'shared' /* two parts covered one document; the first keeps it */
+    | 'extra' /* a part covered several documents; it keeps the first */
+    | 'aside' /* a heading that was never a part is kept, but is not one */
+    | 'unfiled' /* steps were in no part; each is now a part */
+    | 'refs' /* references listed under a heading moved onto its step */
+    | 'order' /* the parts are now in the steps' order, which differs */
+    | 'beyond' /* more parts than a host lists */
+    | 'elsewhere' /* parts of a journey whose steps are kept elsewhere */
+  said: string
+}
+
+/** One part of the older shape and what became of it: the migration's table, a row to a part. */
+export interface Fate {
+  /** The id the part answered to. */
+  was: string
+  heading: string
+  /** One-based positions, in the OLD record, of the steps that were in it. */
+  steps: number[]
+  files: string[]
+  /** The id it answers to now, or null: it is no longer a part. */
+  now: string | null
+  /** One-based position, in the NEW record, of its step. */
+  at: number | null
+  /** The document it covers now. */
+  file: string | null
+  /** `kept` a step it had; `made` a step for it; `aside` it was never a part. */
+  how: 'kept' | 'made' | 'aside'
+}
+
+export interface Simplified<R> {
+  record: R
+  /** False when the record was already simple: `record` is then the one handed in. */
+  changed: boolean
+  findings: Finding[]
+  /** What became of each part the older shape had, in its order. */
+  fates: Fate[]
+  /** Ids the record answered to that it answers to no longer. */
+  gone: string[]
+}
+
+export interface SimplifyOptions {
+  /**
+   * What becomes of a heading that was never made as a part: no step is in
+   * it, it covers no document, and no id was ever written on it — which every
+   * part made through this app's page or door has had since parts existed.
+   * They are the headings a journey's references were once listed under.
+   *
+   * `aside` (the default) keeps each in the record under `headings`, exactly
+   * as it was, and makes no step of it: a thirty-eight-step journey with
+   * eight such headings stays thirty-eight steps. `steps` treats it like any
+   * other part with no step and makes an empty step for it.
+   */
+  headings?: 'aside' | 'steps'
+}
+
+/** The id each group of the older shape answered to: the protocol's rule, without its limit of thirty-two. */
+function idsOf(groups: readonly PartGroup[]): string[] {
+  const taken = new Set<string>()
+  return groups.map((group, index) => {
+    const heading = typeof group.heading === 'string' ? group.heading.trim().slice(0, LIMITS.TITLE) : ''
+    const wanted = typeof group.id === 'string' && PART_ID.test(group.id) ? group.id : slugFrom(heading) || `part-${index + 1}`
+    let id = wanted
+    for (let n = 2; taken.has(id); n += 1) id = `${wanted.slice(0, 76)}-${n}`
+    taken.add(id)
+    return id
+  })
+}
+
+const quoted = (list: readonly string[]): string => list.map((one) => `“${shortened(one)}”`).join(', ')
+
+/**
+ * A record of the older shape as one part to a step — the migration, whole.
+ *
+ * The older shape let a part hold many steps or none, a step be in no part,
+ * two parts cover one document and a part cover several. This reads any of
+ * that as the simple model and says, part by part, what it did. Pure: the
+ * store shows the page the answer on every read without writing it, and
+ * writes it on the first deliberate write.
+ *
+ * **Nothing a person wrote is dropped.** Every step is kept, with every field
+ * it had. Every heading is kept — as its part's name, or under `headings`.
+ * Every reference is kept, on a step or under `headings`. A document a part
+ * no longer covers is named in the findings, and the record as it was is kept
+ * beside the file by the store.
+ *
+ * The rules, in the order they apply:
+ *
+ *  - **A part with one step**: the step is the part's step. The part keeps
+ *    its id, its name and its document.
+ *  - **A part with several steps**: each step is a part. The first keeps the
+ *    part's id, name and document; the others get an id from their title, are
+ *    called by their title, and cover nothing.
+ *  - **A part with no step**: a step is made for it — titled with the part's
+ *    name, empty — so the part survives with its id and its document. It goes
+ *    where the part was in the order. (Unless it was never a part; see
+ *    `SimplifyOptions.headings`.)
+ *  - **A step in no part** (or naming one the journey does not have): it is a
+ *    part of its own, with an id from its title, covering nothing.
+ *  - **Two parts covering one document**: the first in order keeps it.
+ *  - **A part covering several documents**: it keeps the first no earlier
+ *    part took.
+ *  - **References listed under a part's heading** that its step does not
+ *    name: added to that step.
+ *  - **A journey whose steps are kept elsewhere** (`stepsFrom`, no stored
+ *    step): no step is made here — that would turn "the steps are in the
+ *    paper" into "the steps are these empty ones". Its headings are set aside.
+ */
+export function simplified<R extends Divided>(record: R, options: SimplifyOptions = {}): Simplified<R> {
+  if (isSimple(record)) return { record, changed: false, findings: [], fates: [], gone: [] }
+
+  const groups = record.groups as PartGroup[]
+  const steps = record.steps as PartStep[]
+  const findings: Finding[] = []
+  const was = idsOf(groups)
+  const elsewhere = steps.length === 0 && record.stepsFrom !== undefined && record.stepsFrom !== null
+
+  /* Which steps were in which part, by the old record's own word. */
+  const inGroup = new Map<number, number[]>()
+  const groupOfStep: (number | null)[] = steps.map((step, s) => {
+    const said = stepPart(step)
+    const g = said === null ? -1 : was.indexOf(said)
+    if (g < 0) return null
+    inGroup.set(g, [...(inGroup.get(g) ?? []), s])
+    return g
+  })
+
+  /* Which parts are never to be parts: see `SimplifyOptions.headings`. */
+  const aside = groups.map((group, g) => {
+    if ((inGroup.get(g) ?? []).length) return false
+    if (elsewhere) return true
+    if (options.headings === 'steps') return false
+    const written = typeof group.id === 'string' && PART_ID.test(group.id)
+    return !written && filesOf(group).length === 0
+  })
+
+  /* The one document each surviving part covers: the first no earlier part took. */
+  const taken = new Map<string, number>()
+  const fileOfGroup: (string | null)[] = groups.map((group, g) => {
+    if (aside[g]) return null
+    const files = filesOf(group)
+    const mine = files.find((file) => !taken.has(file)) ?? null
+    if (mine !== null) taken.set(mine, g)
+    const name = (group.heading ?? '').trim() || (was[g] as string)
+    const shared = files.filter((file) => file !== mine && taken.has(file) && taken.get(file) !== g)
+    for (const file of shared) {
+      const by = taken.get(file) as number
+      findings.push({
+        code: 'shared',
+        said:
+          `${file} was covered by two parts, “${shortened((groups[by]?.heading ?? '').trim() || (was[by] as string))}” and `
+          + `“${shortened(name)}”. A document belongs to one part: the first keeps it, and “${shortened(name)}” `
+          + `${mine === null ? 'now covers none' : `covers ${mine}`}.`,
+      })
+    }
+    const extra = files.filter((file) => file !== mine && !shared.includes(file))
+    if (extra.length) {
+      findings.push({
+        code: 'extra',
+        said:
+          `“${shortened(name)}” covered ${files.length} documents and a part covers one: it keeps ${mine}, and `
+          + `${extra.join(', ')} ${extra.length === 1 ? 'is' : 'are'} no longer a part’s.`,
+      })
+    }
+    return mine
+  })
+
+  /* Every id the record answered to is spoken for, so no made id can be mistaken for one. */
+  const ids = new Set(was)
+
+  interface Slot {
+    step: PartStep
+    group: PartGroup
+    /** The old part this came from, or -1. */
+    from: number
+    how: 'kept' | 'made' | 'split' | 'unfiled'
+    /** Zero-based position in the old record, or -1 for a made step. */
+    old: number
+  }
+
+  const carried = (group: PartGroup | undefined, id: string, heading: string, file: string | null): PartGroup => {
+    const { files: _files, refs: _refs, heading: _heading, id: _id, ...rest } = group ?? {}
+    return { ...rest, heading, refs: [], id, ...(file === null ? {} : { files: [file] }) }
+  }
+
+  const slots: Slot[] = steps.map((step, s) => {
+    const g = groupOfStep[s] as number | null
+    const title = headingFrom(step.title ?? '')
+    if (g !== null && (inGroup.get(g) as number[])[0] === s) {
+      const group = groups[g] as PartGroup
+      const refs = trimmedRefs(step.refs)
+      const under = trimmedRefs(group.refs).filter((ref) => !refs.includes(ref))
+      if (under.length) {
+        findings.push({
+          code: 'refs',
+          said:
+            `${under.join(', ')} ${under.length === 1 ? 'was' : 'were'} listed under “${shortened((group.heading ?? '').trim() || (was[g] as string))}” `
+            + `and not on its step: ${under.length === 1 ? 'it is' : 'they are'} on the step now.`,
+        })
+      }
       return {
-        ok: false,
-        error:
-          `${shown} is not a name a part can hold for a file. A part’s file is its path relative to the paper’s `
-          + `folder, with forward slashes and its extension — ${FILE_EXAMPLE} — not absolute, with no ".." or empty `
-          + `segment in it, and at most ${LIMITS.PART_FILE} characters. Nothing was changed.`,
+        step: { ...step, ...(under.length ? { refs: [...(step.refs ?? []), ...under] } : {}), part: was[g] as string },
+        group: carried(group, was[g] as string, (group.heading ?? '').trim().slice(0, LIMITS.TITLE) || title, fileOfGroup[g] ?? null),
+        from: g,
+        how: 'kept',
+        old: s,
       }
     }
-    if (!files.includes(file)) files.push(file)
-  }
-  if (files.length > LIMITS.PART_FILES) {
+    const id = idFor(step.title ?? '', ids, s + 1)
+    ids.add(id)
     return {
-      ok: false,
-      error:
-        `a part names at most ${LIMITS.PART_FILES} files, and that was ${files.length}. The ones past the limit would `
-        + 'be written and never sent to a module, so nothing was changed.',
+      step: { ...step, part: id },
+      group: carried(undefined, id, title, null),
+      from: g ?? -1,
+      how: g === null ? 'unfiled' : 'split',
+      old: s,
     }
+  })
+
+  /* A step for each part that had none, put where the part was in the order:
+     after the last step of the nearest part before it, else before the first
+     step of the nearest part after it, else at the end. */
+  groups.forEach((group, g) => {
+    if (aside[g] || (inGroup.get(g) ?? []).length) return
+    const heading = (group.heading ?? '').trim().slice(0, LIMITS.TITLE) || (was[g] as string)
+    const slot: Slot = {
+      step: { title: heading, body: '', refs: trimmedRefs(group.refs), notes: [], part: was[g] as string },
+      group: carried(group, was[g] as string, heading, fileOfGroup[g] ?? null),
+      from: g,
+      how: 'made',
+      old: -1,
+    }
+    let at = -1
+    for (let before = g - 1; before >= 0 && at < 0; before -= 1) {
+      for (let i = slots.length - 1; i >= 0; i -= 1) {
+        if ((slots[i] as Slot).from === before) {
+          at = i + 1
+          break
+        }
+      }
+    }
+    if (at < 0) {
+      const after = slots.findIndex((one) => one.from > g)
+      at = after < 0 ? slots.length : after
+    }
+    slots.splice(at, 0, slot)
+    findings.push({
+      code: 'made',
+      said:
+        `“${shortened(heading)}” had no step. One was made for it — titled “${shortened(heading)}”, with nothing written in `
+        + `it — so the part is still there, with its id (${was[g]})${fileOfGroup[g] ? ` and ${fileOfGroup[g]}` : ''}.`,
+    })
+  })
+
+  /* Said once each, however many steps or headings it is about. */
+  groups.forEach((group, g) => {
+    const mine = inGroup.get(g) ?? []
+    if (mine.length < 2) return
+    const others = slots.filter((slot) => slot.from === g && slot.how === 'split')
+    findings.push({
+      code: 'split',
+      said:
+        `“${shortened((group.heading ?? '').trim() || (was[g] as string))}” held ${mine.length} steps, and a part has one. Step `
+        + `${slots.findIndex((slot) => slot.from === g && slot.how === 'kept') + 1} keeps its id (${was[g]}), its name`
+        + `${fileOfGroup[g] ? ` and ${fileOfGroup[g]}` : ''}; ${others.length === 1 ? 'the other is a part of its own' : `the other ${others.length} are parts of their own`}, `
+        + `called by ${others.length === 1 ? 'its title' : 'their titles'} and covering no document: ${others.map((slot) => slot.group.id).join(', ')}.`,
+    })
+  })
+  const unfiled = slots.filter((slot) => slot.how === 'unfiled')
+  if (unfiled.length) {
+    findings.push({
+      code: 'unfiled',
+      said:
+        `${unfiled.length === 1 ? '1 step was' : `${unfiled.length} steps were`} in no part. `
+        + `${unfiled.length === 1 ? 'It is a part of its own now' : 'Each is a part of its own now'}, called by its title.`,
+    })
   }
-  return { ok: true, files }
+  const setAside = groups.filter((_, g) => aside[g])
+  if (setAside.length) {
+    const headings = setAside.map((group, i) => (group.heading ?? '').trim() || `heading ${i + 1}`)
+    findings.push({
+      code: elsewhere ? 'elsewhere' : 'aside',
+      said: elsewhere
+        ? `This journey’s steps are kept elsewhere, so no step is made here for ${quoted(headings)}: `
+          + `${setAside.length === 1 ? 'it is' : 'they are'} kept in the record under \`headings\`, and ${setAside.length === 1 ? 'is' : 'are'} not ${setAside.length === 1 ? 'a part' : 'parts'}.`
+        : `${quoted(headings)} ${setAside.length === 1 ? 'was a heading' : 'were headings'} with references listed under `
+          + `${setAside.length === 1 ? 'it' : 'them'} and no step, never made as ${setAside.length === 1 ? 'a part' : 'parts'}. `
+          + `${setAside.length === 1 ? 'It is' : 'They are'} kept in the record under \`headings\`, references and all, and ${setAside.length === 1 ? 'is' : 'are'} no longer ${setAside.length === 1 ? 'a part' : 'parts'}.`,
+    })
+  }
+
+  const now = slots.map((slot) => slot.group.id as string)
+  const keptBefore = was.filter((id, g) => !aside[g])
+  const keptNow = now.filter((id) => keptBefore.includes(id))
+  if (keptBefore.join('\n') !== keptNow.join('\n')) {
+    findings.push({
+      code: 'order',
+      said: `The parts are in the steps’ order now, which is not the order they were listed in: ${keptNow.join(', ')}.`,
+    })
+  }
+  if (slots.length > LIMITS.PARTS) {
+    findings.push({
+      code: 'beyond',
+      said:
+        `This journey has ${slots.length} steps, so ${slots.length} parts, and a host lists the first ${LIMITS.PARTS} of an epic’s parts: `
+        + `steps ${LIMITS.PARTS + 1} to ${slots.length} cannot be picked there.`,
+    })
+  }
+
+  const fates: Fate[] = groups.map((group, g) => {
+    const at = slots.findIndex((slot) => slot.from === g && (slot.how === 'kept' || slot.how === 'made'))
+    return {
+      was: was[g] as string,
+      heading: (group.heading ?? '').trim(),
+      steps: (inGroup.get(g) ?? []).map((s) => s + 1),
+      files: filesOf(group),
+      now: aside[g] ? null : (was[g] as string),
+      at: at < 0 ? null : at + 1,
+      file: fileOfGroup[g] ?? null,
+      how: aside[g] ? 'aside' : (slots[at] as Slot).how === 'made' ? 'made' : 'kept',
+    }
+  })
+
+  const headings = [...(Array.isArray(record.headings) ? record.headings : []), ...setAside]
+  const { headings: _had, ...rest } = record
+  const out = {
+    ...rest,
+    steps: slots.map((slot) => slot.step),
+    groups: slots.map((slot) => slot.group),
+    ...(headings.length ? { headings } : {}),
+  } as unknown as R
+  return { record: out, changed: true, findings, fates, gone: was.filter((_, g) => aside[g]) }
 }
+
+/** Every finding as one paragraph, for an answer line and a door. Empty when there is none. */
+export function findingsSaid(findings: readonly Finding[]): string {
+  return findings.map((one) => one.said).join(' ')
+}
+
+/* ------------------------------------------------------------------ *
+ * Changing a record that is simple
+ * ------------------------------------------------------------------ */
 
 /**
- * What to say about a part's files once they are kept: which they are, and
- * the two things about them that are allowed and worth a sentence.
+ * The record with its parts held to its steps: one group to a step, in the
+ * steps' order, each called what it was called.
  *
- * **A file two parts own.** Allowed, on purpose, and said. The protocol reads
- * it without complaint (`partsOfFile` answers a list), a file that two parts
- * both need — a shared introduction — is a real paper, and refusing it would
- * make MOVING a file from one part to another depend on the order of two
- * presses. It is shown when either part is picked.
- *
- * **A name with no extension.** Allowed, because a paper may hold one, and
- * said, because it is nearly always `\input{chapters/design}` copied as it
- * stands — which names no file on disk and so narrows to nothing.
+ * Every write ends in this. A step that names a part keeps that part — its
+ * name and its document; a step that names none (it is new) is given one,
+ * called by its title; a group no step names is gone, because its step is.
+ * It is NOT the migration: handed a record of the older shape it would drop
+ * the parts that had no step, which is why the store only ever hands it one
+ * `simplified` has been over.
  */
-export function filesSaid(record: Arrangeable, id: string): string {
-  const parts = partsOf(record)
-  const files = parts.find((part) => part.id === id)?.files ?? []
-  if (!files.length) return 'It owns no file of the paper.'
-  const said = [
-    `It owns ${files.length === 1 ? '1 file' : `${files.length} files`} of the paper, named from the paper’s folder: ${files.join(', ')}.`,
-  ]
-  for (const file of files) {
-    const also = parts.filter((part) => part.id !== id && (part.files ?? []).includes(file))
-    if (also.length) {
-      said.push(
-        `${file} is also owned by ${also.map((part) => `“${part.heading}”`).join(' and ')}: a file may be in more than `
-          + 'one part, and is shown when any of them is picked.',
-      )
-    }
-    if (!/\.[^./]+$/.test(file)) {
-      said.push(`${file} has no extension. A file is named as it is on disk — ${FILE_EXAMPLE}, not chapters/design — or it matches nothing.`)
-    }
+export function mirrored<R extends Divided>(record: R): R {
+  const byId = new Map<string, PartGroup>()
+  for (const group of record.groups) if (typeof group.id === 'string' && !byId.has(group.id)) byId.set(group.id, group)
+  const ids = new Set<string>()
+  for (const step of record.steps) {
+    const id = stepPart(step)
+    if (id !== null && byId.has(id)) ids.add(id)
   }
-  return said.join(' ')
-}
-
-/**
- * Make a part, or change one: its heading, and its references and its files
- * when they are given.
- *
- * With no `id`, a group is added at the end with this heading, and the id it
- * answers to is WRITTEN on it from the start, so that the first rewording does
- * not rename it. With an `id`, that group's heading is replaced — and the id
- * it answered to is written on it first, for the same reason and one more: a
- * host keeps the parts a person picked BY ID, so a rename that moved the id
- * would silently drop the part out of somebody's focus.
- *
- * `refs` absent leaves a group's references as they are. They are the
- * references listed under the heading, and nothing about renaming a part says
- * anything about them.
- *
- * `files` is the same three-valued thing: absent leaves the part's files
- * untouched, a list replaces them, and an EMPTY list takes the key off the
- * group altogether — the protocol's shape for "owns none" is the key being
- * absent, and `files: []` left in somebody's file is a line that says nothing.
- * The list is read by `filesGiven`, which refuses rather than drops.
- *
- * With an `id`, the heading may be left out, and the part keeps the one it
- * has: giving a part a file is not a rewording, and a door that made an agent
- * say the heading again to do it would have it reworded by a typing error.
- *
- * Refused: no heading for a new part; a heading another part of this journey
- * already has (two parts a person cannot tell apart in a picker are one part
- * with a bug); more parts than a host will read (`LIMITS.PARTS` — the group
- * would be written and never shown); an id that is not a part; a file that is
- * not one.
- */
-export function withPart<R extends Arrangeable>(
-  record: R,
-  given: { id?: string | null; heading?: string; refs?: string[]; files?: unknown },
-): Parted<R> {
-  const id = given.id ?? null
-  const parts = partsOf(record)
-  const named = partIdsOf(record.groups)
-  const said = (given.heading ?? '').trim().slice(0, LIMITS.TITLE)
-  if (!said && id === null) return { ok: false, error: 'a part has to be called something: give it a heading.' }
-
-  if (id !== null) {
-    const refusal = notAPart(record, id)
-    if (refusal) return { ok: false, error: refusal }
-  } else if (named.filter((one) => one !== null).length >= LIMITS.PARTS || record.groups.length >= LIMITS.PARTS) {
-    return {
-      ok: false,
-      error:
-        `this journey already has ${record.groups.length} groups, and a host reads at most ${LIMITS.PARTS} of them as `
-        + 'parts. One more would be written and never shown. Remove a part first.',
-    }
-  }
-
-  const was = id === null ? null : (parts.find((part) => part.id === id)?.heading ?? null)
-  const heading = said || was || ''
-  const same = said
-    ? parts.find((part) => part.id !== id && part.heading.trim().toLowerCase() === said.toLowerCase())
-    : undefined
-  if (same) {
-    return {
-      ok: false,
-      error:
-        `this journey already has a part called “${same.heading}” (${same.id}). Two parts under one heading cannot `
-        + 'be told apart where they are picked, so nothing was changed.',
-    }
-  }
-
-  let files: string[] | null = null
-  if (given.files !== undefined) {
-    const read = filesGiven(given.files)
-    if (!read.ok) return read
-    files = read.files
-  }
-  /** One group with the files it was given: the list, or — for an empty one — no such key. */
-  const owning = <G extends PartGroup>(group: G): G => {
-    if (files === null) return group
-    const { files: _were, ...rest } = group
-    return (files.length ? { ...rest, files } : rest) as G
-  }
-
-  if (id === null) {
-    const added = [...record.groups, owning({ heading, refs: given.refs ?? [] } as R['groups'][number])]
-    const made = partIdsOf(added)[added.length - 1]
-    if (made === null || made === undefined) return { ok: false, error: 'that part could not be given a name.' }
-    const groups = holding(pinned(added, made), [...named, made])
-    return { ok: true, record: { ...record, groups }, id: made, heading, created: true, was: null, files }
-  }
-
-  const at = named.indexOf(id)
-  const groups = holding(
-    record.groups.map((group, i) =>
-      i === at
-        ? owning({ ...group, id, ...(said ? { heading: said } : {}), ...(given.refs ? { refs: given.refs } : {}) })
-        : group,
-    ),
-    named,
-  )
-  return { ok: true, record: { ...record, groups }, id, heading, created: false, was, files }
-}
-
-/** What taking a part out would do, counted before it is done. */
-export interface Removal {
-  heading: string
-  /** One-based positions of the steps in it, which stay and become unassigned. */
-  steps: number[]
-  /** The references listed under its heading. */
-  refs: string[]
-  /** Those of `refs` no step of the journey names: listed nowhere once the part is gone. */
-  loose: string[]
-}
-
-/**
- * What removing a part takes with it — for the sentence a person agrees to,
- * and for the one an agent is told afterwards. Null when it is not a part.
- *
- * The steps are not among what goes. The references listed under the heading
- * are: they are the group's own list, and they leave with the group. Most of
- * them are named by a step as well and stay on the page there; `loose` is the
- * rest, which nothing in the journey will name any more — said separately
- * because those are the ones a host stops reading the trackers for.
- */
-export function removalOf(record: Arrangeable, id: string): Removal | null {
-  const at = partIdsOf(record.groups).indexOf(id)
-  if (at < 0) return null
-  const group = record.groups[at] as PartGroup
-  const steps: number[] = []
-  const stepRefs = new Set<string>()
+  const used = new Set<string>()
+  const steps: PartStep[] = []
+  const groups: PartGroup[] = []
   record.steps.forEach((step, index) => {
-    if (stepPart(step) === id) steps.push(index + 1)
-    for (const ref of step.refs ?? []) stepRefs.add(ref.trim())
+    const said = stepPart(step)
+    const had = said !== null && !used.has(said) ? byId.get(said) : undefined
+    /* A step that names a part nobody has listed keeps the name it said. */
+    const id = said !== null && !used.has(said) ? said : idFor(step.title ?? '', new Set([...ids, ...used]), index + 1)
+    used.add(id)
+    const heading = (had?.heading ?? '').trim() || headingFrom(step.title ?? '')
+    const { files: _files, refs: _refs, heading: _heading, id: _id, ...rest } = had ?? {}
+    const file = filesOf(had)[0]
+    steps.push(said === id ? step : { ...step, part: id })
+    groups.push({ ...rest, heading, refs: [], id, ...(file === undefined ? {} : { files: [file] }) })
   })
-  const refs = [...new Set((group.refs ?? []).map((ref) => ref.trim()).filter(Boolean))]
-  const heading = partsOf(record).find((part) => part.id === id)?.heading ?? id
-  return { heading, steps, refs, loose: refs.filter((ref) => !stepRefs.has(ref)) }
+  return { ...record, steps, groups } as R
 }
-
-/** `removalOf`, in the words both doors and the page print. */
-export function removalSaid(gone: Removal): string {
-  const steps =
-    gone.steps.length === 0
-      ? 'No step is in it'
-      : `${gone.steps.length === 1 ? 'Its 1 step stays' : `Its ${gone.steps.length} steps stay`} in the journey and `
-        + `${gone.steps.length === 1 ? 'becomes' : 'become'} unassigned (in no part)`
-  const refs =
-    gone.refs.length === 0
-      ? 'it lists no references'
-      : `the ${gone.refs.length === 1 ? '1 reference' : `${gone.refs.length} references`} listed under its heading `
-        + `${gone.refs.length === 1 ? 'goes' : 'go'} with it`
-        + (gone.loose.length === 0
-          ? ', all still named by a step'
-          : `; ${gone.loose.length === gone.refs.length ? (gone.loose.length === 1 ? 'it is' : 'all of them are') : `${gone.loose.length} of them ${gone.loose.length === 1 ? 'is' : 'are'}`} `
-            + 'named by no step, and will be named nowhere in this journey')
-  return `${steps}; ${refs}. No step is deleted.`
-}
-
-export type Removed<R> = { ok: true; record: R; gone: Removal } | Refused
 
 /**
- * Take a part out. Its steps stay, in the journey and in their places, and say
- * no part; no step is deleted by this under any circumstances.
+ * The one document somebody gave for a part, in the form it is stored in — or
+ * a sentence saying why it is not one. `null` is "none".
  *
- * Every group that is left keeps the name it had. Taking one out of the middle
- * is exactly the change that renumbers the ones after it — `part-3` becomes
- * `part-2`, the second "Later" stops being `later-2` — and each of those would
- * be steps silently changing part. `holding` writes the old name down wherever
- * that would have happened, and nowhere else.
+ * The form is the protocol's (`partFile`): a path relative to the folder the
+ * epic's documents are kept in, with forward slashes and its extension. What
+ * is NOT checked is that the file exists: a part may be given its document
+ * before it is written, and this function opens nothing.
  */
-export function withoutPart<R extends Arrangeable>(record: R, id: string): Removed<R> {
-  const refusal = notAPart(record, id)
-  if (refusal) return { ok: false, error: refusal }
-  const gone = removalOf(record, id)
-  const named = partIdsOf(record.groups)
-  const at = named.indexOf(id)
-  if (!gone || at < 0) return { ok: false, error: `"${shortened(id)}" is not a part of this journey.` }
-  const groups = holding(
-    record.groups.filter((_, i) => i !== at),
-    named.filter((_, i) => i !== at),
+export function fileGiven(raw: unknown): { ok: true; file: string | null } | Refused {
+  if (raw === null || raw === undefined || raw === '') return { ok: true, file: null }
+  const file = partFile(raw)
+  if (file === null) {
+    const shown = typeof raw === 'string' ? `"${shortened(raw)}"` : shortened(JSON.stringify(raw) ?? String(raw))
+    return {
+      ok: false,
+      error:
+        `${shown} is not a name a part can hold for a document. It is a path with forward slashes and its extension — `
+        + `${FILE_EXAMPLE} — not absolute, with no ".." or empty segment in it, and at most ${LIMITS.PART_FILE} characters. `
+        + 'Nothing was changed.',
+    }
+  }
+  return { ok: true, file }
+}
+
+/** The zero-based position of the step that is the step of part `id`, or -1. */
+export function stepOfPart(record: Divided, id: string): number {
+  return record.steps.findIndex((step) => stepPart(step) === id)
+}
+
+/** Why `id` names no step of this journey, listing the ones there are. */
+export function notAStep(record: Divided, id: string): string {
+  if (!record.steps.length) return `"${shortened(id)}" names no step of this journey, which has no steps yet.`
+  return (
+    `"${shortened(id)}" names no step of this journey. Its steps are: `
+    + `${record.steps.map((step, i) => `${i + 1} ${stepPart(step) ?? '?'}`).join(', ')}. Pass one of those ids as \`step\`, or a 1-based \`position\`.`
   )
-  const steps = record.steps.map((step) => {
-    if (stepPart(step) !== id) return step
-    const { part: _gone, ...rest } = step
-    return rest as typeof step
-  })
-  return { ok: true, record: { ...record, steps, groups }, gone }
+}
+
+export type Parted<R> = { ok: true; record: R; id: string } | Refused
+
+/**
+ * Say what the part of the step at `at` (zero-based) is called and which
+ * document it covers. `name` and `file` are each three-valued: `undefined`
+ * leaves it, `''`/`null` clears it (the name falls back to the step's title;
+ * the part covers nothing), a value sets it.
+ *
+ * Refused: a document that is not a name, and a document another part of this
+ * journey covers — a document belongs to one part, and taking it silently
+ * would be one press changing two steps.
+ */
+export function withPart<R extends Divided>(
+  record: R,
+  at: number,
+  given: { name?: string | null; file?: unknown },
+): Parted<R> {
+  const base = mirrored(record)
+  const group = base.groups[at]
+  const step = base.steps[at]
+  if (!group || !step) return { ok: false, error: `this journey has ${base.steps.length} steps, and ${at + 1} is not one of them.` }
+  let next: PartGroup = group
+  if (given.name !== undefined) {
+    const said = (given.name ?? '').trim().slice(0, LIMITS.TITLE)
+    next = { ...next, heading: said || headingFrom(step.title ?? '') }
+  }
+  if (given.file !== undefined) {
+    const read = fileGiven(given.file)
+    if (!read.ok) return read
+    if (read.file !== null) {
+      const other = base.groups.findIndex((one, i) => i !== at && filesOf(one)[0] === read.file)
+      if (other >= 0) {
+        return {
+          ok: false,
+          error:
+            `${read.file} is the document of step ${other + 1} (“${shortened(base.steps[other]?.title ?? '')}”), and a document `
+            + 'belongs to one part. Take it off that step first. Nothing was changed.',
+        }
+      }
+    }
+    const { files: _files, ...rest } = next
+    next = read.file === null ? rest : { ...rest, files: [read.file] }
+  }
+  const groups = base.groups.map((one, i) => (i === at ? next : one))
+  return { ok: true, record: { ...base, groups } as R, id: group.id as string }
+}
+
+/**
+ * The record with the step at `at` (zero-based) written: replaced, or — one
+ * past the end — added.
+ *
+ * A step that is replaced keeps its part. Its part's name follows its title
+ * when the name was only ever the title; a name somebody gave stays.
+ */
+export function withStep<R extends Divided>(record: R, at: number, step: PartStep): R {
+  const base = mirrored(record)
+  const before = base.steps[at]
+  if (!before) return mirrored({ ...base, steps: [...base.steps, step] } as R)
+  const follows = !named(base, before)
+  const part = stepPart(before) as string
+  const steps = base.steps.map((one, i) => (i === at ? { ...step, part } : one))
+  const groups = base.groups.map((group, i) =>
+    i === at && follows ? { ...group, heading: headingFrom(step.title ?? '') || group.heading } : group,
+  )
+  return { ...base, steps, groups } as R
+}
+
+/** The record without the step at `at` (zero-based). Its part goes with it. */
+export function withoutStep<R extends Divided>(record: R, at: number): R {
+  const base = mirrored(record)
+  return {
+    ...base,
+    steps: base.steps.filter((_, i) => i !== at),
+    groups: base.groups.filter((_, i) => i !== at),
+  } as R
 }

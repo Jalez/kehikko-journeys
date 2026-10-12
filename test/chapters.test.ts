@@ -347,13 +347,17 @@ describe('opening the paper’s files', () => {
   })
 })
 
-describe('the list, from both doors', () => {
-  test('the page is answered before the journey exists, with every chapter proposed', () => {
+describe('the paper’s chapters, as the page is told them', () => {
+  test('answered before the journey exists: every chapter main.tex pulls in, none of them a part’s yet', () => {
     const { get } = project()
-    const body = get()?.body as { ok: boolean; paper: boolean; parts: { heading: string }[]; leftOut: string[]; nothing: string | null }
-    expect(body).toMatchObject({ ok: true, paper: true, nothing: null })
-    expect(body.parts.map((part) => part.heading)).toEqual(['Introduction', 'Literature Review', 'Results', 'Instruments'])
-    expect(body.leftOut).toHaveLength(1)
+    const body = get()?.body as { ok: boolean; paper: boolean; chapters: { file: string; heading: string; part: string | null }[] }
+    expect(body).toMatchObject({ ok: true, paper: true })
+    expect(body.chapters).toEqual([
+      { file: 'chapters/1_introduction.tex', heading: 'Introduction', part: null },
+      { file: 'chapters/2_literature_review.tex', heading: 'Literature Review', part: null },
+      { file: 'chapters/4_results.tex', heading: 'Results', part: null },
+      { file: 'chapters/appendix_instruments.tex', heading: 'Instruments', part: null },
+    ])
   })
 
   test('an epic with no paper is an answer, not a refusal', () => {
@@ -362,84 +366,71 @@ describe('the list, from both doors', () => {
     expect(get('not a slug')?.status).toBe(400)
   })
 
-  test('an agent is shown the same list, with the call that makes each, and nothing is written', () => {
-    const { call, file } = project(THESIS, {})
-    const before = readFileSync(file, 'utf8')
-    const said = call('propose_chapter_parts')
-    expect(said).toContain('PROPOSAL — nothing has been made. main.tex of this epic’s paper pulls in 4 chapter files that no part owns.')
-    expect(said).toContain('  1. “Introduction”\tchapters/1_introduction.tex')
-    expect(said).toContain('set_part { slug: "thesis", heading: "Results", files: ["chapters/4_results.tex","generated/tab_categories.tex","generated/quotes.tex"] }')
-    expect(said).toContain('LEFT OUT: annotations.tex is pulled in before \\begin{document}')
-    expect(said).toContain('Make the ones you want with `set_part`')
-    expect(readFileSync(file, 'utf8')).toBe(before)
+  test('a chapter a step has says which step’s part has it', () => {
+    const { get, call } = project(THESIS, {})
+    call('set_step', { title: 'What was found', file: 'chapters/4_results.tex', name: 'Results' })
+    const body = get()?.body as { chapters: { file: string; part: string | null }[] }
+    expect(body.chapters.find((one) => one.file === 'chapters/4_results.tex')?.part).toBe('results')
+    expect(body.chapters.filter((one) => one.part === null)).toHaveLength(3)
   })
 
-  test('and told to begin the journey first when there is none, or that there is no paper', () => {
-    const { call } = project()
-    expect(call('propose_chapter_parts')).toContain('holds no journey for thesis yet, and `set_part` needs one: call `create_journey` first')
-    expect(call('propose_chapter_parts', { slug: 'another-epic' })).toContain('No paper for another-epic')
-  })
-
-  test('what an agent is told to call makes exactly what was listed', () => {
-    const { call, on } = project(THESIS, {})
-    call('set_part', { heading: 'Results', files: ['chapters/4_results.tex', 'generated/tab_categories.tex', 'generated/quotes.tex'] })
-    expect(partsOf(on())).toEqual([
-      { id: 'results', heading: 'Results', refs: [], steps: 0, files: ['chapters/4_results.tex', 'generated/tab_categories.tex', 'generated/quotes.tex'] },
-    ])
-    /* And the next list no longer proposes it. */
-    expect(call('propose_chapter_parts')).not.toContain('“Results”\t')
-    expect(call('propose_chapter_parts')).toContain('chapters/4_results.tex (in “Results”) is already a part’s')
-  })
-
-  test('the tool is listed as one that reads', () => {
+  test('the door has no tool for parts any more, and says of each tool whether it only reads', () => {
     const tools = (
       answer('POST', '/mcp', new URLSearchParams(), { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)?.body as {
-        result: { tools: { name: string; description: string }[] }
+        result: { tools: { name: string; annotations: { readOnlyHint: boolean; destructiveHint?: boolean } }[] }
       }
     ).result.tools
-    const tool = tools.find((one) => one.name === 'propose_chapter_parts')
-    expect(tool?.description).toContain('READ-ONLY: nothing is written')
+    expect(tools.map((one) => one.name)).toEqual(['list_journeys', 'get_journey', 'create_journey', 'set_step', 'remove_step', 'set_dependency'])
+    expect(Object.fromEntries(tools.map((one) => [one.name, one.annotations.readOnlyHint]))).toEqual({
+      list_journeys: true,
+      get_journey: true,
+      create_journey: false,
+      set_step: false,
+      remove_step: false,
+      set_dependency: false,
+    })
+    expect(tools.filter((one) => one.annotations.destructiveHint).map((one) => one.name)).toEqual(['set_step', 'remove_step', 'set_dependency'])
   })
 })
 
-describe('making what was listed, in one write', () => {
-  test('makes a part for each file named, in the paper’s order, each owning its files', () => {
+describe('a step for each chapter, in one write', () => {
+  test('makes one for each chapter no step has, in the paper’s order, each a part with its chapter', () => {
     const { post, on } = project(THESIS, { steps: [{ title: 'One', body: '', refs: [], notes: [] }] })
-    const reply = post('/api/parts/chapters', { files: ['chapters/4_results.tex', 'chapters/1_introduction.tex'] })
+    const reply = post('/api/steps/chapters', {})
     expect(reply?.status).toBe(200)
-    expect((reply?.body as { said: string }).said).toBe(
-      'Made 2 parts from the paper’s chapter files, each owning its file: “Introduction” (chapters/1_introduction.tex); '
-        + '“Results” (chapters/4_results.tex, generated/tab_categories.tex, generated/quotes.tex). No step is filed under them yet. '
-        + 'Tick them in the host’s bar to see one chapter at a time.',
+    expect((reply?.body as { said: string }).said).toStartWith(
+      'Made 4 steps, one for each chapter the paper pulls in: “Introduction”, “Literature Review”, “Results”, “Instruments”.',
     )
     expect(partsOf(on())).toEqual([
-      { id: 'introduction', heading: 'Introduction', refs: [], steps: 0, files: ['chapters/1_introduction.tex'] },
-      { id: 'results', heading: 'Results', refs: [], steps: 0, files: ['chapters/4_results.tex', 'generated/tab_categories.tex', 'generated/quotes.tex'] },
+      { id: 'one', heading: 'One', refs: [], steps: 1 },
+      { id: 'introduction', heading: 'Introduction', refs: [], steps: 1, files: ['chapters/1_introduction.tex'] },
+      { id: 'literature-review', heading: 'Literature Review', refs: [], steps: 1, files: ['chapters/2_literature_review.tex'] },
+      { id: 'results', heading: 'Results', refs: [], steps: 1, files: ['chapters/4_results.tex'] },
+      { id: 'instruments', heading: 'Instruments', refs: [], steps: 1, files: ['chapters/appendix_instruments.tex'] },
     ])
-    /* The id is written from the start, so a later rewording does not move it; the steps are untouched. */
-    expect(on().groups.map((group) => group.id)).toEqual(['introduction', 'results'])
-    expect(on().steps).toHaveLength(1)
+    /* As many parts as steps, and the step that was there is still the first. */
+    expect(on().steps).toHaveLength(5)
+    expect((on().steps[0] as { title: string }).title).toBe('One')
   })
 
-  test('a second press makes the rest and not the first again', () => {
-    const { post, on } = project(THESIS, {})
-    post('/api/parts/chapters', { files: ['chapters/1_introduction.tex'] })
-    const again = post('/api/parts/chapters', { files: ['chapters/1_introduction.tex'] })
+  test('a second press makes nothing twice, and a chapter added since gets its step', () => {
+    const { post, on, paper } = project(THESIS, {})
+    expect(post('/api/steps/chapters', {})?.status).toBe(200)
+    const again = post('/api/steps/chapters', {})
     expect(again?.status).toBe(400)
-    expect((again?.body as { error: string }).error).toContain('chapters/1_introduction.tex is not among the chapter files main.tex would make a part of now')
-    expect(partsOf(on())).toHaveLength(1)
-    expect(post('/api/parts/chapters', { files: ['chapters/2_literature_review.tex'] })?.status).toBe(200)
-    expect(partsOf(on()).map((part) => part.heading)).toEqual(['Introduction', 'Literature Review'])
+    expect((again?.body as { error: string }).error).toContain('already has its step')
+    expect(on().steps).toHaveLength(4)
+    writeFileSync(join(paper, 'main.tex'), THESIS['main.tex']!.replace('\\printbibliography', '\\include{chapters/5_discussion}'))
+    writeFileSync(join(paper, 'chapters/5_discussion.tex'), '\\chapter{Discussion}')
+    expect(post('/api/steps/chapters', {})?.status).toBe(200)
+    expect(partsOf(on()).map((part) => part.heading)).toEqual(['Introduction', 'Literature Review', 'Results', 'Instruments', 'Discussion'])
   })
 
-  test('refuses, and writes nothing: no files, no paper, no journey, no ticket', () => {
+  test('refuses, and writes nothing: no paper, no journey, no ticket', () => {
     const { root, post, file } = project(THESIS, {})
     const before = readFileSync(file, 'utf8')
-    expect((post('/api/parts/chapters', { files: [] })?.body as { error: string }).error).toContain('which chapter files?')
-    expect((post('/api/parts/chapters', { files: ['annotations.tex'] })?.body as { error: string }).error).toContain('annotations.tex is not among')
-    expect((post('/api/parts/chapters', { files: ['main.tex'] })?.body as { error: string }).error).toContain('main.tex is not among')
-    expect(post('/api/parts/chapters', { slug: 'another-epic', files: ['a.tex'] })?.status).toBe(404)
-    expect(answer('POST', '/api/parts/chapters', new URLSearchParams(), { project: root, slug: 'thesis', files: ['chapters/4_results.tex'] }, 'guessed')?.status).toBe(403)
+    expect(post('/api/steps/chapters', { slug: 'another-epic' })?.status).toBe(404)
+    expect(answer('POST', '/api/steps/chapters', new URLSearchParams(), { project: root, slug: 'thesis' }, 'guessed')?.status).toBe(403)
     expect(readFileSync(file, 'utf8')).toBe(before)
   })
 })

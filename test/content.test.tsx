@@ -182,7 +182,8 @@ describe('when there is no journey on screen to read again', () => {
     const before = store.asked.length
     context([changed(T1, null)], 'elsewhere')
     await settle()
-    const since = store.asked.slice(before)
+    /* The index, and what the epic's paper would make of a journey begun here. Never the journey. */
+    const since = store.asked.slice(before).filter((line) => !line.startsWith('GET /api/chapters?'))
     expect(since).toHaveLength(1)
     expect(since[0]).toStartWith('GET /api/journeys?')
     expect(wire.getSnapshot().journey).toBeNull()

@@ -1,6 +1,6 @@
 import { MESSAGE, PROTOCOL } from 'kehikot-module-protocol'
 
-import { assign, withPart, withoutPart, type Arrangeable } from '../parts.ts'
+import { mirrored, withPart, withStep, withoutStep, type Divided } from '../parts.ts'
 
 /**
  * A stand-in host and store, shared by every file that drives `journeys.ts`
@@ -87,10 +87,10 @@ export const store = {
   listed: true,
   /** The body of every `POST /api/journey`, in order. */
   begun: [] as Record<string, unknown>[],
-  /** Every write that arranged the journey into parts, as the page sent it. */
+  /** Every write of a step or of the steps, as the page sent it. */
   arranged: [] as { path: string; body: Record<string, unknown> }[],
   /**
-   * What `/api/chapters` answers: what the epic's paper says about parts.
+   * What `/api/chapters` answers: the documents the epic's paper offers.
    * No paper, unless a case gives it one.
    */
   chapters: NO_PAPER as Record<string, unknown>,
@@ -113,55 +113,53 @@ function stubStore() {
     store.asked.push(`${init?.method ?? 'GET'} ${url}`)
     let refusal: string | null = null
     let said = 'Began probe from what the host holds for that epic: 2 steps.'
-    if (url.includes('/api/parts/chapters')) {
-      /* What the real door does: the proposal's own heading and files for
-         each row named, made by `withPart`, all in one answer. */
-      const body = JSON.parse(String(init?.body)) as { files: string[] }
-      store.arranged.push({ path: '/api/parts/chapters', body })
-      let record = { ...store.journey, groups: (store.journey as { groups?: unknown[] }).groups ?? [] } as Arrangeable
-      const proposed = (store.chapters.parts ?? []) as { heading: string; file: string; files: string[] }[]
-      for (const part of proposed.filter((one) => body.files.includes(one.file))) {
-        const out = withPart(record, { heading: part.heading, files: part.files })
-        if (out.ok) record = out.record
+    const record = () => ({ ...store.journey, groups: (store.journey as { groups?: unknown[] }).groups ?? [] }) as unknown as Divided
+    if (url.includes('/api/steps/chapters')) {
+      /* What the real door does: a step for each chapter no step has, made by
+         the store's own arithmetic — `parts.ts` is the half of the store a
+         browser can load, and so can a test. */
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      store.arranged.push({ path: '/api/steps/chapters', body })
+      let next = mirrored(record())
+      const free = ((store.chapters.chapters ?? []) as { heading: string; file: string; part: string | null }[]).filter((one) => one.part === null)
+      for (const one of free) {
+        const at = next.steps.length
+        next = withStep(next, at, { title: one.heading, body: '', refs: [], notes: [] })
+        const out = withPart(next, at, { file: one.file })
+        if (out.ok) next = out.record
         else refusal = out.error
       }
       if (refusal === null) {
-        store.journey = record as unknown as typeof JOURNEY
-        said = `Made ${body.files.length} parts from the paper’s chapter files.`
+        store.journey = { ...next, plan: 'stored' } as unknown as typeof JOURNEY
+        said = `Made ${free.length} steps, one for each chapter the paper pulls in.`
       }
-    } else if (/\/api\/(assign|part)/.test(url)) {
-      /* The store's own arithmetic, so that what the page draws after a press
-         is what the real door would have answered — `parts.ts` is the half of
-         the store a browser can load, and so can a test. */
-      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
-      store.arranged.push({ path: new URL(url, 'http://x').pathname, body })
-      const record = { ...store.journey, groups: (store.journey as { groups?: unknown[] }).groups ?? [] } as Arrangeable
-      const out = url.includes('/api/assign')
-        ? assign(record, body.positions as number[], (body.part as string) || null)
-        : url.includes('/api/part/remove')
-          ? withoutPart(record, String(body.id))
-          : withPart(record, {
-              id: (body.id as string | undefined) ?? null,
-              ...(body.heading === undefined ? {} : { heading: String(body.heading) }),
-              ...(body.files === undefined ? {} : { files: body.files }),
-            })
-      if (out.ok) {
-        store.journey = out.record as unknown as typeof JOURNEY
-        said = 'arranged'
-      } else refusal = out.error
+    } else if (url.includes('/api/step/remove')) {
+      const body = JSON.parse(String(init?.body)) as { position?: number; step?: string }
+      store.arranged.push({ path: '/api/step/remove', body })
+      const base = mirrored(record())
+      const at = body.step ? base.steps.findIndex((step) => step.part === body.step) : (body.position ?? 0) - 1
+      store.journey = withoutStep(base, at) as unknown as typeof JOURNEY
+      said = 'Removed the step, and its part with it.'
+    } else if (url.includes('/api/settle')) {
+      store.arranged.push({ path: '/api/settle', body: JSON.parse(String(init?.body)) as Record<string, unknown> })
+      store.journey = { ...(mirrored(record()) as unknown as typeof JOURNEY), unsettled: false } as typeof JOURNEY
+      said = 'This journey was stored in an older shape. It is now one step to a part.'
     } else if (url.includes('/api/step')) {
       /* The whole step, kept, and the whole journey handed back — what
-         `setStep` does behind the real door. */
-      const sent = JSON.parse(String(init?.body)) as { position: number } & (typeof JOURNEY)['steps'][number]
-      const kept = { title: sent.title, body: sent.body, refs: sent.refs, notes: sent.notes }
-      store.journey = {
-        ...store.journey,
-        plan: 'stored',
-        steps:
-          sent.position > store.journey.steps.length
-            ? [...store.journey.steps, kept]
-            : store.journey.steps.map((step, i) => (i === sent.position ? kept : step)),
-      }
+         `setStep` does behind the real door: by position, or by the id of the
+         step's part, with the part's name and document when they are sent. */
+      const sent = JSON.parse(String(init?.body)) as { position?: number; step?: string; name?: string; file?: string } & (typeof JOURNEY)['steps'][number]
+      store.arranged.push({ path: '/api/step', body: sent as unknown as Record<string, unknown> })
+      const base = mirrored(record())
+      const found = sent.step ? base.steps.findIndex((step) => step.part === sent.step) : (sent.position ?? base.steps.length + 1) - 1
+      const at = found < 0 || found > base.steps.length ? base.steps.length : found
+      let next = withStep(base, at, { ...base.steps[at], title: sent.title, body: sent.body, refs: sent.refs, notes: sent.notes })
+      const out = withPart(next, at, { ...(sent.name === undefined ? {} : { name: sent.name }), ...(sent.file === undefined ? {} : { file: sent.file }) })
+      if (out.ok) {
+        next = out.record
+        store.journey = { ...next, plan: 'stored' } as unknown as typeof JOURNEY
+        said = ''
+      } else refusal = out.error
     } else if (url.includes('/api/journey?') && held) {
       await held
     } else if (init?.method === 'POST' && url.endsWith('/api/journey')) {
@@ -177,7 +175,7 @@ function stubStore() {
         ? store.chapters
       : refusal !== null
         ? { ok: false, error: refusal }
-        : url.includes('/api/journey') || url.includes('/api/step') || /\/api\/(assign|part)/.test(url)
+        : url.includes('/api/journey') || url.includes('/api/step') || url.includes('/api/settle')
           ? { ok: true, journey: store.journey, said }
         : url.includes('/api/ticket')
           ? { ok: true, ticket: 't' }

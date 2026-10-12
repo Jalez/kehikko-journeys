@@ -17,19 +17,16 @@ export interface Step {
   refs: string[]
   notes: string[]
   /**
-   * The id of the part this step was assigned to, when it says one. Read with
-   * the protocol's `stepPart`, never compared raw: anything that is not an id
-   * is no assignment. Set from this page through `/api/assign`, never by
-   * the step editor, which leaves it as it is.
+   * The id of the part of the epic this step is the step of. Every step has
+   * one once the store has read it; read with the protocol's `stepPart`.
    */
   part?: string
 }
 
 /**
- * A heading and the references under it, which a host reads as a PART of the
- * epic. `id` is there when somebody has written one; the id a group answers
- * to is otherwise derived, and is asked of the protocol's `partsOf` rather
- * than read off this.
+ * One part of the epic, as a host reads it out of the record: `id` is what
+ * its step's `part` names, `heading` what the part is called, `files` the one
+ * document it covers. One to a step, in the steps' order.
  */
 export interface Group {
   heading: string
@@ -56,8 +53,10 @@ export interface JourneyView {
   repo?: string
   callout: string
   steps: Step[]
-  /** The journey's parts, as stored. Absent from a server older than parts. */
+  /** The epic's parts, one to a step. Absent from a server older than parts. */
   groups?: Group[]
+  /** The record on disk is still in the older shape of parts; what is here is how it reads. */
+  unsettled?: boolean
   stepsFrom?: StepsFrom
   blockedBy: Record<string, string[]>
   /** Decision issues no commit will close, answered by these changes instead. Read as `done` once they merge. */

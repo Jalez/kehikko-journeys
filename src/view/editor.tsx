@@ -5,8 +5,9 @@ import { Input } from '@/components/ui/input.tsx'
 import { Textarea } from '@/components/ui/textarea.tsx'
 
 import { BODY_WORDS } from '../../limits.ts'
-import { held, hold, saveStep } from '../journeys.ts'
+import { held, hold, removeStep, saveStep, type PaperChapters } from '../journeys.ts'
 import type { Step } from '../kinds.ts'
+import { useReading } from './reading.tsx'
 
 /**
  * The editor for one step.
@@ -34,14 +35,33 @@ import type { Step } from '../kinds.ts'
  * a title, a body, references and notes. The placeholder carries the grammar
  * that is not guessable — that refs are separated by spaces and notes by commas
  * — because that is the part somebody can actually get wrong.
+ *
+ * ## The part is edited here, because a step is one
+ *
+ * A step is one part of the epic, so what the part is called where it is
+ * picked and which chapter of the paper it covers are two more fields of this
+ * form — on one row, under the notes — and not a box of their own above the
+ * journey. The name box is empty for a part that is called by its step's
+ * title, which is what it is called until somebody says otherwise. The
+ * chapter is one of the paper's own files that no other step has, or none;
+ * it is not drawn for an epic with no paper.
  */
-type Fields = { title: string; body: string; refs: string; notes: string }
+type Fields = { title: string; body: string; refs: string; notes: string; name: string; file: string }
 
-const fieldsOf = (step: Step): Fields => ({
+/** What the step's part is called (when somebody named it) and the document it covers. */
+export interface PartOfStep {
+  id: string | null
+  name: string
+  file: string | null
+}
+
+const fieldsOf = (step: Step, part?: PartOfStep): Fields => ({
   title: step.title ?? '',
   body: step.body ?? '',
   refs: (step.refs ?? []).join(' '),
   notes: (step.notes ?? []).join(', '),
+  name: part?.name ?? '',
+  file: part?.file ?? '',
 })
 
 function read(text: string | undefined): Fields | null {
@@ -49,21 +69,36 @@ function read(text: string | undefined): Fields | null {
     const one = JSON.parse(text ?? '') as Partial<Fields> | null
     if (!one || typeof one !== 'object') return null
     const str = (value: unknown) => (typeof value === 'string' ? value : '')
-    return { title: str(one.title), body: str(one.body), refs: str(one.refs), notes: str(one.notes) }
+    return { title: str(one.title), body: str(one.body), refs: str(one.refs), notes: str(one.notes), name: str(one.name), file: str(one.file) }
   } catch {
     return null
   }
 }
 
 /**
- * `target` is where the four fields are held while they are typed, so a reload of the page finds
+ * `target` is where the fields are held while they are typed, so a reload of the page finds
  * them (see "What is being typed" in `journeys.ts`): `step:<position>` for a step that exists,
- * `add` for one that does not yet. They come back in this form, open; what the step said when the
+ * `add` for one that does not yet. `part` and `chapters` are what the step's part is called, the
+ * document it covers, and the documents the epic's paper offers. They come back in this form, open; what the step said when the
  * typing started is kept beside them, and when that is no longer what it says the form says so
  * rather than saving over somebody else's words in silence.
  */
-export function Editor({ step, position, target }: { step: Step; position: number; target?: string }) {
-  const now = fieldsOf(step)
+export function Editor({
+  step,
+  position,
+  target,
+  part,
+  existing = false,
+}: {
+  step: Step
+  position: number
+  target?: string
+  part?: PartOfStep
+  /** The step is already in the journey, so it can be removed. */
+  existing?: boolean
+}) {
+  const chapters: PaperChapters | null = useReading().chapters ?? null
+  const now = fieldsOf(step, part)
   const was = useRef(target ? held(target) : null).current
   const kept = read(was?.text)
   const base = useRef(was?.base ?? JSON.stringify(now)).current
@@ -72,10 +107,17 @@ export function Editor({ step, position, target }: { step: Step; position: numbe
   const [body, setBody] = useState(kept?.body ?? now.body)
   const [refs, setRefs] = useState(kept?.refs ?? now.refs)
   const [notes, setNotes] = useState(kept?.notes ?? now.notes)
+  const [name, setName] = useState(kept?.name ?? now.name)
+  const [file, setFile] = useState(kept?.file ?? now.file)
+  const [removing, setRemoving] = useState(false)
+  /* The paper's files this step may have: the ones no other step has. One it
+     already has is listed even when the paper no longer pulls it in. */
+  const offered = chapters?.paper ? chapters.chapters.filter((one) => one.part === null || one.part === (part?.id ?? null)) : []
+  const options = file && !offered.some((one) => one.file === file) ? [{ file, heading: '', part: null }, ...offered] : offered
   /* Written as it changes: there is no moment before a reload to write it in. */
   const typing = (next: Partial<Fields>) => {
     if (!target) return
-    const all = { title, body, refs, notes, ...next }
+    const all = { title, body, refs, notes, name, file, ...next }
     hold(target, { base, text: JSON.stringify(all), aim: `${target === 'add' ? 'a new step' : `step ${position}`}${all.title.trim() ? ` — “${all.title.trim().slice(0, 80)}”` : ''}` })
   }
   const moved = kept !== null && started !== null && JSON.stringify(now) !== base
@@ -95,6 +137,8 @@ export function Editor({ step, position, target }: { step: Step; position: numbe
             .split(',')
             .map((piece) => piece.trim())
             .filter(Boolean),
+          name,
+          file,
         })
       }}
     >
@@ -137,6 +181,37 @@ export function Editor({ step, position, target }: { step: Step; position: numbe
           typing({ notes: e.target.value })
         }}
       />
+      <div className="flex flex-wrap gap-2">
+        <Input
+          aria-label="What this part is called where parts are picked"
+          placeholder="short name — the title, if empty"
+          className="min-w-[9rem] flex-1"
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value)
+            typing({ name: e.target.value })
+          }}
+        />
+        {options.length > 0 && (
+          <select
+            aria-label="The chapter of the paper this part covers"
+            data-chapter={file}
+            className="h-8 min-w-[9rem] flex-1 rounded-md border bg-transparent px-2 text-[0.85rem]"
+            value={file}
+            onChange={(e) => {
+              setFile(e.target.value)
+              typing({ file: e.target.value })
+            }}
+          >
+            <option value="">no chapter</option>
+            {options.map((one) => (
+              <option key={one.file} value={one.file}>
+                {one.heading ? `${one.heading} — ${one.file}` : one.file}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" size="container">
           Save
@@ -144,6 +219,19 @@ export function Editor({ step, position, target }: { step: Step; position: numbe
         <span className={words > BODY_WORDS ? 'text-xs text-draft' : 'text-xs text-muted-foreground'}>
           {words} / {BODY_WORDS} words
         </span>
+        {existing && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="container"
+            data-remove={removing ? 'sure' : 'ask'}
+            className="ml-auto text-muted-foreground"
+            onBlur={() => setRemoving(false)}
+            onClick={() => (removing ? void removeStep(position - 1) : setRemoving(true))}
+          >
+            {removing ? 'remove this step and its part' : 'remove'}
+          </Button>
+        )}
       </div>
     </form>
   )

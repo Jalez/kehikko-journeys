@@ -252,10 +252,10 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * page until somebody reloaded the window.
    *
    * `parts`, because a person pointing the canvas at some of the epic's parts
-   * moves this page: only the steps that say they are in a picked part are
-   * drawn. Nothing announces it; a journey the pick left no step of says one
-   * sentence where the steps would be. See `src/focus.ts` for the rule and for why a step with no
-   * part is outside every focus. With nothing picked the page is exactly what
+   * moves this page: a step is one part of the epic, and only the steps of
+   * the picked parts are drawn. Nothing announces it; a journey the pick left
+   * no step of says one sentence where the steps would be. See
+   * `src/focus.ts` for the rule. With nothing picked the page is exactly what
    * it was. It sets nothing: the picking is the host's own control.
    *
    * Not `passage`. Nothing here reads one.

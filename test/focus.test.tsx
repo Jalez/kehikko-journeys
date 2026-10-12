@@ -131,8 +131,8 @@ describe('the page under a focus', () => {
     /* Step five is still step five. */
     expect(drawn()).toEqual(['1', '5'])
     expect(notice()).toBe(false)
-    /* The first thing under the heading is the parts box, as with nothing picked: no row was added. */
-    expect(document.querySelector('[data-parts]')).not.toBeNull()
+    /* And there is no box about parts above the steps at all. */
+    expect(document.querySelector('[data-parts]')).toBeNull()
     /* Nothing is fetched for it: the steps were already here. */
     expect(store.asked.slice(before)).toEqual([])
     /* And there is no way on this page to widen it again. */
@@ -200,7 +200,7 @@ describe('an epic this project has no journey for', () => {
     await framed()
     const text = document.body.textContent ?? ''
     expect(text).toContain('This project holds none called probe.')
-    expect(text).toContain('copies what the host holds for it')
+    expect(document.querySelector('[data-begin] button')?.getAttribute('title')).toContain('Copies what the host holds')
     expect([...document.querySelectorAll('button')].some((one) => one.textContent === 'begin the journey for probe')).toBe(true)
   })
 
@@ -208,7 +208,7 @@ describe('an epic this project has no journey for', () => {
     const release = store.hold()
     await framed()
     expect(wire.getSnapshot().journey).toBeNull()
-    expect(document.body.textContent).not.toContain('begin the journey')
+    expect(document.body.textContent).not.toContain('begin the journey for probe')
     release()
     await settle()
     expect(drawn()).toEqual(['1', '2'])

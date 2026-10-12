@@ -1,14 +1,12 @@
 import { useEffect, useSyncExternalStore } from 'react'
-import type { EpicPart, JourneyPart } from 'kehikot-module-protocol'
+import type { EpicPart } from 'kehikot-module-protocol'
 import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'kehikot-module-protocol/client/react'
 
 import { Button } from '@/components/ui/button.tsx'
 
 import { saidOfNone, shownSteps, type Shown } from './focus.ts'
-import { partOfStep, partsIn } from '../parts.ts'
 import {
   begin,
-  beginAndArrange,
   clearPick,
   getSnapshot,
   grow,
@@ -18,17 +16,15 @@ import {
   reopenHeld,
   retry,
   setAdding,
-  setDividing,
+  stepsFromChapters,
   subscribe,
   type PaperChapters,
 } from './journeys.ts'
 import type { JourneyView, Live } from './kinds.ts'
 import { cardsUnder } from './live/lookup.ts'
 import { pickedState } from './refs.ts'
-import { ChapterOffer } from './view/chapters.tsx'
 import { Editor } from './view/editor.tsx'
 import { NO_PROJECT_SAID, NoJourneys, Trouble, UNHOSTED_SAID } from './view/nowhere.tsx'
-import { Parts, arrangeable } from './view/parts.tsx'
 import { Picker } from './view/picker.tsx'
 import { Prose } from './view/prose.tsx'
 import { ReadingProvider } from './view/reading.tsx'
@@ -118,6 +114,7 @@ export function App() {
         marks: state.marks,
         hidden: state.hidden,
         unfolded: state.unfolded,
+        chapters: state.chapters,
       }}
     >
       <div className="mx-auto w-full max-w-[44rem] px-3 pt-3 pb-12 @min-[26rem]/container:px-4 @min-[26rem]/container:pt-4">
@@ -160,9 +157,7 @@ export function App() {
           <Begin
             epic={state.epic}
             busy={state.beginning}
-            dividing={state.dividing}
             chapters={state.chapters}
-            making={state.making}
           />
         )}
         {state.journey && (
@@ -171,12 +166,11 @@ export function App() {
             live={state.live}
             editing={state.editing}
             adding={state.adding}
-            arranging={state.arranging}
             selection={state.selection}
             parts={state.parts}
             framed={state.framed}
             chapters={state.chapters}
-            making={state.making}
+            busy={state.beginning}
           />
         )}
         {/* The one line this app uses to answer the reader. Polite rather than
@@ -305,96 +299,46 @@ function Nothing({ state }: { state: ReturnType<typeof getSnapshot> }) {
  * else, for the reason at the top of `src/journeys.ts`: the components here
  * hold none.
  *
- * ## Dividing the epic into parts starts here too
+ * ## The presses, and nothing else
  *
- * A host's bar says an epic has no parts and sends the person here to make
- * them. For an epic with no journey record that used to be a dead end one
- * press long: this section said "begin the journey", the parts box is drawn
- * inside a journey, and nothing connected the two. So the second press in
- * this section is the one they came for. It opens the same offer the parts
- * box makes — the paper's chapter files, listed, nothing made — and its
- * confirming press begins the journey AND makes the parts, in that order,
- * with `begin` doing exactly what the button above it does. For an epic with
- * no paper there are no chapters to list, and the press says so and offers to
- * begin the journey and open the box where parts are made by hand.
+ * This used to be a paragraph on what beginning a journey copies, and under
+ * it a second section for dividing the epic into parts. A part is a step
+ * now, so there is nothing to divide before there are steps; the paragraph
+ * is the first press's tooltip; and that this project holds no journey for
+ * the epic is already said at the top of the page. What is left costs one
+ * line of a container that has few: the press that begins the journey from
+ * what the host holds, and — for an epic whose paper pulls in chapter
+ * files — the press that begins it with a step for each of them, which is
+ * every part of a thesis from one press.
  *
- * `data-divide` is what a host's walk lands on; see `settleParts`.
+ * `data-begin` is what a host's walk to the parts lands on; see `settleParts`.
  */
-function Begin({
-  epic,
-  busy,
-  dividing,
-  chapters,
-  making,
-}: {
-  epic: string
-  busy: boolean
-  dividing: boolean
-  chapters: PaperChapters | null
-  making: boolean
-}) {
-  const mine = chapters && chapters.slug === epic ? chapters : null
+/** How many chapters of the epic's paper have no step: what one press would make. */
+function freeChapters(chapters: PaperChapters | null, epic: string): number {
+  return chapters && chapters.slug === epic && chapters.paper ? chapters.chapters.filter((one) => one.part === null).length : 0
+}
+
+const chaptersSaid = (n: number) => (n === 1 ? 'the paper’s 1 chapter' : `each of the paper’s ${n} chapters`)
+
+function Begin({ epic, busy, chapters }: { epic: string; busy: boolean; chapters: PaperChapters | null }) {
+  const free = freeChapters(chapters, epic)
   return (
-    <section className="mt-3 flex min-w-0 flex-col items-start gap-1.5">
-      <p className="text-[0.82rem] leading-6 text-muted-foreground">
-        The host holds <span className="font-mono text-[0.9em] [overflow-wrap:anywhere]">{epic}</span>, and this app
-        keeps no journey for it yet. Beginning one copies what the host holds for it — its steps, its groups and its
-        prose — into this project’s journeys, and from then on the steps are edited here and the host reads them from
-        here. The host’s own file is left as it is.
-      </p>
+    <section data-begin className="mt-3 flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1.5 text-[0.85rem] leading-6">
       <Button
         type="button"
         variant="outline"
         size="container"
         disabled={busy}
+        title="Copies what the host holds for this epic — its steps and its prose — into this project’s journeys. From then on the steps are edited here and the host reads them from here; the host’s own file is left as it is."
         onClick={() => void begin()}
       >
         {busy ? 'beginning…' : `begin the journey for ${epic}`}
       </Button>
-
-      <div data-divide={dividing ? 'open' : 'closed'} className="mt-2 grid w-full min-w-0 gap-1.5 border-t pt-2.5 text-[0.85rem] leading-6">
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <Button
-            type="button"
-            variant={dividing ? 'ghost' : 'outline'}
-            size="container"
-            aria-expanded={dividing}
-            disabled={busy || making}
-            onClick={() => setDividing(!dividing)}
-          >
-            divide {epic} into parts…
-          </Button>
-          {!dividing && (
-            <span className="text-[0.82rem] text-muted-foreground">
-              Parts are headings a host lets a person narrow every container to. They are made here.
-            </span>
-          )}
-        </div>
-        {dividing &&
-          (mine === null ? (
-            <p className="text-muted-foreground">Reading this epic’s paper for its chapter files…</p>
-          ) : mine.paper && !mine.nothing ? (
-            <ChapterOffer chapters={mine} beginning busy={making || busy} onLeave={() => setDividing(false)} />
-          ) : (
-            <div className="grid gap-1.5 rounded border border-dashed px-2 py-1.5">
-              <p className="text-muted-foreground">
-                {mine.paper
-                  ? mine.nothing
-                  : `This epic has no paper in this project (no main.tex in .kehikot/paper/${epic}/), so there are no chapter files to make parts from.`}{' '}
-                Parts can be made by hand, with a heading each. They are kept in the journey, so it is begun first —
-                copying what the host holds for the epic, as the press above does.
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                <Button type="button" size="container" disabled={busy} onClick={() => void beginAndArrange()}>
-                  {busy ? 'beginning…' : 'begin the journey and make parts by hand'}
-                </Button>
-                <Button type="button" variant="ghost" size="container" disabled={busy} onClick={() => setDividing(false)}>
-                  leave it
-                </Button>
-              </div>
-            </div>
-          ))}
-      </div>
+      {free > 0 && (
+        <Button type="button" variant="outline" size="container" data-make="chapters" disabled={busy} onClick={() => void stepsFromChapters()}>
+          begin it with a step for {chaptersSaid(free)}
+        </Button>
+      )}
     </section>
   )
 }
@@ -411,34 +355,27 @@ function Journey({
   live,
   editing,
   adding,
-  arranging,
   selection,
   parts,
   framed,
   chapters,
-  making,
+  busy,
 }: {
   journey: JourneyView
   live: Live | null
   editing: number
   adding: boolean
-  arranging: boolean
   selection: readonly string[]
   parts: readonly EpicPart[]
   framed: boolean
   chapters: PaperChapters | null
-  making: boolean
+  busy: boolean
 }) {
   /* Worked out once, here, and handed to both things that act on "the steps":
      the pair of presses above them and the list itself. Two filters would be
      a "pick every step" that picked steps nobody can see. */
   const focus = useFocus({ parts })
   const shown = journey.plan === 'stored' ? shownSteps(focus.parts, journey.steps, editing) : []
-  /* The journey's own parts, read off the record this app's store answered
-     with — not `parts` above, which is the host's later reading of the same
-     record and is there only when a host is. What a step is FILED under is
-     this app's material; what is PICKED is the host's. */
-  const own = partsIn(arrangeable(journey))
   const narrowed = focus.focused
   const meta = [
     journey.umbrella ? `umbrella ${journey.umbrella}` : '',
@@ -461,15 +398,6 @@ function Journey({
       )}
 
       <Rubric>The journey</Rubric>
-      <Parts
-        journey={journey}
-        open={arranging}
-        live={live}
-        selection={selection}
-        framed={framed}
-        chapters={chapters}
-        making={making}
-      />
       {framed && journey.plan === 'stored' && shown.length > 0 && (
         <Picking shown={shown} live={live} selection={selection} />
       )}
@@ -482,7 +410,8 @@ function Journey({
         none={narrowed && shown.length === 0 ? saidOfNone(focus.parts) : null}
         selection={selection}
         framed={framed}
-        parts={own}
+        free={freeChapters(chapters, journey.slug)}
+        busy={busy}
       />
     </article>
   )
@@ -581,7 +510,8 @@ function Plan({
   none,
   selection,
   framed,
-  parts,
+  free,
+  busy,
 }: {
   journey: JourneyView
   /** The steps to draw, each with its own position in the journey. See `focus.ts`. */
@@ -595,8 +525,10 @@ function Plan({
   none: string | null
   selection: readonly string[]
   framed: boolean
-  /** The journey's own parts, for each step's chooser. Empty for a journey with none. */
-  parts: readonly JourneyPart[]
+  /** How many chapters of the epic's paper have no step: what one press would make. */
+  free: number
+  /** A journey is being begun, or steps are being made. */
+  busy: boolean
 }) {
   if (journey.plan === 'elsewhere' && journey.stepsFrom) {
     const from = journey.stepsFrom
@@ -624,7 +556,16 @@ function Plan({
           No steps have been written for this journey yet. Nothing is hidden and nothing is elsewhere — there simply
           are none.
         </p>
-        <Adding at={1} open={adding} first />
+        <Adding at={1} open={adding} first>
+          {/* Every part of an epic with a paper, from one press: a step for
+              each chapter the paper pulls in. Offered here and where a journey
+              is begun, the two places there are no steps yet. */}
+          {free > 0 && !adding && (
+            <Button type="button" variant="outline" size="container" data-make="chapters" disabled={busy} onClick={() => void stepsFromChapters()}>
+              a step for {chaptersSaid(free)}
+            </Button>
+          )}
+        </Adding>
       </>
     )
   }
@@ -652,21 +593,18 @@ function Plan({
           editing={editing === index}
           selection={selection}
           framed={framed}
-          parts={parts}
-          inPart={parts.length ? partOfStep(arrangeable(journey), step) : null}
         />
       ))}
       {/* Where the steps would be, and only when the picked parts left none:
-          an empty journey with no reason reads as broken. Which steps are in
-          no part is on the fold of the parts box above. */}
+          an empty journey with no reason reads as broken. */}
       {none && (
         <p data-narrowed="0" className="text-[0.85rem] leading-6 text-muted-foreground">
           {none}
         </p>
       )}
-      {/* Not under a focus. A step written here is in no part, and under a
-          focus that is a step that vanishes the moment it is saved — kept,
-          but a strange answer to "add a step". */}
+      {/* Not under a focus. A step written here is a part of its own, which
+          is not one of the picked ones: it would vanish the moment it is
+          saved — kept, but a strange answer to "add a step". */}
       {!narrowed && <Adding at={journey.steps.length + 1} open={adding} />}
     </>
   )
@@ -682,9 +620,10 @@ function Plan({
  * The store has always taken a position one past the end as "append"; this is
  * the editor pointed there, over an empty step.
  */
-function Adding({ at, open, first = false }: { at: number; open: boolean; first?: boolean }) {
+function Adding({ at, open, first = false, children }: { at: number; open: boolean; first?: boolean; children?: React.ReactNode }) {
   return (
     <section data-adding={at} className={first ? 'mt-2' : 'mt-1 border-t pt-2.5'}>
+      <span className="flex flex-wrap items-baseline gap-2">
       <Button
         type="button"
         variant={first ? 'outline' : 'ghost'}
@@ -695,6 +634,8 @@ function Adding({ at, open, first = false }: { at: number; open: boolean; first?
       >
         {open ? 'close' : first ? 'write the first step' : 'add a step'}
       </Button>
+      {children}
+      </span>
       {open && <Editor step={{ title: '', body: '', refs: [], notes: [] }} position={at} target="add" />}
     </section>
   )
