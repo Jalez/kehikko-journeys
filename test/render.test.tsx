@@ -7,7 +7,6 @@ import type { Facet } from 'kehikot-module-protocol/facets'
 import type { JourneyView, Live } from '../src/kinds.ts'
 import { Card } from '../src/view/card.tsx'
 import { ReadingProvider } from '../src/view/reading.tsx'
-import { Sight } from '../src/view/sight.tsx'
 import { StepBlock, bundlesOf, foldSummary } from '../src/view/step.tsx'
 import { closedBy, reading, row } from './reading.ts'
 
@@ -142,52 +141,6 @@ describe('nothing but a verdict refuses to wrap', () => {
 })
 
 /**
- * The sentence at the top of the page, which is the only thing on it when
- * there is nothing else to draw.
- *
- * `Sight` had four branches and five things to say, so two of them shared one
- * sentence with an "or" in the middle: "No epic is open, or the host named one
- * this app does not hold." With an epic open on the canvas — the common case,
- * and the one that gets reported — that leads with the false clause and sends
- * the reader off to check the host's context for a fault that is not there.
- *
- * These tests hold the two apart by their words, because the words ARE the
- * fix. A component that renders without throwing is no evidence at all that it
- * said the right thing, and the wrong thing here rendered perfectly for months.
- */
-describe('what the page says when it is framed and has no journey to draw', () => {
-  const say = (epic: string | null) =>
-    render(<Sight framed refused={null} epic={epic} journey={null} live={null} />).container.textContent ?? ''
-
-  test('no epic named: says nothing is open, and claims nothing about this app’s store', () => {
-    const text = say(null)
-    expect(text).toContain('nothing open')
-    expect(text).toContain('no epic on the canvas')
-    expect(text).not.toContain('holds none')
-  })
-
-  test('an epic named with no journey for it: names the epic, and never says none is open', () => {
-    const text = say('modes-are-modules')
-    expect(text).toContain('modes-are-modules')
-    expect(text).toContain('no journey here')
-    /* The reported bug, written as the thing that must not come back: an epic
-       IS open, so no wording here may suggest that none is. */
-    expect(text).not.toContain('nothing open')
-    expect(text).not.toContain('No epic is open')
-  })
-
-  test('neither offers a picker, because none is drawn while a host is framing us', () => {
-    for (const epic of [null, 'modes-are-modules']) expect(say(epic)).not.toContain('below')
-  })
-
-  test('both fit a 220-pixel rail, where the paragraph they replaced was a wall one word wide', () => {
-    for (const epic of [null, 'modes-are-modules']) {
-      expect(say(epic).trim().split(/\s+/).length).toBeLessThan(13)
-    }
-  })
-})
-
-/**
  * A picked step looks picked the way a picked container does.
  *
  * The host draws a picked-out container with a ring in the primary colour and
@@ -247,8 +200,9 @@ describe('a step that can be picked out on the canvas', () => {
 /**
  * The badge and the rail say why there is no reading the way the banner does.
  *
- * Inside the host with `tracker.get` refused, the banner read "Framed, and
- * refused" and every card underneath it read "Nothing is framing this page".
+ * Inside the host with `tracker.get` refused, a banner used to read "Framed,
+ * and refused" and every card underneath it read "Nothing is framing this
+ * page". The banner is gone; the card is where it is said.
  */
 describe('a card on a framed page the host gave no reading for', () => {
   const REASON = 'Nothing has been read from the trackers for that epic'
@@ -382,26 +336,5 @@ describe('a closed reference’s disposition', () => {
   test('the control to mark it is offered only while a host is framing the page', () => {
     expect(card('gh#3', { framed: true }).textContent).toContain('mark why')
     expect(card('gh#3').textContent).not.toContain('mark why')
-  })
-})
-
-/**
- * While the trackers are being read again, the page says so: the states on
- * screen are the reading before, and a reader comparing them with the tracker
- * should know a newer one is on its way.
- */
-describe('the page while the trackers are being read again', () => {
-  const say = (busy: boolean, live: Live | null) =>
-    render(<Sight framed refused={null} epic="probe" journey={JOURNEY} live={live} busy={busy} />).container
-      .textContent ?? ''
-
-  test('busy says the trackers are being read, and that what is shown is the reading before', () => {
-    const text = say(true, reading([]))
-    expect(text).toContain('being read again')
-    expect(text).toContain('reading before')
-  })
-
-  test('not busy says nothing of the kind', () => {
-    expect(say(false, reading([]))).not.toContain('being read again')
   })
 })

@@ -1,10 +1,10 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { cleanup, fireEvent, render } from '@testing-library/react'
-import type { EpicPart } from 'kehikot-module-protocol'
+import { emptySaid, type EpicPart } from 'kehikot-module-protocol'
 import { mailbox } from 'kehikot-module-protocol/client'
 
 import { App } from '../src/app.tsx'
-import { saidOfNone, shownSteps } from '../src/focus.ts'
+import { NOUN, shownSteps } from '../src/focus.ts'
 import { setEditing } from '../src/journeys.ts'
 import type { Step } from '../src/kinds.ts'
 import { JOURNEY, settle, started, store, stubHost, type Wire } from './host.ts'
@@ -59,9 +59,20 @@ describe('which steps are in front of the person', () => {
     expect(shownSteps(lists, STEPS).map((one) => one.step.title)).toEqual(['One', 'Five'])
   })
 
-  test('the one sentence there is: a journey the pick left no step of says so, and says nothing else', () => {
-    expect(saidOfNone(pick('the-agent-seam'))).toBe('No step is in the picked part.')
-    expect(saidOfNone(pick('the-agent-seam', 'what-the-page-shows'))).toBe('No step is in the picked parts.')
+  test('the one sentence there is, is the protocol’s: this app words none of its own', async () => {
+    expect(emptySaid(pick('the-agent-seam'), NOUN)).toBe('No step is in the picked part.')
+    expect(emptySaid(pick('the-agent-seam', 'what-the-page-shows'), NOUN)).toBe('No step is in the picked parts.')
+    expect(emptySaid(PARTS, NOUN)).toBe('')
+    /* The page draws `narrow(...).empty` and nothing it composed itself. */
+    const page = await Bun.file(new URL('../src/app.tsx', import.meta.url)).text()
+    expect(page).toContain('focus.narrow(')
+    expect(page).toContain('none={narrowedTo.empty || null}')
+    for (const file of ['../src/app.tsx', '../src/focus.ts', '../src/journeys.ts']) {
+      const text = await Bun.file(new URL(file, import.meta.url)).text()
+      expect(text).not.toContain('in the picked ${')
+      expect(text).not.toContain('pickedParts')
+      expect(text).not.toContain('focusSentence')
+    }
   })
 })
 
@@ -198,8 +209,9 @@ describe('an epic this project has no journey for', () => {
   test('offers to begin one, in words about the host’s steps', async () => {
     store.listed = false
     await framed()
-    const text = document.body.textContent ?? ''
-    expect(text).toContain('This project holds none called probe.')
+    /* The press names the epic, and is the only thing said about there being no journey for it. */
+    expect(document.body.textContent).not.toContain('Framed,')
+    expect(document.querySelectorAll('[data-begin] button')).toHaveLength(1)
     expect(document.querySelector('[data-begin] button')?.getAttribute('title')).toContain('Copies what the host holds')
     expect([...document.querySelectorAll('button')].some((one) => one.textContent === 'begin the journey for probe')).toBe(true)
   })

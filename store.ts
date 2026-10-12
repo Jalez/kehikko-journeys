@@ -10,11 +10,14 @@ import {
   journeysDocumentSchema,
   moduleDir,
   moduleFile,
+  stepPart,
   stepsFromSchema as recordStepsFromSchema,
   stepsOf,
   within,
 } from 'kehikot-module-protocol'
+import { writeHoldings } from 'kehikot-module-protocol/serve'
 
+import { JOURNEYS_KEEP, keeperFrom, type Keeper } from './keeper.ts'
 import { ID } from './manifest.ts'
 import { mirrored, simplified, type Fate, type Finding } from './parts.ts'
 
@@ -47,9 +50,10 @@ import { mirrored, simplified, type Fate, type Finding } from './parts.ts'
  *
  * **It has been decided, by the owner, and this is the decision:**
  *
- * - **This app owns the steps, the groups (which a host reads as an epic's
- *   parts) and the prose around them.**
- * - **A host owns the epic's slug, its title, and whether it exists.**
+ * - **This app owns the steps and the prose around them.**
+ * - **A host owns the epic's slug, its title, and whether it exists** — and,
+ *   from protocol 1.2.0, the list of its parts. For a host from before that
+ *   this app still writes the list, as `groups`; `keeper.ts` says which.
  * - A host reads the steps and the groups out of THIS file, and falls back to
  *   the file it keeps itself only when a project has no record under that
  *   slug.
@@ -507,10 +511,11 @@ export const journeySchema = journeyRecordSchema.extend({
     .record(z.string(), z.object({ maker: z.string().optional(), reviewer: z.string().optional() }).passthrough())
     .default({}),
   /**
-   * The epic's parts, as a released host reads them: one to a step, in the
-   * steps' order, each with the id its step's `part` names, what the part is
-   * called and the one document it covers. Held to the steps by `mirrored` on
-   * every write; see `parts.ts`.
+   * The epic's parts, as a host from before protocol 1.2.0 reads them: one
+   * to a step, in the steps' order, each with the id its step's `part` names
+   * and what the part is called. Held to the steps by `mirrored` on every
+   * write WHILE THIS APP KEEPS THE LIST, and neither read nor written once
+   * the host does; see `keeper.ts` and `parts.ts`.
    */
   groups: z.array(journeyGroupSchema).default([]),
   /**
@@ -667,6 +672,11 @@ export interface Held {
    * the simple reading already; nothing has been written. See `Unsettled`.
    */
   unsettled: Record<string, Unsettled>
+  /**
+   * Who keeps the list of each journey's parts, by slug: the host, with the
+   * list as its file has it, or this app. See `keeper.ts`.
+   */
+  keepers: Record<string, Keeper>
 }
 
 /**
@@ -713,9 +723,9 @@ export function held(projectPath: string | null | undefined): Held {
  */
 function read(projectPath: string | null | undefined): { held: Held; raw: Record<string, unknown> | null } {
   const { path, trouble } = dataFile(projectPath)
-  if (trouble) return { held: { journeys: {}, from: null, nowhere: false, trouble, unsettled: {} }, raw: null }
-  if (path === null) return { held: { journeys: {}, from: null, nowhere: true, trouble: null, unsettled: {} }, raw: null }
-  if (!existsSync(path)) return { held: { journeys: {}, from: path, nowhere: false, trouble: null, unsettled: {} }, raw: null }
+  if (trouble) return { held: { journeys: {}, from: null, nowhere: false, trouble, unsettled: {}, keepers: {} }, raw: null }
+  if (path === null) return { held: { journeys: {}, from: null, nowhere: true, trouble: null, unsettled: {}, keepers: {} }, raw: null }
+  if (!existsSync(path)) return { held: { journeys: {}, from: path, nowhere: false, trouble: null, unsettled: {}, keepers: {} }, raw: null }
 
   try {
     const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
@@ -727,8 +737,18 @@ function read(projectPath: string | null | undefined): { held: Held; raw: Record
        opened anyway, because every door asks `isSlug` before it asks for it. */
     const journeys: Record<string, Journey> = {}
     const unsettled: Record<string, Unsettled> = {}
+    const keepers: Record<string, Keeper> = {}
     for (const [slug, journey] of Object.entries(parsed.journeys)) {
       if (!isSlug(slug)) continue
+      const keeper = keeperOf(projectPath, slug)
+      keepers[slug] = keeper
+      /* Where the host keeps the list, the record's `groups` say nothing
+         about the parts and are not read: the steps are the steps, each in
+         the part it names. */
+      if (keeper.by === 'host') {
+        journeys[slug] = journey
+        continue
+      }
       /* The older shape of parts is read as the simple one, here and so for
          every reader, and not written: see `Unsettled`. */
       const simple = simplified(journey)
@@ -736,7 +756,7 @@ function read(projectPath: string | null | undefined): { held: Held; raw: Record
       if (simple.changed) unsettled[slug] = { findings: simple.findings, fates: simple.fates, gone: simple.gone }
     }
     /* `documentSchema` has just accepted it, so it is an object. */
-    return { held: { journeys, from: path, nowhere: false, trouble: null, unsettled }, raw: raw as Record<string, unknown> }
+    return { held: { journeys, from: path, nowhere: false, trouble: null, unsettled, keepers }, raw: raw as Record<string, unknown> }
   } catch (e) {
     return {
       held: {
@@ -748,6 +768,7 @@ function read(projectPath: string | null | undefined): { held: Held; raw: Record
           + 'journey is being shown and nothing will be written over it. Every step and every sentence in that file is '
           + 'recoverable: fix or move it.',
         unsettled: {},
+        keepers: {},
       },
       raw: null,
     }
@@ -807,6 +828,10 @@ export type Written =
        * as it was is kept.
        */
       settled: (Unsettled & { before: string }) | null
+      /** Who keeps the list of this journey's parts, as it was at the write. */
+      keeper: Keeper
+      /** Why what the steps hold for their parts could not be published, or null: it was. */
+      unpublished: string | null
     }
   | { ok: false; error: string }
 
@@ -851,11 +876,17 @@ export type Written =
  * path is where "cannot" is worth one more line.
  */
 export function writeJourney(projectPath: string | null | undefined, journey: Journey): Written {
-  /* One part to a step, whatever the caller did to the steps: a step added is
-     given its part, a step removed takes its part with it. Every journey a
-     caller holds came out of `read`, which has been over it with `simplified`
-     — `mirrored` is not the migration and must not be handed the older shape. */
-  const parsed = mirrored(journeySchema.parse(journey))
+  const given = journeySchema.parse(journey)
+  /* Asked at the write, of the disk, and not taken from the caller: it is the
+     one thing that decides whether `groups` is this app's to write. */
+  const keeper = keeperOf(projectPath, given.slug)
+  /* While this app keeps the list: one part to a step, whatever the caller
+     did to the steps — a step added is given its part, a step removed takes
+     its part with it. Every journey a caller holds came out of `read`, which
+     has been over it with `simplified`; `mirrored` is not the migration and
+     must not be handed the older shape. Where the host keeps the list the
+     record goes in as it is: `groups` untouched, and no id made here. */
+  const parsed = keeper.by === 'host' ? given : mirrored(given)
 
   const { held: store, raw } = read(projectPath)
   if (store.nowhere) return { ok: false, error: NOWHERE }
@@ -898,7 +929,53 @@ export function writeJourney(projectPath: string | null | undefined, journey: Jo
   }
 
   writeFileSync(path, `${JSON.stringify(document, null, 2)}\n`)
-  return { ok: true, journey: parsed, settled }
+  return { ok: true, journey: parsed, settled, keeper, unpublished: publish(projectPath, parsed) }
+}
+
+/**
+ * Publish what this app holds for each part of one epic: the references of
+ * the part's step. `<project>/.kehikot/journeys/parts.json`, the protocol's
+ * (`writeHoldings`), which a host unions with every other module's so that a
+ * module showing references can narrow by a part without knowing this app.
+ *
+ * After every write of a journey, whoever keeps the list, and never on a
+ * read. A step in no part holds nothing for one, and a step that names no
+ * reference holds nothing for its part — which is not listed, as the
+ * protocol has it; two steps of an older record that name one part hold their
+ * references together. No documents: a part's document is whichever module's
+ * keeps it.
+ *
+ * The journey is already written when this runs, and stays written if this
+ * fails: the file is a publication the next write makes again. The sentence
+ * that comes back is for the caller to say.
+ */
+function publish(projectPath: string | null | undefined, journey: Journey): string | null {
+  try {
+    writeHoldings(projectPath, ID, journey.slug, holdingsOf(journey))
+    return null
+  } catch (error) {
+    return `What its steps hold for their parts could not be published (${error instanceof Error ? error.message : String(error)}).`
+  }
+}
+
+/**
+ * What a journey's steps hold for the parts they are the steps of:
+ * `{ <part id>: { documents: [], refs } }`, for every part whose step names a
+ * reference. Exactly what `parts.json` then says for the epic.
+ */
+export function holdingsOf(journey: Pick<Journey, 'steps'>): Record<string, { documents: string[]; refs: string[] }> {
+  const out: Record<string, { documents: string[]; refs: string[] }> = {}
+  for (const step of journey.steps) {
+    const id = stepPart(step)
+    if (id === null) continue
+    const held = Object.hasOwn(out, id) ? (out[id] as { documents: string[]; refs: string[] }) : { documents: [], refs: [] }
+    for (const one of step.refs ?? []) {
+      const ref = one.trim()
+      if (ref && !held.refs.includes(ref)) held.refs.push(ref)
+    }
+    if (held.refs.length) out[id] = held
+  }
+  return out
 }
 
 /**
@@ -1063,6 +1140,17 @@ export function hostEpic(projectPath: string | null | undefined, slug: string): 
   return { found: 'none', looked }
 }
 
+/**
+ * Who keeps the list of one epic's parts in this project: `keeperFrom`, over
+ * the host's own file for the epic. The same fenced read as `hostEpic`, of
+ * the same file, for one more key. A file that is not there or will not read
+ * has no `parts` key a host could be reading, so this app keeps the list.
+ */
+export function keeperOf(projectPath: string | null | undefined, slug: string): Keeper {
+  const host = hostEpic(projectPath, slug)
+  return host.found === 'epic' ? keeperFrom(host.epic) : JOURNEYS_KEEP
+}
+
 export type Begun =
   | {
       ok: true
@@ -1077,6 +1165,8 @@ export type Begun =
       file: string | null
       /** What reading the host's epic as one step to a part decided; empty when it already was. */
       findings: Finding[]
+      /** Who keeps the list of this journey's parts. */
+      keeper: Keeper
     }
   | { ok: false; error: string }
 
@@ -1177,7 +1267,10 @@ export function createJourney(
     }
   }
 
-  const parsed = journeySchema.safeParse({ ...seed, slug, title: title || slug })
+  /* The host's own list of the epic's parts stays the host's: it is not
+     copied into the record, where it would be a second list beside it. */
+  const { parts: _parts, ...rest } = seed
+  const parsed = journeySchema.safeParse({ ...rest, slug, title: title || slug })
   if (!parsed.success) {
     const issue = parsed.error.issues[0]
     const where = issue?.path.length ? issue.path.join('.') : 'the epic'
@@ -1193,10 +1286,13 @@ export function createJourney(
   /* What a host held may be in the older shape of parts. It becomes a record
      here as one step to a part, and the host's own file — untouched — is the
      record as it was. */
-  const simple = simplified(parsed.data)
+  const simple =
+    keeperOf(projectPath, slug).by === 'host'
+      ? { record: parsed.data, findings: [] as Finding[] }
+      : simplified(parsed.data)
   const written = writeJourney(projectPath, simple.record)
   if (!written.ok) return written
-  return { ok: true, journey: written.journey, from, file, findings: simple.findings }
+  return { ok: true, journey: written.journey, from, file, findings: simple.findings, keeper: written.keeper }
 }
 
 /* ------------------------------------------------------------------ *

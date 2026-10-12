@@ -5,9 +5,8 @@ import { Input } from '@/components/ui/input.tsx'
 import { Textarea } from '@/components/ui/textarea.tsx'
 
 import { BODY_WORDS } from '../../limits.ts'
-import { held, hold, removeStep, saveStep, type PaperChapters } from '../journeys.ts'
+import { held, hold, moveStep, removeStep, saveStep } from '../journeys.ts'
 import type { Step } from '../kinds.ts'
-import { useReading } from './reading.tsx'
 
 /**
  * The editor for one step.
@@ -36,23 +35,39 @@ import { useReading } from './reading.tsx'
  * that is not guessable — that refs are separated by spaces and notes by commas
  * — because that is the part somebody can actually get wrong.
  *
- * ## The part is edited here, because a step is one
+ * ## The part's name is edited here, and nothing else about the part
  *
- * A step is one part of the epic, so what the part is called where it is
- * picked and which chapter of the paper it covers are two more fields of this
- * form — on one row, under the notes — and not a box of their own above the
- * journey. The name box is empty for a part that is called by its step's
- * title, which is what it is called until somebody says otherwise. The
- * chapter is one of the paper's own files that no other step has, or none;
- * it is not drawn for an epic with no paper.
+ * A step is the step of one part of the epic, so what the part is called
+ * where it is picked is one more field of this form, on one row under the
+ * notes. Saved, a changed name is the host's to take (`parts.set`); for a
+ * host from before that it goes into this app's record, as it always did,
+ * and an empty box is a part called by its step's title.
+ *
+ * That row is also where the two things a step can be in relation to a part
+ * are offered, each as one quiet control and neither with a sentence:
+ *
+ *  - a step in NO part (its part was removed in the host's picker) has "make
+ *    it a part" beside the name — Save, and ask the host for a part called
+ *    that;
+ *  - a step that is there can be moved one place up or down, at the end of
+ *    the row with Save.
+ *
+ * What a part's chapter is, is not a field here: it is kept by the module
+ * that keeps the paper.
  */
-type Fields = { title: string; body: string; refs: string; notes: string; name: string; file: string }
+type Fields = { title: string; body: string; refs: string; notes: string; name: string }
 
-/** What the step's part is called (when somebody named it) and the document it covers. */
+/** A step's part, as the editor needs it. */
 export interface PartOfStep {
   id: string | null
+  /** What the part is called, or empty for a part called by its step's title. */
   name: string
-  file: string | null
+  /**
+   * False for a step in no part where the host keeps the epic's list: the
+   * step's `part` is absent, or names a part the list no longer has. Always
+   * true while this app keeps the list.
+   */
+  listed: boolean
 }
 
 const fieldsOf = (step: Step, part?: PartOfStep): Fields => ({
@@ -61,7 +76,6 @@ const fieldsOf = (step: Step, part?: PartOfStep): Fields => ({
   refs: (step.refs ?? []).join(' '),
   notes: (step.notes ?? []).join(', '),
   name: part?.name ?? '',
-  file: part?.file ?? '',
 })
 
 function read(text: string | undefined): Fields | null {
@@ -69,7 +83,7 @@ function read(text: string | undefined): Fields | null {
     const one = JSON.parse(text ?? '') as Partial<Fields> | null
     if (!one || typeof one !== 'object') return null
     const str = (value: unknown) => (typeof value === 'string' ? value : '')
-    return { title: str(one.title), body: str(one.body), refs: str(one.refs), notes: str(one.notes), name: str(one.name), file: str(one.file) }
+    return { title: str(one.title), body: str(one.body), refs: str(one.refs), notes: str(one.notes), name: str(one.name) }
   } catch {
     return null
   }
@@ -77,9 +91,9 @@ function read(text: string | undefined): Fields | null {
 
 /**
  * `target` is where the fields are held while they are typed, so a reload of the page finds
- * them (see "What is being typed" in `journeys.ts`): `step:<position>` for a step that exists,
- * `add` for one that does not yet. `part` and `chapters` are what the step's part is called, the
- * document it covers, and the documents the epic's paper offers. They come back in this form, open; what the step said when the
+ * them (see "What is being typed" in `journeys.ts`): `step@<id>` for a step that exists,
+ * `add` for one that does not yet. `part` is the step's part; `forPart` is the id of a part that
+ * has no step, for which a new step is being written. They come back in this form, open; what the step said when the
  * typing started is kept beside them, and when that is no longer what it says the form says so
  * rather than saving over somebody else's words in silence.
  */
@@ -89,6 +103,8 @@ export function Editor({
   target,
   part,
   existing = false,
+  forPart = null,
+  of,
 }: {
   step: Step
   position: number
@@ -96,8 +112,11 @@ export function Editor({
   part?: PartOfStep
   /** The step is already in the journey, so it can be removed. */
   existing?: boolean
+  /** A new step for a part the host lists and that has none: saved, it is filed under this id. */
+  forPart?: string | null
+  /** How many steps the journey has, for the two presses that move this one. */
+  of?: number
 }) {
-  const chapters: PaperChapters | null = useReading().chapters ?? null
   const now = fieldsOf(step, part)
   const was = useRef(target ? held(target) : null).current
   const kept = read(was?.text)
@@ -108,38 +127,38 @@ export function Editor({
   const [refs, setRefs] = useState(kept?.refs ?? now.refs)
   const [notes, setNotes] = useState(kept?.notes ?? now.notes)
   const [name, setName] = useState(kept?.name ?? now.name)
-  const [file, setFile] = useState(kept?.file ?? now.file)
   const [removing, setRemoving] = useState(false)
-  /* The paper's files this step may have: the ones no other step has. One it
-     already has is listed even when the paper no longer pulls it in. */
-  const offered = chapters?.paper ? chapters.chapters.filter((one) => one.part === null || one.part === (part?.id ?? null)) : []
-  const options = file && !offered.some((one) => one.file === file) ? [{ file, heading: '', part: null }, ...offered] : offered
+  /* A step in no part, where the host keeps the list: it can be made one. */
+  const loose = existing && part !== undefined && !part.listed
   /* Written as it changes: there is no moment before a reload to write it in. */
   const typing = (next: Partial<Fields>) => {
     if (!target) return
-    const all = { title, body, refs, notes, name, file, ...next }
-    hold(target, { base, text: JSON.stringify(all), aim: `${target === 'add' ? 'a new step' : `step ${position}`}${all.title.trim() ? ` — “${all.title.trim().slice(0, 80)}”` : ''}` })
+    const all = { title, body, refs, notes, name, ...next }
+    hold(target, { base, text: JSON.stringify(all), aim: `${target.startsWith('add') ? 'a new step' : `step ${position}`}${all.title.trim() ? ` — “${all.title.trim().slice(0, 80)}”` : ''}` })
   }
-  const moved = kept !== null && started !== null && JSON.stringify(now) !== base
+  /* Compared as fields, not as the string that was held: a draft held by a page from before this
+     form lost a field must not read as "the step was changed". */
+  const moved = kept !== null && started !== null && JSON.stringify(now) !== JSON.stringify(started)
 
   const words = body.trim() ? body.trim().split(/\s+/).length : 0
+  /* The whole step, as the store takes it. */
+  const fields = () => ({
+    title,
+    body,
+    refs: refs.split(/\s+/).filter(Boolean),
+    notes: notes
+      .split(',')
+      .map((piece) => piece.trim())
+      .filter(Boolean),
+    name,
+  })
 
   return (
     <form
       className="mt-2 grid gap-2 @min-[26rem]/container:ml-[2.1rem]"
       onSubmit={(event) => {
         event.preventDefault()
-        void saveStep(position, {
-          title,
-          body,
-          refs: refs.split(/\s+/).filter(Boolean),
-          notes: notes
-            .split(',')
-            .map((piece) => piece.trim())
-            .filter(Boolean),
-          name,
-          file,
-        })
+        void saveStep(position, fields(), { part: forPart ?? null })
       }}
     >
       {moved && (
@@ -181,37 +200,33 @@ export function Editor({
           typing({ notes: e.target.value })
         }}
       />
-      <div className="flex flex-wrap gap-2">
-        <Input
-          aria-label="What this part is called where parts are picked"
-          placeholder="short name — the title, if empty"
-          className="min-w-[9rem] flex-1"
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value)
-            typing({ name: e.target.value })
-          }}
-        />
-        {options.length > 0 && (
-          <select
-            aria-label="The chapter of the paper this part covers"
-            data-chapter={file}
-            className="h-8 min-w-[9rem] flex-1 rounded-md border bg-transparent px-2 text-[0.85rem]"
-            value={file}
+      {/* Not drawn for the step of a part that is already there and has its name: the name is the part's. */}
+      {!forPart && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            aria-label="What this part is called where parts are picked"
+            placeholder="short name — the title, if empty"
+            className="min-w-[9rem] flex-1"
+            value={name}
             onChange={(e) => {
-              setFile(e.target.value)
-              typing({ file: e.target.value })
+              setName(e.target.value)
+              typing({ name: e.target.value })
             }}
-          >
-            <option value="">no chapter</option>
-            {options.map((one) => (
-              <option key={one.file} value={one.file}>
-                {one.heading ? `${one.heading} — ${one.file}` : one.file}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
+          />
+          {loose && (
+            <Button
+              type="button"
+              variant="outline"
+              size="container"
+              data-make="part"
+              title="This step is in no part of the epic. Saves it, and asks the host to add a part for it, called what the box beside this says — or by the step’s title."
+              onClick={() => void saveStep(position, fields(), { make: true })}
+            >
+              make it a part
+            </Button>
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" size="container">
           Save
@@ -219,17 +234,47 @@ export function Editor({
         <span className={words > BODY_WORDS ? 'text-xs text-draft' : 'text-xs text-muted-foreground'}>
           {words} / {BODY_WORDS} words
         </span>
+        {existing && of !== undefined && of > 1 && (
+          <span className="ml-auto flex items-center">
+            <Button
+              type="button"
+              variant="ghost"
+              size="container"
+              data-move="up"
+              aria-label={`Move step ${position} up`}
+              title="Move this step one place up"
+              className="text-muted-foreground"
+              disabled={position <= 1}
+              onClick={() => void moveStep(position - 1, -1)}
+            >
+              ↑
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="container"
+              data-move="down"
+              aria-label={`Move step ${position} down`}
+              title="Move this step one place down"
+              className="text-muted-foreground"
+              disabled={position >= of}
+              onClick={() => void moveStep(position - 1, 1)}
+            >
+              ↓
+            </Button>
+          </span>
+        )}
         {existing && (
           <Button
             type="button"
             variant="ghost"
             size="container"
             data-remove={removing ? 'sure' : 'ask'}
-            className="ml-auto text-muted-foreground"
+            className={of !== undefined && of > 1 ? 'text-muted-foreground' : 'ml-auto text-muted-foreground'}
             onBlur={() => setRemoving(false)}
             onClick={() => (removing ? void removeStep(position - 1) : setRemoving(true))}
           >
-            {removing ? 'remove this step and its part' : 'remove'}
+            {removing ? (part && !part.listed ? 'remove this step' : 'remove this step and its part') : 'remove'}
           </Button>
         )}
       </div>

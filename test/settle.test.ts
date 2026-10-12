@@ -131,7 +131,7 @@ describe('the first deliberate write', () => {
     const { file, before, call, hostSees, pageShows, get } = project()
     const was = (JSON.parse(readFileSync(file, 'utf8')) as { journeys: Record<string, unknown> }).journeys
     const said = call('set_step', { step: 'methods', title: 'A reader could repeat the study', body: 'Reworded.' })
-    expect(said).toContain('Set step 3 of thesis (id methods, called “Methods”, covering chapters/3_methods.tex)')
+    expect(said).toContain('Set step 3 of thesis (id methods, called “Methods”)')
     expect(said).toContain('This journey was stored in an older shape')
     expect(said).toContain(before)
     expect(said).toContain('“Appendices” had no step. One was made for it')
@@ -197,38 +197,67 @@ describe('the first deliberate write', () => {
 })
 
 describe('a step and its part, through the doors', () => {
-  test('a new step is a new part: named, given its document, and answered with its id', () => {
+  test('a new step is a new part: named, and answered with its id', () => {
     const { call, hostSees } = project()
-    const said = call('set_step', { title: 'A reader sees what happened', name: 'Results', file: 'chapters/4_results.tex' })
-    expect(said).toContain('Set step 5 of thesis (id results, called “Results”, covering chapters/4_results.tex)')
-    expect(hostSees().at(-1)).toEqual({ id: 'results', heading: 'Results', files: ['chapters/4_results.tex'] })
+    const said = call('set_step', { title: 'A reader sees what happened', name: 'Results' })
+    expect(said).toContain('Set step 5 of thesis (id results, called “Results”)')
+    expect(hostSees().at(-1)).toEqual({ id: 'results', heading: 'Results', files: [] })
   })
 
-  test('a step written again keeps its part’s name and document unless they are said', () => {
+  test('a step written again keeps its part’s name unless it is said, and the document an earlier version recorded', () => {
     const { call, hostSees } = project()
     call('set_step', { step: 'methods', title: 'Reworded' })
     expect(hostSees()[2]).toEqual({ id: 'methods', heading: 'Methods', files: ['chapters/3_methods.tex'] })
-    call('set_step', { step: 'methods', title: 'Reworded', name: '', file: '' })
-    expect(hostSees()[2]).toEqual({ id: 'methods', heading: 'Reworded', files: [] })
+    call('set_step', { step: 'methods', title: 'Reworded', name: '' })
+    expect(hostSees()[2]).toEqual({ id: 'methods', heading: 'Reworded', files: ['chapters/3_methods.tex'] })
   })
 
-  test('a document another step has is refused and nothing is written; so is a name that is not a file’s', () => {
+  /**
+   * `file` set a part's chapter until a part's chapter became the Paper
+   * module's to keep. For one release it is still accepted, changes nothing,
+   * and is SAID to have changed nothing; a document already in a record is
+   * carried as it is, because a released host still reads it there.
+   */
+  test('`file` is accepted, sets nothing, takes nothing away, and says so', () => {
+    const { call, hostSees } = project()
+    const fresh = call('set_step', { title: 'A reader sees what happened', name: 'Results', file: 'chapters/4_results.tex' })
+    expect(fresh).toContain('Set step 5 of thesis (id results, called “Results”)')
+    expect(fresh).toContain('`file` is no longer taken: a part’s chapter is set in the module that keeps the paper, not here.')
+    expect(hostSees().at(-1)).toEqual({ id: 'results', heading: 'Results', files: [] })
+    const cleared = call('set_step', { step: 'methods', title: 'Reworded', file: '' })
+    expect(cleared).toContain('`file` is no longer taken')
+    expect(hostSees()[2]).toEqual({ id: 'methods', heading: 'Methods', files: ['chapters/3_methods.tex'] })
+    /* Not said to a caller that did not pass it. */
+    expect(call('set_step', { step: 'methods', title: 'Reworded' })).not.toContain('`file`')
+  })
+
+  test('an id that names no step is refused and nothing is written', () => {
     const { file, call } = project()
     call('set_step', { step: 'methods', title: 'Stored' })
     const bytes = readFileSync(file, 'utf8')
-    expect(call('set_step', { step: 'methods', title: 'X', file: 'chapters/1_introduction.tex' })).toContain(
-      'chapters/1_introduction.tex is the document of step 1',
-    )
-    expect(call('set_step', { step: 'methods', title: 'X', file: '../x.tex' })).toContain('is not a name a part can hold for a document')
     expect(call('set_step', { step: 'nowhere', title: 'X' })).toContain('"nowhere" names no step of this journey. Its steps are: 1 introduction')
     expect(readFileSync(file, 'utf8')).toBe(bytes)
   })
 
-  test('`part`, which this door used to take, is answered and not obeyed', () => {
+  test('`part` is answered and not obeyed while this app keeps the list: a step is its own part', () => {
     const { call, hostSees } = project()
     const said = call('set_step', { step: 'methods', title: 'Reworded', part: 'introduction' })
-    expect(said).toContain('`part` is no longer taken: a step is its own part')
+    expect(said).toContain('`part` is not taken here: this app keeps this epic’s list of parts for a host that does not')
     expect(hostSees().map((part) => part.id)).toEqual(['introduction', 'literature-review', 'methods', 'appendices'])
+  })
+
+  test('moving a step moves its part with it, and nothing else about either', () => {
+    const { call, hostSees, root } = project()
+    expect(call('move_step', { step: 'methods', to: 1 })).toContain('Moved step 3 (“A reader could repeat the study”) of thesis to position 1.')
+    expect(hostSees()).toEqual([
+      { id: 'methods', heading: 'Methods', files: ['chapters/3_methods.tex'] },
+      { id: 'introduction', heading: 'Introduction', files: ['chapters/1_introduction.tex'] },
+      { id: 'literature-review', heading: 'Literature Review', files: ['chapters/2_literature_review.tex'] },
+      { id: 'appendices', heading: 'Appendices', files: ['chapters/appendix_instruments.tex'] },
+    ])
+    expect(journeyIn(held(root), 'thesis')?.steps.map((one) => one.part)).toEqual(['methods', 'introduction', 'literature-review', 'appendices'])
+    expect(call('move_step', { step: 'methods', to: 1 })).toContain('is already there')
+    expect(call('move_step', { step: 'methods', to: 9 })).toContain('Nothing was moved.')
   })
 
   test('removing a step removes its part, by position or by id, and says what went', () => {
@@ -242,18 +271,21 @@ describe('a step and its part, through the doors', () => {
     expect(call('remove_step', { position: 9 })).toBe('thesis has 2 stored steps')
   })
 
-  test('the page’s door takes the same: a step by its id, with its part’s name and document', () => {
+  test('the page’s door takes the same: a step by its id, with its part’s name', () => {
     const { post, hostSees } = project()
-    const reply = post('/api/step', { step: 'literature-review', title: 'The gap', body: '', refs: [], notes: [], name: 'Literature', file: '' })
+    const reply = post('/api/step', { step: 'literature-review', title: 'The gap', body: '', refs: [], notes: [], name: 'Literature' })
     expect(reply?.status).toBe(200)
-    expect(hostSees()[1]).toEqual({ id: 'literature-review', heading: 'Literature', files: [] })
+    expect((reply?.body as { journey: { listed: unknown } }).journey.listed).toBeNull()
+    expect(hostSees()[1]).toEqual({ id: 'literature-review', heading: 'Literature', files: ['chapters/2_literature_review.tex'] })
     expect(post('/api/step/remove', { step: 'literature-review' })?.status).toBe(200)
     expect(hostSees().map((part) => part.id)).toEqual(['introduction', 'methods', 'appendices'])
   })
 
   test('the doors that arranged parts are gone', () => {
     const { post, call } = project()
-    for (const path of ['/api/assign', '/api/part', '/api/part/remove', '/api/parts/chapters']) expect(post(path)?.status).toBe(404)
+    for (const path of ['/api/assign', '/api/part', '/api/part/remove', '/api/parts/chapters', '/api/steps/chapters']) expect(post(path)?.status).toBe(404)
+    /* The read of another module's folder is gone with them. */
+    expect(answer('GET', '/api/chapters', new URLSearchParams({ project: project().root, slug: 'thesis' }), null, null)?.status).toBe(404)
     for (const tool of ['set_part', 'remove_part', 'assign_steps', 'propose_chapter_parts']) expect(call(tool)).toBe(`no tool "${tool}" here`)
   })
 })

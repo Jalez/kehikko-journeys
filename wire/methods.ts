@@ -106,13 +106,28 @@ export const REFRESH_TRACKER = required('reading the trackers again', ['tracker.
 export const REPORT_CHANGE = required('saying this app’s own material changed', ['content.changed'])
 
 /**
+ * Ask the host to make one edit of an epic's list of parts: add, rename, move
+ * or remove.
+ *
+ * The list is the epic's and a host from protocol 1.2.0 is its only writer;
+ * this app keeps one step for a part, so a step written, renamed, moved or
+ * removed here asks for the edit that goes with it. From a person's press and
+ * from nothing else. A host from before 1.2.0 answers that it does not know
+ * the method, which is how this app learns there is nobody to ask — see
+ * `askParts` in `src/journeys.ts`, and `keeper.ts` for who keeps the list.
+ */
+export const SET_PARTS = required('asking a host to edit an epic’s list of parts', ['parts.set'])
+
+/**
  * The reference a host walks this app to when it means "the place where this
  * epic is divided into parts".
  *
  * ## Why a reference, and why this one
  *
- * A host draws the parts of an epic in its own bar, and for an epic with none
- * it can only say where they are made: here. It gets a person here the way it
+ * A host from before protocol 1.2.0 draws the parts of an epic in its own bar
+ * and, for an epic with none, can only say where they are made: here. (A host
+ * that keeps the list itself adds a part in its own picker and never sends
+ * this.) It gets a person here the way it
  * gets them anywhere inside a module — `kehikot.goto`, which names a
  * reference for the module to find on its own page and is answered
  * `kehikot.went`, found or not. This is that walk with a reference no tracker

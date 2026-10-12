@@ -1,7 +1,7 @@
 import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'kehikot-module-protocol'
 
 export const ID = 'kehikot.journeys'
-export const VERSION = '1.3.0'
+export const VERSION = '1.4.0'
 
 /**
  * The port this app would rather have, said once and beside the name it goes
@@ -35,7 +35,7 @@ export const PREFERRED_PORT = 7840
  * tab to give the page, and which ONE question the app would like to be allowed
  * to ask if there is anybody there to ask.
  *
- * ## Why the list of capabilities is seven words long, and what each means
+ * ## Why the list of capabilities is eight words long, and what each means
  *
  * Every other module extracted from Kehikot declares `epics:read` and
  * `steps:read`, because the epics are somebody else's and they need to be
@@ -112,6 +112,15 @@ export const PREFERRED_PORT = 7840
  *   `reacts: ['content']`, is below. The MCP door does not say it and cannot:
  *   it is answered by the server process, which has no host to say it to, and
  *   the host sees `.kehikot/journeys/` change and announces that itself.
+ * - **`parts:set` — declared, for a person's press on a step.** The list of
+ *   an epic's parts is the epic's, and a host from protocol 1.2.0 keeps it
+ *   and is its only writer. This app keeps one step for a part, so writing a
+ *   new step asks the host to add a part for it, and renaming, moving or
+ *   removing a step's part asks for that — `parts.set`, one edit a call, from
+ *   the Save, the move or the remove a person pressed and from nothing else.
+ *   A host from before that does not know the method, and this app then
+ *   keeps the list in its own record as it always did; `keeper.ts` is where
+ *   that is decided.
  * - **`stage:report` — not declared.** Saying where work has got to belongs to
  *   whoever is doing it. This app draws a rail; it does not report onto one.
  *   See the note in `page/journeys.ts` about what the rail can and cannot know.
@@ -252,11 +261,12 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * page until somebody reloaded the window.
    *
    * `parts`, because a person pointing the canvas at some of the epic's parts
-   * moves this page: a step is one part of the epic, and only the steps of
+   * moves this page: a step is the step of one part, and only the steps of
    * the picked parts are drawn. Nothing announces it; a journey the pick left
-   * no step of says one sentence where the steps would be. See
+   * no step of says the protocol's one sentence where the steps would be. See
    * `src/focus.ts` for the rule. With nothing picked the page is exactly what
-   * it was. It sets nothing: the picking is the host's own control.
+   * it was. It never sets the PICK: that is the host's own control. (What it
+   * may ask to change is the list, under `parts:set` below.)
    *
    * Not `passage`. Nothing here reads one.
    */
@@ -282,6 +292,10 @@ export const MANIFEST: Manifest = manifestSchema.parse({
      * one question asked once: what the host holds for an epic, at the moment
      * a person begins a journey for it. The essay at the top of this file has
      * the argument. Nothing is drawn from it.
+     *
+     * `parts:set` asks the host to edit the epic's list of parts — add,
+     * rename, move, remove — for the step a person has just saved, moved or
+     * removed. A write into the epic, told to every module.
      */
     uses: [
       'trackers:read',
@@ -291,6 +305,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
       'disposition:set',
       'content:report',
       'epics:read',
+      'parts:set',
     ],
     storage: true,
   },
