@@ -199,7 +199,7 @@ describe('writing, and the ticket that names one project', () => {
   test('through the doors: x-module-ticket and the project ticket together write; the old header does not', async () => {
     const doors = doorsFetch({ manifest: MANIFEST, answer, build: BUILD, page: { title: 'Journeys', ticket: TICKET } })
     const through = async (method: string, url: string, { body, headers }: { body?: unknown; headers?: Record<string, string> } = {}) => {
-      const sent = (await doors(new Request(`http://127.0.0.1${url}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })))!
+      const sent = (await doors(new Request(`http://127.0.0.1${url}`, { method, headers: body === undefined ? headers : { 'content-type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body) })))!
       return { status: sent.status, headers: sent.headers, json: (await sent.clone().json().catch(() => null)) as Record<string, unknown>, text: await sent.text() }
     }
     const step = { project, slug: 'a-stored-journey', position: 0, title: 'the first thing', ticket: write }
