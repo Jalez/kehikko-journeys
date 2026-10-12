@@ -70,14 +70,16 @@ const divided = {
       part: 'the-agent-seam',
       estimate: { days: 2, by: 'somebody' },
     },
-    { title: 'Retire the second path', body: '', refs: ['gh#4'], notes: ['already half done'] },
+    { title: 'Retire the second path', body: '', refs: ['gh#4'], notes: ['already half done'], part: 'retire-the-second-path' },
     { title: 'Say so on the page', body: '', refs: ['gh#5'], notes: [], part: 'what-the-page-shows', colour: 'teal' },
   ],
   stepsFrom: { projector: 'paper', where: 'chapters/seam.tex', why: 'It is also a paper.', revision: 7 },
   groups: [
-    { id: 'the-agent-seam', heading: 'The agent seam', refs: ['gh#6'], collapsed: true },
-    /* `files`: the files of the epic's paper a part owns (protocol 0.32.0). */
-    { heading: 'What the page shows', refs: ['gh#7'], files: ['chapters/page.tex', 'figures/page.tex'] },
+    /* One part to a step, in the steps' order: the shape this app writes. */
+    { id: 'the-agent-seam', heading: 'The agent seam', refs: [], collapsed: true },
+    { id: 'retire-the-second-path', heading: 'Retire the second path', refs: [] },
+    /* `files`: the one document a part covers. */
+    { id: 'what-the-page-shows', heading: 'What the page shows', refs: [], files: ['chapters/page.tex'] },
   ],
   exists: ['The tracker reading'],
   missing: '',
@@ -164,7 +166,6 @@ describe('saving a journey', () => {
       '"part": "what-the-page-shows"',
       '"id": "the-agent-seam"',
       '"chapters/page.tex"',
-      '"figures/page.tex"',
       '"estimate"',
       '"colour": "teal"',
       '"collapsed": true',
@@ -198,11 +199,12 @@ describe('saving a journey', () => {
     writeJourney(root, journeyIn(held(root), 'an-older-journey')!)
     const after = (onDisk(file).journeys as Record<string, Record<string, unknown>>)['an-older-journey']!
     expect(after).toMatchObject(older)
-    expect(after.steps).toEqual([{ title: 'Only step', body: '', refs: ['gh#20'], notes: [] }])
-    expect(after.groups).toEqual([])
+    /* …and its step is a part of the epic, which is what a step is. */
+    expect(after.steps).toEqual([{ title: 'Only step', body: '', refs: ['gh#20'], notes: [], part: 'only-step' }])
+    expect(after.groups).toEqual([{ heading: 'Only step', refs: [], id: 'only-step' }])
     /* What it had stays in front, in its own order; what it gained follows. */
     expect(Object.keys(after).slice(0, 3)).toEqual(['slug', 'title', 'steps'])
-    expect(Object.keys((after.steps as object[])[0]!)).toEqual(['title', 'refs', 'body', 'notes'])
+    expect(Object.keys((after.steps as object[])[0]!)).toEqual(['title', 'refs', 'body', 'notes', 'part'])
     /* And its neighbour is as it was. */
     expect((onDisk(file).journeys as Record<string, unknown>)['the-posting-seam']).toEqual(divided)
   })
@@ -214,7 +216,7 @@ describe('saving a journey', () => {
     expect(Object.keys(onDisk(file).journeys as object)).toContain('Not A Slug')
   })
 
-  test('the journeys this app ships go through every save without a byte moving', () => {
+  test('the journeys this app ships: the first save stores each as one step to a part, and no save after it moves a byte', () => {
     /* Real material rather than a fixture written to pass: every journey in
        `seed/`, exactly as it is on disk, in one document, each saved in turn. */
     const seeds = Object.fromEntries(
@@ -227,11 +229,20 @@ describe('saving a journey', () => {
     )
     expect(Object.keys(seeds).length).toBeGreaterThan(10)
     const { root, file } = project({ version: 1, journeys: seeds })
-    const before = readFileSync(file, 'utf8')
+    /* They are from before a part was a step — headings with references
+       under them, steps in none — so the first save of each is the one that
+       stores it as it is read. Every save after that is the old promise. */
     for (const slug of Object.keys(seeds)) {
+      const others = () => JSON.stringify(Object.fromEntries(Object.entries(onDisk(file).journeys as object).filter(([key]) => key !== slug)))
+      const untouched = others()
       expect(writeJourney(root, journeyIn(held(root), slug)!).ok).toBe(true)
+      expect(others()).toBe(untouched)
+      const before = readFileSync(file, 'utf8')
+      const again = writeJourney(root, journeyIn(held(root), slug)!)
+      expect(again.ok && again.settled).toBe(null)
       expect(readFileSync(file, 'utf8')).toBe(before)
     }
+    expect(held(root).unsettled).toEqual({})
   })
 })
 
@@ -264,20 +275,23 @@ describe('writing a step through the door', () => {
     expect(partInFocus(parts, stepPart(step))).toBe(true)
   })
 
-  test('a step appended is in no part, and every other step is as it was', () => {
+  test('a step appended is a part of its own, and every other step is as it was', () => {
     const { root, file } = project(document)
     post(root, { slug: 'the-posting-seam', title: 'A fourth', body: '', refs: [], notes: [] })
     const steps = (onDisk(file).journeys as { 'the-posting-seam': typeof divided })['the-posting-seam'].steps
     expect(steps).toHaveLength(4)
     expect(steps.slice(0, 3)).toEqual(divided.steps)
-    expect(stepPart(steps[3])).toBeNull()
+    expect(stepPart(steps[3])).toBe('a-fourth')
+    const groups = (onDisk(file).journeys as { 'the-posting-seam': typeof divided })['the-posting-seam'].groups
+    expect(groups.slice(0, 3)).toEqual(divided.groups)
+    expect(groups[3]).toEqual({ heading: 'A fourth', refs: [], id: 'a-fourth' } as never)
   })
 
   test('and the file a save leaves is one the protocol’s reader takes whole', () => {
     const { root } = project(document)
     post(root, { slug: 'the-posting-seam', position: 2, title: 'Retire it', body: '', refs: [], notes: [] })
     const read = readJourneys(root)
-    expect(recordIn(read, 'the-posting-seam')?.steps.map(stepPart)).toEqual(['the-agent-seam', null, 'what-the-page-shows'])
+    expect(recordIn(read, 'the-posting-seam')?.steps.map(stepPart)).toEqual(['the-agent-seam', 'retire-the-second-path', 'what-the-page-shows'])
     expect(recordIn(read, 'an-older-journey')?.steps).toHaveLength(1)
   })
 })
@@ -286,17 +300,18 @@ describe('the files a part owns', () => {
   test('come through a parse, a save and the protocol’s reading unchanged', () => {
     const { root, file } = project(document)
     const journey = journeyIn(held(root), 'the-posting-seam')!
-    expect(journey.groups[1]).toEqual({ heading: 'What the page shows', refs: ['gh#7'], files: ['chapters/page.tex', 'figures/page.tex'] } as never)
+    expect(journey.groups[2]).toEqual(divided.groups[2] as never)
     /* A save of something else in the record — a step — keeps them. */
     journey.steps[1]!.body = 'edited'
     expect(writeJourney(root, journey).ok).toBe(true)
     const kept = (onDisk(file).journeys as Record<string, { groups: Record<string, unknown>[] }>)['the-posting-seam']!
-    expect(kept.groups[1]).toEqual({ heading: 'What the page shows', refs: ['gh#7'], files: ['chapters/page.tex', 'figures/page.tex'] })
+    expect(kept.groups[2]).toEqual(divided.groups[2])
     /* And a group that named none was not given the key by the save. */
     expect(Object.hasOwn(kept.groups[0]!, 'files')).toBe(false)
     /* A host reads them off the same file, by the same function. */
     const parts = partsOf(recordIn(readJourneys(root), 'the-posting-seam'))
-    expect(parts[1]?.files).toEqual(['chapters/page.tex', 'figures/page.tex'])
+    expect(parts[2]?.files).toEqual(['chapters/page.tex'])
+    expect(parts.map((part) => [part.id, part.steps])).toEqual([['the-agent-seam', 1], ['retire-the-second-path', 1], ['what-the-page-shows', 1]])
     expect('files' in parts[0]!).toBe(false)
   })
 })

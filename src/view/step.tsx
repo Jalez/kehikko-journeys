@@ -1,5 +1,5 @@
 import { Fragment } from 'react'
-import type { JourneyPart } from 'kehikot-module-protocol'
+import { stepPart } from 'kehikot-module-protocol'
 import { sift } from 'kehikot-module-protocol/facets'
 
 import { Badge } from '@/components/ui/badge.tsx'
@@ -8,12 +8,12 @@ import { Button } from '@/components/ui/button.tsx'
 import { cn } from '@/lib/utils.ts'
 
 import { cardsUnder, facetsOfRef, stateOf, standing, toneOf, type Standing, type Tone } from '../live/lookup.ts'
-import { assignSteps, pick, setEditing, setFolds, toggleFold } from '../journeys.ts'
+import { fileOf, nameOf, named } from '../../parts.ts'
+import { pick, setEditing, setFolds, targetOf, toggleFold } from '../journeys.ts'
 import type { Live, Step } from '../kinds.ts'
 import { pickedState } from '../refs.ts'
 import { Card } from './card.tsx'
 import { Editor } from './editor.tsx'
-import { PartChooser } from './parts.tsx'
 import { Prose } from './prose.tsx'
 import { aroundOf, useReading } from './reading.tsx'
 
@@ -114,19 +114,9 @@ export function StepBlock({
   editing,
   selection,
   framed,
-  parts = [],
-  inPart = null,
 }: {
   step: Step
   index: number
-  /**
-   * The journey's own parts. Empty for a journey that is not divided into
-   * any, and then no chooser is drawn: a control offering "in no part" and
-   * nothing else is a control about a thing this journey does not have.
-   */
-  parts?: readonly JourneyPart[]
-  /** The id of the part this step is in, or null: it says none, or names one that is gone. */
-  inPart?: string | null
   editing: boolean
   /** What the canvas has picked out, as the host last said. Empty standalone. */
   selection: readonly string[]
@@ -138,6 +128,8 @@ export function StepBlock({
   const around = aroundOf(reading)
   const refs = step.refs ?? []
   const notes = step.notes ?? []
+  /* The epic's parts as the record lists them: what this step's part is called and covers. */
+  const record = { groups: reading.journey?.groups ?? [] }
   const where = standing(live, refs, around)
   const drawn = cardsUnder(live, refs)
 
@@ -237,17 +229,6 @@ export function StepBlock({
             {where.undecided.length} to decide
           </Badge>
         )}
-        {/* Which part the step is in, said and changed in one control. It
-            files this one step and nothing else about it; several at once
-            are filed from the parts box above the journey. */}
-        {parts.length > 0 && (
-          <PartChooser
-            parts={parts}
-            value={inPart}
-            label={`The part step ${index + 1} is in`}
-            onChoose={(part) => void assignSteps([index + 1], part)}
-          />
-        )}
         {/* Editing is this app's, not the host's: the steps are here. It is
             offered whenever the plan is stored, framed or not. */}
         <Button
@@ -263,7 +244,18 @@ export function StepBlock({
       </div>
 
       {editing ? (
-        <Editor step={step} position={index + 1} target={`step:${index}`} />
+        <Editor
+          step={step}
+          position={index + 1}
+          target={targetOf(index)}
+          existing
+          part={{
+            id: stepPart(step),
+            /* Empty for a part called by its step's title: there is no name to edit until one is given. */
+            name: named(record, step) ? nameOf(record, step) : '',
+            file: fileOf(record, step),
+          }}
+        />
       ) : (
         step.body && (
           <p className="mt-1.5 text-[0.95rem] leading-7 @min-[26rem]/container:ml-[2.1rem]">

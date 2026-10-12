@@ -3,13 +3,15 @@ import { createHash } from 'node:crypto'
 import { establishBuild, mintTicket, refuseTicket, sameTicket, type Reply } from 'kehikot-module-protocol/serve'
 
 import { tooLong } from './limits.ts'
-import { leftOutSaid, nothingSaid, type Chapters } from './chapters.ts'
+import { stepPart } from 'kehikot-module-protocol'
+
 import { ID, MANIFEST, VERSION } from './manifest.ts'
 import { MAIN, chaptersIn } from './paper.ts'
-import { FILE_EXAMPLE, assign, filesSaid, notAPart, partsIn, pinned, removalSaid, unassigned, withPart, withoutPart } from './parts.ts'
+import { FILE_EXAMPLE, fileOf, findingsSaid, idFor, nameOf, notAStep, stepOfPart, withPart, withStep, withoutStep } from './parts.ts'
 import {
   type Held,
   type Journey,
+  type Written,
   NOWHERE,
   createJourney,
   dataFile,
@@ -98,10 +100,6 @@ const MAX_NOTE = 200
 const MAX_LIST = 200
 /** A part's id: the protocol's `PART_ID` is eighty characters of slug. */
 const MAX_PART = 80
-/** A file's name from the paper's folder, as long as the protocol's `LIMITS.PART_FILE` lets one be. */
-const MAX_FILE = 256
-/** As many steps as one call may file at once. No journey here is a tenth of it. */
-const MAX_STEPS = 2000
 /** As long as a path may be, matching the protocol's own `LIMITS.PATH`. */
 const MAX_PROJECT = 4096
 /**
@@ -244,8 +242,26 @@ export function writeTicketFor(projectPath: string | null | undefined): string |
  * disagree, and this particular one disagreeing is the exact bug this app was
  * built in response to. The browser draws the answer; it does not reach one.
  */
-function view(journey: Journey) {
-  return { ...journey, plan: planOf(journey).kind }
+function view(journey: Journey, unsettled = false) {
+  /* `unsettled` is whether the record ON DISK is still in the older shape of
+     parts: what is handed over is already the simple reading of it, and the
+     page needs the one bit to know that a host reading the file sees the older
+     one until something is written. See `Unsettled` in `store.ts`. */
+  return { ...journey, plan: planOf(journey).kind, unsettled }
+}
+
+/**
+ * What to say when a write was the one that stored a journey of the older
+ * shape as one step to a part; empty otherwise. Said by every door that
+ * writes, so that nothing is decided about somebody's parts in silence.
+ */
+function settledSaid(written: Extract<Written, { ok: true }>): string {
+  if (!written.settled) return ''
+  const decided = findingsSaid(written.settled.findings)
+  return (
+    ` This journey was stored in an older shape, where a part could hold several steps or none. It is now one step to `
+    + `a part, and the record as it was is kept in ${written.settled.before}.${decided ? ` ${decided}` : ''}`
+  )
 }
 
 function brief(journey: Journey) {
@@ -286,33 +302,25 @@ function brief(journey: Journey) {
  * added — and this door has no argument for it. What a caller could not have
  * said, a caller has not unsaid: those fields stay on the step.
  *
- * ## `part` is the exception to "whole", on purpose
+ * ## The part is not one of the four
  *
- * A caller CAN say `part` now, and it is still not one of the four. Left out,
- * it is left alone: the step stays in whatever part it was in. That is the
- * opposite of the rule two paragraphs up, and it is the opposite because the
- * failure runs the other way. An agent correcting a typo in a step's body
- * reads the step, sends the title, body, refs and notes back, and has no
- * reason to think about parts at all — and under "anything you leave out is
- * gone" that correction would quietly take the step out of its part, and off
- * the page of everybody focused on it. So `part` has three values and not two:
- * absent, which says nothing; empty, which takes the step out of every part;
- * and an id, which has to be one this journey has — `notAPart` lists them in
- * the refusal, because an id is the slug of a heading the caller may only
- * ever have seen in prose.
+ * A step is the step of one part of the epic, and writing the step again does
+ * not say anything about the part: its id stays, and so do its name and the
+ * document it covers. `name` and `file` are each three-valued — left out, the
+ * part keeps what it has; empty, the name goes back to being the step's title
+ * and the part covers no document; given, it is set. A name that was only
+ * ever the title follows the title when it is reworded. See `parts.ts`.
  *
- * Filing a step under a part also writes that part's id onto its group, in
- * the same save; see `pinned` in `parts.ts` for why that is what makes the
- * assignment outlive a rewording of the heading.
+ * A step is found by its 1-based `position` or by `id` — the id of its part,
+ * which does not move when a step before it is removed.
  */
 function setStep(
   project: string | null,
   slug: string,
-  at: number | undefined,
+  where: { position?: number; id?: string },
   step: { title: string; body: string; refs: string[]; notes: string[] },
-  /** `undefined` leaves the step's part as it is; `null` takes it out of every part. */
-  part?: string | null,
-): { ok: false; error: string } | { ok: true; journey: Journey; where: number } {
+  given: { name?: string | null; file?: unknown } = {},
+): { ok: false; error: string } | { ok: true; journey: Journey; where: number; id: string; said: string } {
   if (!isSlug(slug)) return { ok: false, error: 'that is not a journey name' }
 
   const store = held(project)
@@ -342,25 +350,100 @@ function setStep(
   const long = tooLong(step.body)
   if (long) return { ok: false, error: long }
 
-  if (typeof part === 'string') {
-    const unknown = notAPart(journey, part)
-    if (unknown) return { ok: false, error: `${unknown} The step was not written.` }
+  let at: number
+  if (where.id) {
+    at = stepOfPart(journey, where.id)
+    if (at < 0) return { ok: false, error: `${notAStep(journey, where.id)} The step was not written.` }
+  } else {
+    at = where.position && where.position <= journey.steps.length ? where.position - 1 : journey.steps.length
   }
 
-  const before = at && at <= journey.steps.length ? journey.steps[at - 1] : undefined
-  const parsed = stepSchema.parse({ ...before, ...step })
-  if (part === null) delete parsed.part
-  else if (typeof part === 'string') {
-    parsed.part = part
-    journey.groups = pinned(journey.groups, part)
+  const parsed = stepSchema.parse({ ...journey.steps[at], ...step })
+  /* A new step that is given a name takes its id from the name — `methods`,
+     and not the slug of a sentence about what a reader can repeat. */
+  if (at === journey.steps.length && typeof given.name === 'string' && given.name) {
+    parsed.part = idFor(given.name, journey.groups.map((group) => group.id ?? ''), at + 1)
   }
-  if (at && at <= journey.steps.length) journey.steps[at - 1] = parsed
-  else journey.steps.push(parsed)
-  const where = at && at <= journey.steps.length ? at : journey.steps.length
+  let record = withStep(journey, at, parsed)
+  if (given.name !== undefined || given.file !== undefined) {
+    const out = withPart(record, at, given)
+    if (!out.ok) return { ok: false, error: `${out.error} The step was not written.` }
+    record = out.record
+  }
 
+  const written = writeJourney(project, record)
+  if (!written.ok) return { ok: false, error: written.error }
+  const kept = written.journey.steps[at]
+  return {
+    ok: true,
+    journey: written.journey,
+    where: at + 1,
+    id: (kept && stepPart(kept)) || '',
+    said: settledSaid(written),
+  }
+}
+
+/**
+ * Take a step out, by its 1-based position or the id of its part. Its part
+ * goes with it — a part is its step — and the steps after it move up.
+ */
+function removeStep(
+  project: string | null,
+  slug: string,
+  where: { position?: number; id?: string },
+): { ok: false; error: string; status?: number } | { ok: true; journey: Journey; said: string } {
+  if (!isSlug(slug)) return { ok: false, error: 'that is not a journey name' }
+  const store = held(project)
+  const nothing = nothingToReadIn(store)
+  if (nothing) return { ok: false, error: nothing, status: 409 }
+  const journey = journeyIn(store, slug)
+  if (!journey) return { ok: false, error: `no journey "${slug}" in ${project}`, status: 404 }
+  let at: number
+  if (where.id) {
+    at = stepOfPart(journey, where.id)
+    if (at < 0) return { ok: false, error: notAStep(journey, where.id) }
+  } else {
+    if (!where.position || where.position > journey.steps.length) {
+      return { ok: false, error: `${slug} has ${journey.steps.length} stored steps` }
+    }
+    at = where.position - 1
+  }
+  const gone = journey.steps[at]
+  const id = gone ? stepPart(gone) : null
+  const file = gone ? fileOf(journey, gone) : null
+  const written = writeJourney(project, withoutStep(journey, at))
+  if (!written.ok) return { ok: false, error: written.error }
+  return {
+    ok: true,
+    journey: written.journey,
+    said:
+      `Removed step ${at + 1} (“${gone?.title ?? ''}”) from ${slug}, and its part (${id ?? 'unnamed'}) with it`
+      + `${file ? `, which covered ${file}` : ''}. Anything kept elsewhere against that id now names nothing.`
+      + settledSaid(written),
+  }
+}
+
+/**
+ * Store a journey as it is read, changing nothing in it — which, for one
+ * still in the older shape of parts on disk, is the write that makes it one
+ * step to a part there too. For one that already is, nothing is written.
+ */
+function settle(
+  project: string | null,
+  slug: string,
+): { ok: false; error: string; status?: number } | { ok: true; journey: Journey; said: string } {
+  if (!isSlug(slug)) return { ok: false, error: 'that is not a journey name' }
+  const store = held(project)
+  const nothing = nothingToReadIn(store)
+  if (nothing) return { ok: false, error: nothing, status: 409 }
+  const journey = journeyIn(store, slug)
+  if (!journey) return { ok: false, error: `this project does not hold a journey called "${slug}"`, status: 404 }
+  if (!Object.hasOwn(store.unsettled, slug)) {
+    return { ok: true, journey, said: `Every step of ${slug} is already one part of the epic; there is nothing to divide.` }
+  }
   const written = writeJourney(project, journey)
   if (!written.ok) return { ok: false, error: written.error }
-  return { ok: true, journey: written.journey, where }
+  return { ok: true, journey: written.journey, said: settledSaid(written).trim() }
 }
 
 /**
@@ -384,257 +467,122 @@ function nothingToReadIn(store: Held): string | null {
 }
 
 /**
- * What a caller said about `part`, out of a bag of arguments: nothing, "none",
- * or an id.
+ * What a caller said about a part's name or document, out of a bag of
+ * arguments: nothing, "none", or a value.
  *
  * Three answers, and the first is the one `str()` cannot give — it turns a
  * missing argument and an empty one into the same `''`, which here are
- * opposites: a missing `part` leaves a step where it is, and an empty one
- * takes it out of every part. `null` counts as empty, because that is what a
- * page's JSON sends for "none".
+ * opposites: a missing one leaves the part as it is, and an empty one clears
+ * it. `null` counts as empty, because that is what a page's JSON sends.
  */
-function partArg(bag: Record<string, unknown>): string | null | undefined {
-  if (!Object.hasOwn(bag, 'part') || bag.part === undefined) return undefined
-  return str(bag.part, MAX_PART) || null
+function given(bag: Record<string, unknown>): { name?: string | null; file?: unknown } {
+  const out: { name?: string | null; file?: unknown } = {}
+  if (Object.hasOwn(bag, 'name') && bag.name !== undefined) out.name = str(bag.name, MAX_TITLE) || null
+  /* The document is handed on as it arrived: one that is not a name has to be
+     REFUSED by name (`fileGiven`), and `str` would only shorten it. */
+  if (Object.hasOwn(bag, 'file') && bag.file !== undefined) out.file = bag.file === null ? null : bag.file
+  return out
 }
 
-/** One-based step positions out of a caller's list, bounded like every list here. */
-function positions(value: unknown): number[] {
-  if (!Array.isArray(value)) return []
-  return value
-    .slice(0, MAX_STEPS)
-    .map((one) => (typeof one === 'string' ? Number(one.trim()) : typeof one === 'number' ? one : NaN))
-    .map((one) => (Number.isFinite(one) ? Math.floor(one) : 0))
-}
-
-type Arranged = { ok: false; error: string; status?: number } | { ok: true; journey: Journey; said: string }
+const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
 /**
- * Read one journey, change how it is arranged into parts, and write it.
+ * The documents the epic's paper is made of, for a project and an epic —
+ * whether or not the journey has been begun — each with the part that covers
+ * it. `null` is "this epic has no paper here", an answer and not a refusal.
  *
- * The three doors that arrange — filing steps, making or renaming a part,
- * removing one — are this function with a different middle, from the page and
- * from MCP alike, so that a refusal is the same sentence whoever hears it.
- * The middle is one of the pure functions in `parts.ts` and decides
- * everything; this only finds the journey and keeps the answer.
- *
- * Not refused on a journey whose steps are kept elsewhere, as `set_step` is.
- * Its groups are here and a host reads them as that epic's parts whatever the
- * steps are projected from; the door that needs steps to file (`assign`)
- * finds none and says so in its own words.
+ * This and `stepsFromChapters` are the two places this app looks at a folder
+ * that is another module's; see `paper.ts` for what is read and why. Both go
+ * when a host can be asked which documents an epic has.
  */
-function arrange(
+function chapters(
   project: string | null,
   slug: string,
-  change: (journey: Journey) => { ok: false; error: string } | { ok: true; record: Journey; said: string },
-): Arranged {
+): { ok: false; error: string; status?: number } | { ok: true; chapters: { file: string; heading: string; part: string | null }[] | null } {
+  if (!isSlug(slug)) return { ok: false, error: 'that is not a journey name' }
+  const store = held(project)
+  const nothing = nothingToReadIn(store)
+  if (nothing) return { ok: false, error: nothing, status: 409 }
+  const journey = journeyIn(store, slug)
+  const found = chaptersIn(project, slug)
+  if (!found) return { ok: true, chapters: null }
+  const owner = new Map<string, string>()
+  for (const step of journey?.steps ?? []) {
+    const file = journey ? fileOf(journey, step) : null
+    const id = stepPart(step)
+    if (file && id) owner.set(file, id)
+  }
+  return { ok: true, chapters: found.parts.map((one) => ({ file: one.file, heading: one.heading, part: owner.get(one.file) ?? null })) }
+}
+
+/**
+ * A step for each document the epic's paper pulls in that no part covers
+ * yet, in the paper's order, in one write: titled with the document's own
+ * first heading, with nothing written in it, and covering that document.
+ *
+ * It is what a paper with seven chapters and a journey with no steps needs:
+ * seven parts, each with its step and its chapter, from one press. Worked out
+ * from the disk at the moment of the press; nothing is taken from the caller.
+ */
+function stepsFromChapters(
+  project: string | null,
+  slug: string,
+): { ok: false; error: string; status?: number } | { ok: true; journey: Journey; said: string } {
   if (!isSlug(slug)) return { ok: false, error: 'that is not a journey name' }
   const store = held(project)
   const nothing = nothingToReadIn(store)
   if (nothing) return { ok: false, error: nothing, status: 409 }
   const journey = journeyIn(store, slug)
   if (!journey) return { ok: false, error: `this project does not hold a journey called "${slug}"`, status: 404 }
-  const changed = change(journey)
-  if (!changed.ok) return changed
-  const written = writeJourney(project, changed.record)
+  const elsewhere = refusedBecauseElsewhere(journey)
+  if (elsewhere) return { ok: false, error: elsewhere }
+  const found = chaptersIn(project, slug)
+  if (!found) {
+    return { ok: false, error: `this epic has no paper in this project (no ${MAIN} in .kehikot/paper/${slug}/), so there is no chapter to make a step for.` }
+  }
+  const covered = new Set(journey.steps.map((step) => fileOf(journey, step)).filter(Boolean))
+  const free = found.parts.filter((one) => !covered.has(one.file))
+  if (!free.length) return { ok: false, error: 'Every chapter the paper pulls in already has its step. Nothing was made.' }
+  let record = journey
+  for (const one of free) {
+    const at = record.steps.length
+    record = withStep(record, at, stepSchema.parse({ title: one.heading, body: '', refs: [], notes: [] }))
+    const out = withPart(record, at, { file: one.file })
+    if (!out.ok) return out
+    record = out.record
+  }
+  const written = writeJourney(project, record)
   if (!written.ok) return { ok: false, error: written.error }
-  return { ok: true, journey: written.journey, said: changed.said }
-}
-
-const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
-
-/** File steps under a part, or — `part` null — take them out of every part. */
-function assignSteps(project: string | null, slug: string, at: number[], part: string | null): Arranged {
-  return arrange(project, slug, (journey) => {
-    const out = assign(journey, at, part)
-    if (!out.ok) return out
-    const left = unassigned(out.record).length
-    const rest = left ? `${count(left, 'step')} of ${journey.steps.length} still in no part.` : 'Every step is in a part.'
-    const same = out.already.length ? ` ${count(out.already.length, 'step')} already said so.` : ''
-    const said =
-      out.heading === null
-        ? `Took ${count(out.moved.length, 'step')} out of every part.${same} ${rest}`
-        : `Put ${count(out.moved.length, 'step')} in “${out.heading}” (${part}).${same} ${rest}`
-    return { ok: true, record: out.record, said }
-  })
-}
-
-/** Make a part, or reword one. */
-function setPart(
-  project: string | null,
-  slug: string,
-  given: { id: string | null; heading: string; refs?: string[]; files?: unknown },
-): Arranged & { id?: string } {
-  let id: string | undefined
-  const out = arrange(project, slug, (journey) => {
-    const made = withPart(journey, given)
-    if (!made.ok) return made
-    id = made.id
-    const about = made.created
-      ? `Made the part “${made.heading}”, with the id ${made.id}. No step is in it yet: file steps under that id.`
-      : made.was !== null && made.was !== made.heading
-        ? `“${made.was}” is now called “${made.heading}”. Its id is still ${made.id}, so every step in it stays in `
-          + 'it and a focus on it still holds.'
-        : `Kept “${made.heading}” (${made.id}).`
-    /* Said only when the call was about files: a rename that mentioned none
-       answers in the words it always did. */
-    const said = made.files === null ? about : `${about} ${filesSaid(made.record, made.id)}`
-    return { ok: true, record: made.record, said }
-  })
-  return out.ok ? { ...out, id } : out
-}
-
-/** Take a part out; its steps stay and become unassigned. */
-function removePart(project: string | null, slug: string, id: string): Arranged {
-  return arrange(project, slug, (journey) => {
-    const out = withoutPart(journey, id)
-    if (!out.ok) return out
-    return { ok: true, record: out.record, said: `Removed the part “${out.gone.heading}” (${id}). ${removalSaid(out.gone)}` }
-  })
+  return {
+    ok: true,
+    journey: written.journey,
+    said: `Made ${count(free.length, 'step')}, one for each chapter the paper pulls in: ${free.map((one) => `“${one.heading}”`).join(', ')}.${settledSaid(written)}`,
+  }
 }
 
 /**
- * What the epic's paper says about parts, for a project and an epic — whether
- * or not the journey has been begun.
+ * A journey's steps as parts, in lines an agent can read: position, the id
+ * of the step's part, what the part is called and the document it covers.
  *
- * Asked without a journey on purpose. The person this was written for had a
- * thesis, two epics and no journey record, and the first thing they need to
- * see is what beginning one and dividing it would MAKE; a list that could
- * only be read after the record existed would put the decision before the
- * information. With no record there are no parts to skip, so every chapter
- * file is proposed.
- *
- * `paper: false` is "this epic has no paper here" — no folder, or no
- * `main.tex` — and is an answer, not a refusal: most epics have none, and the
- * page then offers what it always did.
+ * Printed above the document by `get_journey`. The ids are what `step` takes
+ * on `set_step` and `remove_step`, and what a host stores for a picked part.
  */
-function chapters(project: string | null, slug: string): { ok: false; error: string; status?: number } | { ok: true; chapters: Chapters | null; begun: boolean } {
-  if (!isSlug(slug)) return { ok: false, error: 'that is not a journey name' }
-  const store = held(project)
-  const nothing = nothingToReadIn(store)
-  if (nothing) return { ok: false, error: nothing, status: 409 }
-  const journey = journeyIn(store, slug)
-  return { ok: true, chapters: chaptersIn(project, slug, journey ? partsIn(journey) : []), begun: journey !== null }
-}
-
-/**
- * Make a part for each of the chapter files named, in one write.
- *
- * `files` is what the person left ticked in the list they were shown: the
- * files `main.tex` pulls in, by name. The proposal is worked out AGAIN here,
- * from the disk, and a name that is not in it now refuses the whole call —
- * the paper changed between the list and the press, or the file became some
- * part's in another window, and what would be made is no longer what was
- * read. Nothing is taken from the caller but which rows: the heading and the
- * files each part gets are this side's reading, so a page cannot be made to
- * write a part the paper does not have.
- *
- * Each part is made by `withPart`, the function `set_part` makes one by, so
- * the ids, the limit and every refusal are that function's. All of them or
- * none: `arrange` writes once, after the last.
- */
-function makeChapterParts(project: string | null, slug: string, files: string[]): Arranged {
-  return arrange(project, slug, (journey) => {
-    const found = chaptersIn(project, slug, partsIn(journey))
-    if (!found) {
-      return {
-        ok: false,
-        error: `this epic has no paper in this project (no ${MAIN} in .kehikot/paper/${slug}/), so there are no chapter files to make parts of.`,
-      }
-    }
-    if (!files.length) return { ok: false, error: 'which chapter files? None was named, so nothing was made.' }
-    const stale = files.filter((file) => !found.parts.some((part) => part.file === file))
-    if (stale.length) {
-      return {
-        ok: false,
-        error:
-          `${stale.join(', ')} ${stale.length === 1 ? 'is' : 'are'} not among the chapter files ${MAIN} would make a part of now — `
-          + 'the paper changed, or a part took the file, since the list was shown. Nothing was made; list them again.',
-      }
-    }
-    let record = journey
-    const made: string[] = []
-    for (const part of found.parts) {
-      if (!files.includes(part.file)) continue
-      const out = withPart(record, { heading: part.heading, files: part.files })
-      if (!out.ok) return out
-      record = out.record
-      made.push(`“${out.heading}” (${part.files.join(', ')})`)
-    }
-    return {
-      ok: true,
-      record,
-      said:
-        `Made ${count(made.length, 'part')} from the paper’s chapter files, each owning its file: ${made.join('; ')}. `
-        + 'No step is filed under them yet. Tick them in the host’s bar to see one chapter at a time.',
-    }
+function stepsSaid(journey: Journey, unsettled: boolean): string {
+  if (!journey.steps.length) return ''
+  const lines = journey.steps.map((step, i) => {
+    const file = fileOf(journey, step)
+    return `  ${i + 1}\t${stepPart(step) ?? '?'}\t“${nameOf(journey, step)}”${file ? `\t${file}` : ''}`
   })
-}
-
-/**
- * A proposal as an agent reads it: what would be made, with the call that
- * makes each, and what is left out and why.
- */
-function chaptersSaid(slug: string, found: Chapters, begun: boolean): string {
-  const nothing = nothingSaid(found)
-  const left = leftOutSaid(found)
-  const lines = found.parts.map(
-    (part, i) =>
-      `  ${i + 1}. “${part.heading}”${part.titled ? '' : ' (named after the file: it has no \\chapter or \\section)'}\t${part.files.join(', ')}\n`
-      + `     set_part { slug: "${slug}", heading: ${JSON.stringify(part.heading)}, files: ${JSON.stringify(part.files)} }`,
-  )
   return (
-    (nothing
-      ? `${nothing}\n`
-      : `PROPOSAL — nothing has been made. ${MAIN} of this epic’s paper pulls in ${count(found.parts.length, 'chapter file')} `
-        + 'that no part owns. One part each, in the paper’s order, called what the file’s first \\chapter or \\section '
-        + 'calls it and owning that file and the files it pulls in itself:\n'
-        + `${lines.join('\n')}\n`
-        + (begun
-          ? 'Make the ones you want with `set_part`, as written above; leave out any that is not a part of the work.\n'
-          : `This project holds no journey for ${slug} yet, and \`set_part\` needs one: call \`create_journey\` first, then `
-            + '`set_part` as written above.\n'))
-    + (left.length ? `LEFT OUT: ${left.join(' ')}\n` : '')
-  )
-}
-
-/**
- * A journey's parts and which step is in which, in lines an agent can read.
- *
- * Printed above the document by `get_journey`. The document alone does not
- * say it: a group's id is DERIVED unless somebody wrote one, so an agent
- * reading `"groups": [{ "heading": "The agent seam" }]` has to know the
- * protocol's slug rule to know what to pass as `part` — and has no way at all
- * to know about the `-2` on the second group with that heading. So the ids are
- * said, by the function the store itself asks, beside what is in each.
- */
-function partsSaid(journey: Journey): string {
-  const parts = partsIn(journey)
-  if (!parts.length) return ''
-  const lines = parts.map((part) => {
-    const at = journey.steps.flatMap((step, i) => (step.part === part.id ? [i + 1] : []))
-    /* The files come last and only when there are some, so the four columns
-       an agent already reads are the four they were. */
-    const files = part.files?.length ? `\tfiles ${part.files.join(', ')}` : ''
-    return `  ${part.id}\t“${part.heading}”\t${count(part.refs.length, 'ref')}\t${at.length ? `steps ${at.join(', ')}` : 'no steps'}${files}`
-  })
-  const owning = parts.some((part) => part.files?.length)
-  const loose = unassigned(journey).map((i) => i + 1)
-  return (
-    'PARTS: this journey is divided into the parts below. A step is in a part because its `part` names that '
-    + 'part’s id, and a step in none is hidden from anybody whose canvas is focused on a part. File steps with '
-    + '`assign_steps` (or `part` on `set_step`); make, reword and remove parts with `set_part` and `remove_part`. '
-    + (owning
-      ? `A part’s files are the files of this epic’s paper it owns, each named from the paper’s folder `
-        + `(.kehikot/paper/${journey.slug}/); set them with \`files\` on \`set_part\`.\n`
-      : `No part names a file of the paper yet; \`files\` on \`set_part\` gives it some (e.g. ${FILE_EXAMPLE}), and `
-        + '`propose_chapter_parts` lists the paper’s chapter files.\n')
+    'STEPS: each step is one part of the epic, and a part is one step. Position, the id of the step’s part (what '
+    + '`step` takes, and what a host keeps for a picked part), what the part is called, and the document it covers '
+    + 'if it covers one:\n'
     + `${lines.join('\n')}\n`
-    + (loose.length
-      ? `  IN NO PART: ${count(loose.length, 'step')} of ${journey.steps.length} — ${loose.join(', ')}\n`
-      : journey.steps.length
-        ? '  Every step is in a part.\n'
-        : '')
+    + (unsettled
+      ? 'NOT YET STORED LIKE THIS: on disk this journey is still in an older shape, where a part could hold several '
+        + 'steps or none. What is below is how it reads now; nothing has been written, and the first write to this '
+        + 'journey stores it so and says what was decided.\n'
+      : '')
     + '\n'
   )
 }
@@ -675,11 +623,18 @@ interface ToolCall {
  * Kehikot's: list, get, `create_journey`, `set_step` and `set_dependency`, plus `remove_step`,
  * which is here because `set_step`'s refusal on a projected journey creates the
  * need for it — a stored step nothing reads and nothing can remove would sit in
- * the file forever. And three for the parts a journey is divided into:
- * `assign_steps`, `set_part` and `remove_part`. A host reads a journey's groups
- * as the epic's parts and lets a person focus the canvas on some of them, and
- * until these existed the only way to say which step is in which part — or to
- * make a part at all — was to edit the JSON by hand.
+ * the file forever.
+ *
+ * There is no tool for parts, and there used to be four. A step is one part
+ * of the epic and a part is one step, so making a part is `set_step`, naming
+ * it and giving it its document are two arguments of `set_step`, and removing
+ * it is `remove_step`. `assign_steps`, `set_part`, `remove_part` and
+ * `propose_chapter_parts` are gone rather than kept answering "call something
+ * else": nothing calls them but an agent reading the list, and the list no
+ * longer has them.
+ *
+ * Every tool says whether it only reads and whether it can destroy
+ * (`annotations`), which is what a client shows before it asks a person.
  *
  * The names are this app's own and are deliberately not renamed to follow
  * protocol 2's `epics.list` / `epic.get`. Those two are WIRE method names, in
@@ -700,7 +655,17 @@ interface ToolCall {
  *    turns a standing report into a stalled one. This app would be a second
  *    place to say it and a worse one.
  */
-const TOOLS: Record<string, { description: string; schema: object; run: ToolCall }> = {
+interface Annotations {
+  title: string
+  readOnlyHint: boolean
+  /** Whether it can overwrite or remove what was there. Meaningless on a read. */
+  destructiveHint?: boolean
+  idempotentHint?: boolean
+  /** Whether it reaches beyond this machine. Nothing here does. */
+  openWorldHint: false
+}
+
+const TOOLS: Record<string, { description: string; schema: object; annotations: Annotations; run: ToolCall }> = {
   list_journeys: {
     description:
       'Every journey this project holds, with how many steps each has and how many references it names. Start ' +
@@ -712,6 +677,7 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
       properties: { project: { type: 'string', description: 'Absolute path of the project folder' } },
       required: ['project'],
     },
+    annotations: { title: 'List journeys', readOnlyHint: true, openWorldHint: false },
     run(args) {
       const named = projectArg(args.project)
       if ('error' in named) return named.error
@@ -740,10 +706,10 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
     description:
       'The full stored document for one journey as JSON: narrative, steps, dependency graph, owners. Read this ' +
       'before editing so you change one field rather than overwrite the rest. `stepsFrom`, when it is there, ' +
-      'says where the steps actually come from. When the journey is divided into parts, the lines above the ' +
-      'JSON list every part with its id, how many references it holds and which steps are in it, and which ' +
-      'steps are in no part — those ids are what `part` takes on `set_step` and `assign_steps`, and each ' +
-      'step’s own `part` is in the JSON.',
+      'says where the steps actually come from. Each step is one part of the epic: the lines above the JSON ' +
+      'list every step with its position, the id of its part (what `step` takes on `set_step` and ' +
+      '`remove_step`), what the part is called and the document it covers. In the JSON a step’s `part` is that ' +
+      'id, and `groups` is the same list as a host reads it.',
     schema: {
       type: 'object',
       properties: {
@@ -752,6 +718,7 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
       },
       required: ['project', 'slug'],
     },
+    annotations: { title: 'Read a journey', readOnlyHint: true, openWorldHint: false },
     run(args) {
       const named = projectArg(args.project)
       if ('error' in named) return named.error
@@ -774,14 +741,14 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
             `projected from there by ${plan.from.projector}. The empty "steps" array below means "not here", ` +
             'not "none".\n\n'
           : ''
-      return preamble + partsSaid(journey) + JSON.stringify(journey, null, 2)
+      return preamble + stepsSaid(journey, Object.hasOwn(store.unsettled, slug)) + JSON.stringify(journey, null, 2)
     },
   },
 
   create_journey: {
     description:
       'Begin the journey for an epic that has none yet: the first record, from which this app owns that epic’s ' +
-      'steps, its groups (the epic’s parts) and the prose around them. It is NOT made empty. The record starts as ' +
+      'steps and the prose around them. It is NOT made empty. The record starts as ' +
       'everything the host holds for that epic — this reads the host’s own file, ' +
       '.kehikot/kehikko/epics/<slug>.json in the project, once and without changing it — because from the moment ' +
       'a record exists a host answers from the record and not from its file, and an empty one would hide every ' +
@@ -800,6 +767,7 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
       },
       required: ['project', 'slug'],
     },
+    annotations: { title: 'Begin a journey', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     run(args) {
       const named = projectArg(args.project)
       if ('error' in named) return named.error
@@ -812,219 +780,93 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
   set_step: {
     description:
       'One numbered stop on the journey: what has to become true for a user, and which issues and changes ' +
-      'deliver it. Omit position to append; pass it to overwrite the step at that 1-based position. Read the ' +
-      'step first: this writes the whole step, so anything you leave out is gone and anything stale you keep is ' +
-      'a claim you are making afresh. Refused on a journey whose steps are kept elsewhere, with a sentence ' +
-      'saying where to write instead. `part` is the one field that is NOT cleared by leaving it out: omit it ' +
-      'and the step stays in whatever part it was in; pass a part’s id to file the step under it; pass "" to ' +
-      'take it out of every part. The valid ids are listed above the document `get_journey` returns, and an ' +
-      'unknown one is refused with the list. To file many steps without rewriting them, use `assign_steps`.',
+      'deliver it. A step is one PART of the epic — the thing a person picks in the host’s bar to narrow every ' +
+      'module — so adding a step adds a part and there is nothing else to make or file. Omit `position` and ' +
+      '`step` to append; pass `position` (1-based) or `step` (the id of the step’s part, which does not move ' +
+      'when other steps are removed) to overwrite that step. Read the step first: this writes the whole step, ' +
+      'so of title, body, refs and notes anything you leave out is gone and anything stale you keep is a claim ' +
+      'you are making afresh. Refused on a journey whose steps are kept elsewhere, with a sentence saying where ' +
+      'to write instead. `name` and `file` are about the step’s part and are NOT cleared by leaving them out: ' +
+      '`name` is what the part is called where it is picked (short — "Methods"; without one it is the step’s ' +
+      'title), and `file` is the one document the part covers, named from the folder the epic’s documents are in ' +
+      `with forward slashes and its extension ("${FILE_EXAMPLE}"). Pass "" to clear either. A document belongs ` +
+      'to one part: one another step has is refused, naming the step. The answer says the step’s position and id.',
     schema: {
       type: 'object',
       properties: {
         project: { type: 'string', description: 'Absolute path of the project folder' },
-        slug: { type: 'string' },
+        slug: { type: 'string', description: 'The journey’s slug, which is the epic’s' },
         title: { type: 'string', description: "What becomes true, phrased from the user's side" },
         body: { type: 'string', description: 'Why it matters and where it stands. 150 words at most.' },
         refs: { type: 'array', items: { type: 'string' }, description: 'e.g. ["#2274", "!1801", "gh#41"]' },
         notes: { type: 'array', items: { type: 'string' }, description: 'Chips for work with no ticket' },
-        part: {
-          type: 'string',
-          description:
-            'The id of the part this step is in, from `get_journey`. Omit to leave it as it is; "" for no part.',
-        },
-        position: { type: 'number' },
+        position: { type: 'number', description: '1-based position of the step to overwrite. Omit, with `step`, to append.' },
+        step: { type: 'string', description: 'The id of the step to overwrite, from `get_journey`. Instead of `position`.' },
+        name: { type: 'string', description: 'What the step’s part is called where parts are picked. Omit to leave it; "" for the title.' },
+        file: { type: 'string', description: `The one document the step’s part covers, e.g. "${FILE_EXAMPLE}". Omit to leave it; "" for none.` },
       },
       required: ['project', 'slug', 'title'],
     },
+    annotations: { title: 'Write a step', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     run(args) {
       const named = projectArg(args.project)
       if ('error' in named) return named.error
       const out = setStep(
         named.project,
         str(args.slug, MAX_SLUG),
-        position(args.position),
+        { position: position(args.position), id: str(args.step, MAX_PART) || undefined },
         {
           title: str(args.title, MAX_TITLE),
           body: str(args.body, MAX_BODY),
           refs: list(args.refs, MAX_REF),
           notes: list(args.notes, MAX_NOTE),
         },
-        partArg(args),
+        given(args),
       )
       if (!out.ok) return out.error
       /* The path is asked for rather than spelled here. The folder's name lives
          in one constant in the protocol package, and a sentence that wrote it
          out by hand would be the one place that keeps saying `.kehikot` on the
          day it is called something else. */
-      return `Set step ${out.where} of ${out.journey.slug}, in ${dataFile(named.project).path} and nowhere else.`
+      const step = out.journey.steps[out.where - 1]
+      const file = step ? fileOf(out.journey, step) : null
+      return (
+        `Set step ${out.where} of ${out.journey.slug} (id ${out.id}, called “${step ? nameOf(out.journey, step) : ''}”`
+        + `${file ? `, covering ${file}` : ''}), in ${dataFile(named.project).path} and nowhere else.`
+        /* An argument this door took until a part stopped being something a
+           step is filed under. Said, because ignoring it in silence would
+           leave an agent believing it had moved a step. */
+        + (Object.hasOwn(args, 'part') ? ' `part` is no longer taken: a step is its own part, and its id is the one above.' : '')
+        + out.said
+      )
     },
   },
 
   remove_step: {
     description:
-      'Drop the step at a 1-based position; the steps after it renumber. Allowed on a journey whose steps are ' +
-      'projected elsewhere, because there the stored steps are leftovers nothing reads — removing them is the ' +
-      "cleanup set_step's refusal creates the need for.",
+      'Drop one step, by its 1-based `position` or by `step` (the id of its part); the steps after it renumber. ' +
+      'Its part goes with it — a part is its step — so the name and the document it covered are gone too, and ' +
+      'whatever another module keeps against that id names nothing afterwards. Allowed on a journey whose steps ' +
+      'are projected elsewhere, because there the stored steps are leftovers nothing reads — removing them is ' +
+      "the cleanup set_step's refusal creates the need for.",
     schema: {
       type: 'object',
       properties: {
         project: { type: 'string', description: 'Absolute path of the project folder' },
-        slug: { type: 'string' },
-        position: { type: 'number' },
-      },
-      required: ['project', 'slug', 'position'],
-    },
-    run(args) {
-      const named = projectArg(args.project)
-      if ('error' in named) return named.error
-      const slug = str(args.slug, MAX_SLUG)
-      if (!isSlug(slug)) return 'that is not a journey name'
-      const store = held(named.project)
-      const nothing = nothingToReadIn(store)
-      if (nothing) return nothing
-      const journey = journeyIn(store, slug)
-      if (!journey) return `no journey "${slug}" in ${named.project}`
-      const at = position(args.position)
-      if (!at || at > journey.steps.length) return `${slug} has ${journey.steps.length} stored steps`
-      const [gone] = journey.steps.splice(at - 1, 1)
-      const written = writeJourney(named.project, journey)
-      if (!written.ok) return written.error
-      return `Removed step ${at} ("${gone?.title ?? ''}") from ${slug}.`
-    },
-  },
-
-  assign_steps: {
-    description:
-      'File steps under one of the journey’s parts, several at once, changing nothing else about them. A person ' +
-      'can focus a canvas on some of an epic’s parts, and a step that names no part is then hidden from every ' +
-      'module — so a journey that has parts and unfiled steps shows nothing under a focus until this is done. ' +
-      '`part` is a part’s id, listed above the document `get_journey` returns; an unknown one is refused with ' +
-      'the list. Pass "" to take the steps out of every part. `positions` are 1-based, and one that is not a ' +
-      'step refuses the whole call. A step is filed where it BELONGS, not where its references point: a step ' +
-      'often names a reference it only depends on.',
-    schema: {
-      type: 'object',
-      properties: {
-        project: { type: 'string', description: 'Absolute path of the project folder' },
-        slug: { type: 'string' },
-        part: { type: 'string', description: 'A part’s id from `get_journey`, or "" for no part' },
-        positions: { type: 'array', items: { type: 'number' }, description: '1-based positions of the steps, e.g. [3, 4, 9]' },
-      },
-      required: ['project', 'slug', 'part', 'positions'],
-    },
-    run(args) {
-      const named = projectArg(args.project)
-      if ('error' in named) return named.error
-      const out = assignSteps(named.project, str(args.slug, MAX_SLUG), positions(args.positions), partArg(args) ?? null)
-      return out.ok ? out.said : out.error
-    },
-  },
-
-  set_part: {
-    description:
-      'Make a part of the journey, or reword one. A part is a heading (stored as one of the journey’s `groups`) ' +
-      'that steps are filed under; a host shows the parts beside the epic so a person can narrow every module ' +
-      'to some of them. Omit `id` to make a new part with this heading — the answer says the id it was given. ' +
-      'Pass `id` to reword an existing part: its id does not change, so the steps in it stay in it. `refs`, ' +
-      'when given, replaces the references listed under the heading; omitted, they are left alone. `files`, ' +
-      'when given, replaces the files of the epic’s paper this part owns — the module that shows the paper then ' +
-      'shows only those files and their pages while the part is picked. Each is a path relative to the paper’s ' +
-      `folder (<project>/.kehikot/paper/<slug>/), with forward slashes and its extension: "${FILE_EXAMPLE}", not ` +
-      '"chapters/design" and not an absolute path. Omitted, the files are left alone; an empty list takes them ' +
-      'all away. A name that is not in that form refuses the whole call and nothing is written. Whether the file ' +
-      'exists is not checked here, so a part may be given a file before it is written; `propose_chapter_parts` ' +
-      'lists the files the paper actually has. With `id`, `heading` may be left out to keep the heading as it is. ' +
-      'Refused if another part already has that heading.',
-    schema: {
-      type: 'object',
-      properties: {
-        project: { type: 'string', description: 'Absolute path of the project folder' },
-        slug: { type: 'string' },
-        heading: { type: 'string', description: 'What the part is called, e.g. "The agent seam"' },
-        id: { type: 'string', description: 'The id of the part to reword, from `get_journey`. Omit to make a new part.' },
-        refs: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'References listed under the heading. Omit to leave them as they are.',
-        },
-        files: {
-          type: 'array',
-          items: { type: 'string' },
-          description:
-            `Files of the paper this part owns, relative to the paper’s folder, e.g. ["${FILE_EXAMPLE}"]. Omit to ` +
-            'leave them as they are; [] removes them.',
-        },
+        slug: { type: 'string', description: 'The journey’s slug, which is the epic’s' },
+        position: { type: 'number', description: '1-based position of the step' },
+        step: { type: 'string', description: 'The id of the step, from `get_journey`. Instead of `position`.' },
       },
       required: ['project', 'slug'],
     },
+    annotations: { title: 'Remove a step', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     run(args) {
       const named = projectArg(args.project)
       if ('error' in named) return named.error
-      const out = setPart(named.project, str(args.slug, MAX_SLUG), {
-        id: str(args.id, MAX_PART) || null,
-        heading: str(args.heading, MAX_TITLE),
-        ...(Array.isArray(args.refs) ? { refs: list(args.refs, MAX_REF) } : {}),
-        /* Handed on as it arrived, and not through `list`: that helper drops
-           what it cannot read, and a file that is not one has to be REFUSED
-           by name (`filesGiven`). Null is "not given", as JSON says it. */
-        ...(args.files === undefined || args.files === null ? {} : { files: args.files }),
+      const out = removeStep(named.project, str(args.slug, MAX_SLUG), {
+        position: position(args.position),
+        id: str(args.step, MAX_PART) || undefined,
       })
-      return out.ok ? out.said : out.error
-    },
-  },
-
-  propose_chapter_parts: {
-    description:
-      'List the parts this epic’s PAPER is already divided into, without making any. It reads main.tex in the ' +
-      'paper’s folder (<project>/.kehikot/paper/<slug>/) and answers one proposed part for each file main.tex ' +
-      'pulls in with \\input, \\include or \\subfile after \\begin{document}, in document order: its heading (the ' +
-      'file’s first \\chapter or \\section title, or the file’s name when it has neither) and the files it would ' +
-      'own (that file and every file it pulls in itself). Files a part already owns are skipped and said, as are ' +
-      'files pulled in by the preamble and files that are not on disk; main.tex is never a part. READ-ONLY: ' +
-      'nothing is written. Each proposal is printed with the `set_part` call that makes it, so make the ones ' +
-      'you want with `set_part`. Works before the journey exists, and then says to call `create_journey` first. ' +
-      'Answers "no paper" for an epic with no main.tex there.',
-    schema: {
-      type: 'object',
-      properties: {
-        project: { type: 'string', description: 'Absolute path of the project folder' },
-        slug: { type: 'string', description: 'The epic’s slug, e.g. thesis' },
-      },
-      required: ['project', 'slug'],
-    },
-    run(args) {
-      const named = projectArg(args.project)
-      if ('error' in named) return named.error
-      const slug = str(args.slug, MAX_SLUG)
-      const out = chapters(named.project, slug)
-      if (!out.ok) return out.error
-      if (!out.chapters) {
-        return `No paper for ${slug} in ${named.project}: there is no ${MAIN} in .kehikot/paper/${slug}/, so there are no chapter files to propose parts from.`
-      }
-      return chaptersSaid(slug, out.chapters, out.begun)
-    },
-  },
-
-  remove_part: {
-    description:
-      'Take a part out of the journey. No step is deleted: the steps that were in it stay where they are and ' +
-      'become unassigned (in no part), which hides them from anybody focused on a part until they are filed ' +
-      'again. The references listed under the part’s heading go with it; the answer says how many steps and ' +
-      'references that was, and how many of the references no step names. The other parts keep their ids.',
-    schema: {
-      type: 'object',
-      properties: {
-        project: { type: 'string', description: 'Absolute path of the project folder' },
-        slug: { type: 'string' },
-        id: { type: 'string', description: 'The id of the part to remove, from `get_journey`' },
-      },
-      required: ['project', 'slug', 'id'],
-    },
-    run(args) {
-      const named = projectArg(args.project)
-      if ('error' in named) return named.error
-      const out = removePart(named.project, str(args.slug, MAX_SLUG), str(args.id, MAX_PART))
       return out.ok ? out.said : out.error
     },
   },
@@ -1044,6 +886,7 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
       },
       required: ['project', 'slug', 'ref', 'blockedBy'],
     },
+    annotations: { title: 'Set what blocks a reference', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run(args) {
       const named = projectArg(args.project)
       if ('error' in named) return named.error
@@ -1061,7 +904,7 @@ const TOOLS: Record<string, { description: string; schema: object; run: ToolCall
       else delete journey.blockedBy[ref]
       const written = writeJourney(named.project, journey)
       if (!written.ok) return written.error
-      return gates.length ? `${ref} now waits on ${gates.join(', ')}.` : `${ref} has no blockers.`
+      return (gates.length ? `${ref} now waits on ${gates.join(', ')}.` : `${ref} has no blockers.`) + settledSaid(written)
     },
   },
 }
@@ -1081,9 +924,11 @@ function begun(out: Extract<ReturnType<typeof createJourney>, { ok: true }>, whe
       : plan.kind === 'elsewhere'
         ? `steps kept in ${plan.from.where}`
         : 'no steps'
-  const parts = out.journey.groups.length
-  const held = `${steps}${parts ? ` and ${parts} ${parts === 1 ? 'group' : 'groups'}` : ''}`
-  const kept = `It is in ${where ?? 'this project'}, and its steps are edited here from now on.`
+  const held = steps
+  const decided = findingsSaid(out.findings)
+  const kept =
+    `It is in ${where ?? 'this project'}, and its steps are edited here from now on.`
+    + (decided ? ` What the host held was in an older shape of parts, and is one step to a part here: ${decided}` : '')
   if (out.from === 'host-file') {
     return (
       `Began ${out.journey.slug} from the host’s own file, ${out.file}: ${held}, and everything else that file `
@@ -1126,11 +971,9 @@ function mcp(rpc: Rpc): Reply {
         'than guessing which project you meant. This server reads no tracker and holds no credential, so nothing ' +
         "here can tell you whether an issue is open — that is read by a host and handed to this app's page. " +
         'A journey may say its steps are kept somewhere this app cannot read; an empty steps array on one of ' +
-        'those means "not here", never "none". A journey may be divided into parts (its groups), and a step is ' +
-        'in a part only because its `part` names that part’s id: `get_journey` lists the ids and which steps ' +
-        'are in none, `assign_steps` files steps, and `set_part` / `remove_part` make, reword and remove parts. ' +
-        'Where the epic has a paper, `propose_chapter_parts` lists — and does not make — one part for each chapter ' +
-        'file its main.tex pulls in.',
+        'those means "not here", never "none". Each step is one part of the epic — what a person picks in a ' +
+        'host’s bar to narrow every module — and a part is one step: `set_step` makes one and says what its part ' +
+        'is called and which document it covers, `remove_step` removes both, and `get_journey` lists the ids.',
     })
   }
   /* A notification carries no id and is answered with nothing. */
@@ -1144,6 +987,7 @@ function mcp(rpc: Rpc): Reply {
         name,
         description: TOOLS[name]!.description,
         inputSchema: TOOLS[name]!.schema,
+        annotations: TOOLS[name]!.annotations,
       })),
     })
   }
@@ -1257,28 +1101,20 @@ export function answer(
     if (nothing) return bad(nothing, 409)
     const journey = journeyIn(store, slug)
     if (!journey) return bad(`this project does not hold a journey called "${slug}"`, 404)
-    return ok({ ok: true, journey: view(journey) })
+    return ok({ ok: true, journey: view(journey, Object.hasOwn(store.unsettled, slug)) })
   }
 
   /**
-   * What the epic's paper says about parts. A read, like the two above it,
-   * and answered whether or not the journey exists — see `chapters`.
+   * The documents the epic's paper is made of, each with the part that covers
+   * it. A read, like the two above it, and answered whether or not the
+   * journey exists — see `chapters`.
    */
   if (path === '/api/chapters' && method === 'GET') {
     const slug = str(query.get('slug'), MAX_SLUG)
     const out = chapters(str(query.get('project'), MAX_PROJECT), slug)
     if (!out.ok) return bad(out.error, out.status)
     if (!out.chapters) return ok({ ok: true, slug, paper: false })
-    return ok({
-      ok: true,
-      slug,
-      paper: true,
-      ...out.chapters,
-      /* The two sentences the page prints, worked out where the MCP door's
-         are, so a person and an agent are told the same thing. */
-      nothing: nothingSaid(out.chapters),
-      leftOut: leftOutSaid(out.chapters),
-    })
+    return ok({ ok: true, slug, paper: true, chapters: out.chapters })
   }
 
   if (method === 'POST' && path.startsWith('/api/')) {
@@ -1316,50 +1152,36 @@ export function answer(
       const out = setStep(
         project,
         slug,
-        position(body.position),
+        { position: position(body.position), id: str(body.step, MAX_PART) || undefined },
         {
           title: str(body.title, MAX_TITLE),
           body: str(body.body, MAX_BODY),
           refs: list(body.refs, MAX_REF),
           notes: list(body.notes, MAX_NOTE),
         },
-        partArg(body),
+        given(body),
       )
       if (!out.ok) return bad(out.error)
-      return ok({ ok: true, journey: view(out.journey) })
+      return ok({ ok: true, journey: view(out.journey), said: out.said.trim() })
     }
 
-    /* The three doors that arrange a journey into parts. Each is one of the
-       functions MCP calls, so the page and an agent are refused in the same
-       words; each answers with the journey and the sentence to print. */
-    if (path === '/api/assign') {
-      const out = assignSteps(project, slug, positions(body.positions), partArg(body) ?? null)
+    if (path === '/api/step/remove') {
+      const out = removeStep(project, slug, { position: position(body.position), id: str(body.step, MAX_PART) || undefined })
       if (!out.ok) return bad(out.error, out.status)
       return ok({ ok: true, journey: view(out.journey), said: out.said })
     }
 
-    if (path === '/api/part') {
-      const out = setPart(project, slug, {
-        id: str(body.id, MAX_PART) || null,
-        heading: str(body.heading, MAX_TITLE),
-        ...(Array.isArray(body.refs) ? { refs: list(body.refs, MAX_REF) } : {}),
-        /* Handed on as it arrived, and not through `list`: that helper drops
-           what it cannot read, and a file that is not one has to be REFUSED
-           by name (`filesGiven`). Null is "not given", as JSON says it. */
-        ...(body.files === undefined || body.files === null ? {} : { files: body.files }),
-      })
-      if (!out.ok) return bad(out.error, out.status)
-      return ok({ ok: true, journey: view(out.journey), said: out.said, id: out.id })
-    }
-
-    if (path === '/api/parts/chapters') {
-      const out = makeChapterParts(project, slug, list(body.files, MAX_FILE))
+    /* A step for each chapter of the epic's paper that has none. */
+    if (path === '/api/steps/chapters') {
+      const out = stepsFromChapters(project, slug)
       if (!out.ok) return bad(out.error, out.status)
       return ok({ ok: true, journey: view(out.journey), said: out.said })
     }
 
-    if (path === '/api/part/remove') {
-      const out = removePart(project, slug, str(body.id, MAX_PART))
+    /* Store a journey that is still in the older shape of parts on disk as
+       it is read. The one write here that changes nothing a person wrote. */
+    if (path === '/api/settle') {
+      const out = settle(project, slug)
       if (!out.ok) return bad(out.error, out.status)
       return ok({ ok: true, journey: view(out.journey), said: out.said })
     }
@@ -1410,7 +1232,7 @@ export function answer(
       else delete journey.blockedBy[ref]
       const written = writeJourney(project, journey)
       if (!written.ok) return bad(written.error)
-      return ok({ ok: true, journey: view(written.journey) })
+      return ok({ ok: true, journey: view(written.journey), said: settledSaid(written).trim() })
     }
   }
 

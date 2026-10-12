@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterAll, describe, expect, test } from 'bun:test'
-import { KEHIKOT_DIR, journeyIn as recordIn, moduleFolder, stepPart, stepsOf } from 'kehikot-module-protocol'
+import { KEHIKOT_DIR, journeyIn as recordIn, moduleFolder, partsOf, stepPart, stepsOf } from 'kehikot-module-protocol'
 import { readJourneys } from 'kehikot-module-protocol/serve'
 
 import { TICKET, answer, writeTicketFor } from '../doors.ts'
@@ -76,15 +76,18 @@ describe('from the MCP door, which has a project path and no host to ask', () =>
   test('the record begins as everything the host’s own file holds', () => {
     const root = project({ 'the-posting-seam': hosted })
     const said = rpc('create_journey', { project: root, slug: 'the-posting-seam' })
-    expect(said).toContain('3 steps and 2 groups')
+    expect(said).toContain('3 steps, and everything else')
+    expect(said).toContain('one step to a part here')
     expect(said).toContain(hostFile(root, 'the-posting-seam'))
 
     const record = (JSON.parse(readFileSync(journeysFile(root), 'utf8')) as { journeys: Record<string, typeof hosted> })
       .journeys['the-posting-seam']!
     /* Every field the host had, with the value it had — the steps and their
        parts, the groups and their ids, and the one nobody here knows. */
-    expect(record).toMatchObject(hosted)
-    expect(record.steps.map(stepPart)).toEqual(['the-agent-seam', null, 'what-the-page-shows'])
+    const { steps: _steps, groups: _groups, ...rest } = hosted
+    expect(record).toMatchObject(rest)
+    /* The parts the host had keep their ids; the step that was in none is one of its own. */
+    expect(record.steps.map(stepPart)).toEqual(['the-agent-seam', 'retire-the-second-path', 'what-the-page-shows'])
     expect(record.groups[0]?.id).toBe('the-agent-seam')
     expect(record.hostOnly).toEqual({ since: '2026-09-01' })
   })
@@ -95,8 +98,13 @@ describe('from the MCP door, which has a project path and no host to ask', () =>
     const record = recordIn(readJourneys(root), 'the-posting-seam')!
     const said = stepsOf(record)
     expect(said.kind).toBe('stored')
-    expect(said.kind === 'stored' && said.steps).toEqual(hosted.steps as never)
-    expect(record.groups).toEqual(hosted.groups)
+    /* The same steps, in the same words — each one a part now, with the
+       references that were listed under its heading on the step itself. */
+    const steps = said.kind === 'stored' ? said.steps : []
+    expect(steps.map((step) => [step.title, step.body])).toEqual(hosted.steps.map((step) => [step.title, step.body]) as never)
+    const named = new Set(steps.flatMap((step) => step.refs))
+    for (const ref of [...hosted.steps.flatMap((step) => step.refs), ...hosted.groups.flatMap((group) => group.refs)]) expect(named.has(ref)).toBe(true)
+    expect(partsOf(record).map((part) => [part.id, part.steps])).toEqual(record.steps.map((step) => [step.part, 1]) as never)
   })
 
   test('the host’s file is read and not changed', () => {
@@ -196,9 +204,11 @@ describe('from the page, which hands over what the host answered', () => {
     const body = reply?.body as { ok: boolean; from: string; said: string; journey: { steps: unknown[]; plan: string } }
     expect(reply?.status).toBe(200)
     expect(body.from).toBe('host-answer')
-    expect(body.said).toContain('3 steps and 2 groups')
+    expect(body.said).toContain('3 steps.')
     expect(body.journey.plan).toBe('stored')
-    expect(journeyIn(held(root), 'the-posting-seam')).toMatchObject(hosted)
+    const { steps: _steps, groups: _groups, ...rest } = hosted
+    expect(journeyIn(held(root), 'the-posting-seam')).toMatchObject(rest)
+    expect(held(root).unsettled).toEqual({})
   })
 
   test('with no answer to hand over, the host’s file is read, as it is for an agent', () => {

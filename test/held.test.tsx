@@ -27,7 +27,6 @@ beforeAll(async () => {
 afterEach(() => {
   /* The store outlives this file: leave no box open in it for the next one to find. */
   wire.setAdding(false)
-  wire.setArranging(false)
   if (wire.getSnapshot().editing >= 0) wire.setEditing(-1)
   cleanup()
   mailbox.forget?.()
@@ -99,7 +98,8 @@ describe('typed words are held across the page going away, aimed at what they we
     wire.setEditing(0)
     await settle()
     fireEvent.change(title(), { target: { value: 'thrown away' } })
-    expect(Object.keys(held(project))).toEqual(['probe|step:0'])
+    /* By the id of its part, which the save above gave it. */
+    expect(Object.keys(held(project))).toEqual(['probe|step@one'])
     wire.setEditing(0)
     expect(held(project)).toEqual({})
   })
@@ -155,57 +155,54 @@ describe('typed words are held across the page going away, aimed at what they we
     expect(held(project)).toEqual({})
   })
 
-  test('a step not written yet, and a new part’s heading, come back in their own open boxes', async () => {
+  test('a step not written yet comes back in its own open box, with the name of its part', async () => {
     const project = fresh()
     await on(project)
     render(<App />)
     wire.setAdding(true)
-    wire.setArranging(true)
     await settle()
     fireEvent.change(title(), { target: { value: 'A third thing' } })
-    fireEvent.change(screen.getByLabelText('Heading of a new part'), { target: { value: 'Reading the track' } })
-    expect(Object.keys(held(project)).sort()).toEqual(['probe|add', 'probe|part:new'])
+    fireEvent.change(screen.getByLabelText('What this part is called where parts are picked'), { target: { value: 'Third' } })
+    expect(Object.keys(held(project))).toEqual(['probe|add'])
 
     await awayAndBack(project)
     expect(wire.getSnapshot().adding).toBe(true)
-    expect(wire.getSnapshot().arranging).toBe(true)
     expect(title().value).toBe('A third thing')
     expect(title().closest('[data-adding]')).not.toBeNull()
-    expect((screen.getByLabelText('Heading of a new part') as HTMLInputElement).value).toBe('Reading the track')
+    expect((screen.getByLabelText('What this part is called where parts are picked') as HTMLInputElement).value).toBe('Third')
   })
 
-  test('a part’s rename or file row that was closed: its words are not held, and nothing reopens', async () => {
+  test('a step with a part is held by the id of its part, and found again after a step before it is removed', async () => {
     const project = fresh()
-    store.journey = { ...JOURNEY, groups: [{ id: 'reading', heading: 'Reading', refs: [] }] } as unknown as typeof JOURNEY
+    store.journey = {
+      ...JOURNEY,
+      steps: [{ ...JOURNEY.steps[0], part: 'one' }, { ...JOURNEY.steps[1], part: 'two' }],
+      groups: [{ id: 'one', heading: 'One', refs: [] }, { id: 'two', heading: 'Two', refs: [] }],
+    } as unknown as typeof JOURNEY
     await on(project)
     render(<App />)
-    wire.setArranging(true)
+    wire.setEditing(1)
     await settle()
-    /* The row's own toggles, which say whether what they open is open; the form under one has a button of the same name. */
-    const press = (name: string) => fireEvent.click([...document.querySelectorAll('button[aria-expanded]')].find((one) => one.textContent === name) as HTMLButtonElement)
+    fireEvent.change(title(), { target: { value: 'Two, reworded' } })
+    expect(Object.keys(held(project))).toEqual(['probe|step@two'])
 
-    press('rename')
-    fireEvent.change(screen.getByLabelText('New heading for Reading'), { target: { value: 'Reading the track' } })
-    expect(Object.keys(held(project))).toEqual(['probe|part:rename:reading'])
-    /* Closed by its own button. */
-    press('rename')
-    expect(held(project)).toEqual({})
-
-    press('files')
-    fireEvent.change(screen.getByLabelText('A file of the paper for Reading'), { target: { value: 'chapters/track.tex' } })
-    expect(Object.keys(held(project))).toEqual(['probe|part:file:reading'])
-    /* Closed by opening another row over it. */
-    press('remove')
-    expect(held(project)).toEqual({})
-
-    /* A row left open is still held, and still comes back. */
-    press('rename')
-    fireEvent.change(screen.getByLabelText('New heading for Reading'), { target: { value: 'Left open' } })
+    /* Somebody removes the first step through the other door while this page is away. */
+    store.journey = { ...store.journey, steps: store.journey.steps.slice(1), groups: (store.journey as unknown as { groups: unknown[] }).groups.slice(1) } as unknown as typeof JOURNEY
     await awayAndBack(project)
-    expect((screen.getByLabelText('New heading for Reading') as HTMLInputElement).value).toBe('Left open')
-    press('rename')
-    await awayAndBack(project)
-    expect(screen.queryByLabelText('New heading for Reading')).toBeNull()
-    expect(held(project)).toEqual({})
+    expect(wire.getSnapshot().editing).toBe(0)
+    expect(title().value).toBe('Two, reworded')
+  })
+
+  test('words typed into the parts box this page no longer has are kept, and shown, not dropped', async () => {
+    const project = fresh()
+    sessionStorage.clear()
+    await on(project)
+    render(<App />)
+    await settle()
+    wire.hold('part:new', { base: '', text: 'Reading the track', aim: 'a new part' })
+    wire.discardHeld('nothing')
+    await settle()
+    const kept = document.querySelector('[data-kept-words]') as HTMLElement
+    expect(kept.textContent).toContain('Reading the track')
   })
 })

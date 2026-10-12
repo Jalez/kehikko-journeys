@@ -3,6 +3,7 @@ import { createContext, useContext } from 'react'
 import type { Disposition } from 'kehikot-module-protocol'
 import type { Facet } from 'kehikot-module-protocol/facets'
 
+import type { PaperChapters } from '../journeys.ts'
 import type { JourneyView, Live } from '../kinds.ts'
 import type { Around } from '../live/lookup.ts'
 
@@ -36,6 +37,8 @@ export interface Reading {
   hidden?: readonly Facet[]
   /** Issues whose changes somebody has unfolded. Folded is the default. */
   unfolded?: readonly string[]
+  /** The documents the epic's paper offers a step, when they have been read. */
+  chapters?: PaperChapters | null
 }
 
 const ReadingContext = createContext<Reading>({ live: null, journey: null })

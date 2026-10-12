@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import { KEHIKOT_DIR } from 'kehikot-module-protocol'
 
+import { simplified } from '../parts.ts'
 import { type Journey, journeySchema, makeDir, dataFile, held, isSlug } from '../store.ts'
 
 /**
@@ -115,7 +116,9 @@ export function verify(sent: Journey[], landed: Record<string, Journey>): string
       wrong.push(`${journey.slug} is not in the destination at all`)
       continue
     }
-    const a = JSON.stringify(journeySchema.parse(journey))
+    /* What the store reads back is one step to a part (`simplified`); what was
+       moved is compared read the same way. The file holds it as it was. */
+    const a = JSON.stringify(journeySchema.parse(simplified(journeySchema.parse(journey)).record))
     const b = JSON.stringify(journeySchema.parse(back))
     if (a !== b) wrong.push(`${journey.slug} came back different from what was written`)
   }

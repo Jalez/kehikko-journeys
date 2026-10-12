@@ -1,703 +1,477 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { describe, expect, test } from 'bun:test'
+import { LIMITS, journeyRecordSchema, partsOf, stepPart } from 'kehikot-module-protocol'
 
-import { afterAll, describe, expect, test } from 'bun:test'
-import { KEHIKOT_DIR, LIMITS, moduleFolder, partIdsOf, partsOf, stepPart } from 'kehikot-module-protocol'
-
-import { TICKET, answer, writeTicketFor } from '../doors.ts'
-import { ID } from '../manifest.ts'
 import {
-  assign,
-  filesGiven,
-  filesSaid,
-  holding,
-  notAPart,
-  pinned,
-  proposed,
-  removalOf,
-  removalSaid,
-  unassigned,
+  fileGiven,
+  fileOf,
+  idFor,
+  isSimple,
+  mirrored,
+  nameOf,
+  named,
+  simplified,
   withPart,
-  withoutPart,
-  type Arrangeable,
+  withStep,
+  withoutStep,
+  type Divided,
 } from '../parts.ts'
 
 /**
- * Arranging a journey into parts: the arithmetic, and then the two doors.
+ * One step to a part: the migration that reads the older shape as that, and
+ * the arithmetic that keeps a record so.
  *
- * The property everything here is held to is one sentence: **a group that is
- * still there is still called what it was called.** An id that moves takes
- * every step filed under it out of its part and every stored focus off it,
- * with no write to either — so each change below is checked by asking the
- * protocol's own `partsOf` before and after, and never by reading `id` off a
- * group.
+ * `partsOf` below is the protocol's, which is the function a host's reader
+ * IS (`src/host/parts.ts` re-exports it, in the released app and on main
+ * alike). So "what a host shows" is asserted by calling it, on the record as
+ * `journeyRecordSchema` — the host's parse — hands it over.
  */
 
-const step = (title: string, refs: string[] = [], part?: string) => ({
-  title,
-  body: '',
-  refs,
-  notes: [],
-  ...(part ? { part } : {}),
-})
+/** What a host's picker lists for a record: id, name, document, and how many steps it counts in. */
+const picker = (record: unknown) =>
+  partsOf(journeyRecordSchema.parse({ slug: 'x', title: 'X', ...(record as object) })).map((part) => ({
+    id: part.id,
+    heading: part.heading,
+    file: (part.files ?? [])[0] ?? null,
+    files: part.files?.length ?? 0,
+    steps: part.steps,
+  }))
 
-/** Six groups that between them use every way `partIdsOf` names one. */
-const awkward = (): Arrangeable => ({
-  groups: [
-    { heading: 'The agent seam', refs: ['gh#1', 'gh#2'] },
-    { heading: 'Later', refs: ['gh#3'] },
-    { heading: '', refs: ['gh#4'] },
-    { heading: 'Later', refs: [] },
-    { heading: 'Written down', refs: ['gh#5'], id: 'kept-by-hand' },
-    { heading: '…', refs: [] },
-  ],
+/** `simplified`, over a record typed as loosely as the files it reads are. */
+const simple = (record: unknown, options?: Parameters<typeof simplified>[1]) => simplified(record as Divided, options)
+
+const step = (title: string, part?: string, refs: string[] = []) => ({ title, body: `About ${title}.`, refs, notes: [], ...(part ? { part } : {}) })
+
+/* ------------------------------------------------------------------ *
+ * The two real journeys
+ * ------------------------------------------------------------------ */
+
+/**
+ * The `thesis` epic of the CS-DEGREE project, as it is on disk: seven parts,
+ * six of them with one step and one chapter, and `appendices` with a chapter
+ * and no step. The titles are the real ones; the bodies are shortened.
+ */
+const THESIS = {
   steps: [
-    step('One', ['gh#1']),
-    step('Two', ['gh#1', 'gh#2']),
-    step('Three', ['gh#3', 'gh#9']),
-    step('Four', []),
-    step('Five', ['gh#4'], 'part-3'),
-    step('Six', ['gh#5'], 'a-part-that-is-gone'),
-    step('Seven', ['gh#3'], 'later-2'),
+    step('A reader knows why chat-as-an-exercise is worth studying, and what is being asked', 'introduction'),
+    step('A reader can see the gap this study fills, and the frame it will be read through', 'literature-review'),
+    step('A reader could repeat the study, and knows what each research question was measured with', 'methods'),
+    step('A reader sees what happened, separately from what it is taken to mean', 'results'),
+    step('A reader understands what the results mean, and how far they can be carried', 'discussion'),
+    step('A reader leaves with the claim, the answers, and what should be done next', 'conclusion'),
   ],
-})
+  groups: [
+    { id: 'introduction', heading: 'Introduction', refs: [], files: ['chapters/1_introduction.tex'] },
+    { id: 'literature-review', heading: 'Literature Review', refs: [], files: ['chapters/2_literature_review.tex'] },
+    { id: 'methods', heading: 'Methods', refs: [], files: ['chapters/3_methods.tex'] },
+    { id: 'results', heading: 'Results', refs: [], files: ['chapters/4_results.tex'] },
+    { id: 'discussion', heading: 'Discussion', refs: [], files: ['chapters/5_discussion.tex'] },
+    { id: 'conclusion', heading: 'Conclusion', refs: [], files: ['chapters/6_conclusion.tex'] },
+    { id: 'appendices', heading: 'Appendices', refs: [], files: ['chapters/appendix_instruments.tex'] },
+  ],
+}
 
-/** What a reader of the record is told about its parts, minus the step counts. */
-const seen = (record: Arrangeable) => partsOf(record).map(({ id, heading, refs }) => ({ id, heading, refs }))
+/**
+ * The `sharing-and-collaboration` epic, built from its owner's description —
+ * the project was not on this disk: eight parts; one with no step; two that
+ * cover the same file, `chapters/refresh.tex`; the others one step and one
+ * file each. The names are stand-ins.
+ */
+const SHARING = {
+  steps: [
+    step('Two people can open the same canvas', 'peer-share', ['gh#1']),
+    step('A secret never leaves the machine it was typed on', 'secrets-never-leak', ['gh#2']),
+    step('An invitation can be taken back', 'invitations'),
+    step('A stale page says it is stale', 'refresh'),
+    step('A refresh keeps what was being typed', 'refresh-keeps-typing'),
+    step('Who changed what can be read afterwards', 'history'),
+    step('A conflict is shown, not resolved in silence', 'conflicts'),
+  ],
+  groups: [
+    { id: 'peer-share', heading: 'Peer share', refs: [], files: ['chapters/peer-share.tex'] },
+    { id: 'secrets-never-leak', heading: 'Secrets never leak', refs: [], files: ['chapters/secrets.tex'] },
+    { id: 'invitations', heading: 'Invitations', refs: [], files: ['chapters/invitations.tex'] },
+    { id: 'refresh', heading: 'Refresh', refs: [], files: ['chapters/refresh.tex'] },
+    { id: 'refresh-keeps-typing', heading: 'Refresh keeps typing', refs: [], files: ['chapters/refresh.tex'] },
+    { id: 'history', heading: 'History', refs: [], files: ['chapters/history.tex'] },
+    { id: 'conflicts', heading: 'Conflicts', refs: [], files: ['chapters/conflicts.tex'] },
+    { id: 'offline', heading: 'Offline', refs: [] },
+  ],
+}
 
-describe('the ids a group answers to', () => {
-  test('are the protocol’s, including the awkward ones', () => {
-    expect(partIdsOf(awkward().groups)).toEqual(['the-agent-seam', 'later', 'part-3', 'later-2', 'kept-by-hand', 'part-6'])
+describe('the thesis, as it is on disk', () => {
+  const out = simple(THESIS)
+
+  test('a host’s picker lists the same seven parts before and after, by id, name and chapter', () => {
+    const before = picker(THESIS)
+    const after = picker(out.record)
+    expect(after.map(({ id, heading, file }) => ({ id, heading, file }))).toEqual(before.map(({ id, heading, file }) => ({ id, heading, file })))
+    expect(after.map((part) => part.id)).toEqual(['introduction', 'literature-review', 'methods', 'results', 'discussion', 'conclusion', 'appendices'])
   })
 
-  test('writing a group’s id onto it changes nothing a reader sees — for every group, one at a time', () => {
-    const before = awkward()
-    for (const id of partIdsOf(before.groups) as string[]) {
-      const groups = pinned(before.groups, id)
-      expect(partIdsOf(groups)).toEqual(partIdsOf(before.groups))
-      expect(partsOf({ ...before, groups })).toEqual(partsOf(before))
-      /* And only that group was touched. */
-      expect(groups.filter((group, i) => group !== before.groups[i])).toHaveLength(id === 'kept-by-hand' ? 0 : 1)
-    }
+  test('six steps become seven: the part that had none has one made for it, last, where it was', () => {
+    expect(out.changed).toBe(true)
+    expect(out.record.steps).toHaveLength(7)
+    expect(out.record.steps.slice(0, 6)).toEqual(THESIS.steps)
+    expect(out.record.steps[6]).toEqual({ title: 'Appendices', body: '', refs: [], notes: [], part: 'appendices' })
+    expect(picker(out.record).every((part) => part.steps === 1)).toBe(true)
   })
 
-  test('and all of them at once, in either order', () => {
-    const before = awkward()
-    const ids = partIdsOf(before.groups) as string[]
-    for (const order of [ids, [...ids].reverse()]) {
-      const groups = order.reduce((held, id) => pinned(held, id), before.groups)
-      expect(partsOf({ ...before, groups })).toEqual(partsOf(before))
-      expect(groups.map((group) => group.id)).toEqual(ids)
-    }
+  test('each of the six keeps its part whole, and the short name is the part’s', () => {
+    out.record.steps.slice(0, 6).forEach((one, i) => {
+      expect(stepPart(one)).toBe(THESIS.groups[i]!.id)
+      expect(nameOf(out.record, one)).toBe(THESIS.groups[i]!.heading)
+      expect(named(out.record, one)).toBe(true)
+      expect(fileOf(out.record, one)).toBe(THESIS.groups[i]!.files[0]!)
+    })
   })
 
-  test('a group that has its id written keeps it when the heading is reworded', () => {
-    const before = awkward()
-    const groups = pinned(before.groups, 'later-2').map((group) =>
-      group.id === 'later-2' ? { ...group, heading: 'Much later' } : group,
-    )
-    expect(partIdsOf(groups)[3]).toBe('later-2')
-    /* Without the written id, the same rewording renames it. */
-    const unwritten = before.groups.map((group, i) => (i === 3 ? { ...group, heading: 'Much later' } : group))
-    expect(partIdsOf(unwritten)[3]).toBe('much-later')
-  })
-
-  test('`holding` writes a name down only where it would otherwise have moved', () => {
-    const before = awkward()
-    const named = partIdsOf(before.groups)
-    const without = before.groups.filter((_, i) => i !== 1)
-    const kept = holding(
-      without,
-      named.filter((_, i) => i !== 1),
-    )
-    expect(partIdsOf(kept)).toEqual(['the-agent-seam', 'part-3', 'later-2', 'kept-by-hand', 'part-6'])
-    /* The first group's name never moved, so nothing was written on it. */
-    expect(kept[0]).toBe(without[0]!)
-    expect(kept[0]!.id).toBeUndefined()
-  })
-})
-
-describe('filing steps', () => {
-  test('puts steps in a part, writes the part’s id onto its group, and touches nothing else', () => {
-    const before = awkward()
-    const out = assign(before, [1, 2], 'the-agent-seam')
-    if (!out.ok) throw new Error(out.error)
-    expect(out.moved).toEqual([1, 2])
-    expect(out.heading).toBe('The agent seam')
-    expect(out.record.steps.map(stepPart)).toEqual([
-      'the-agent-seam',
-      'the-agent-seam',
-      null,
-      null,
-      'part-3',
-      'a-part-that-is-gone',
-      'later-2',
+  test('says the one thing it decided, and loses no id', () => {
+    expect(out.findings.map((one) => one.code)).toEqual(['made'])
+    expect(out.findings[0]!.said).toContain('“Appendices” had no step. One was made for it')
+    expect(out.findings[0]!.said).toContain('chapters/appendix_instruments.tex')
+    expect(out.gone).toEqual([])
+    expect(out.fates.map((fate) => [fate.was, fate.now, fate.how, fate.at, fate.file])).toEqual([
+      ['introduction', 'introduction', 'kept', 1, 'chapters/1_introduction.tex'],
+      ['literature-review', 'literature-review', 'kept', 2, 'chapters/2_literature_review.tex'],
+      ['methods', 'methods', 'kept', 3, 'chapters/3_methods.tex'],
+      ['results', 'results', 'kept', 4, 'chapters/4_results.tex'],
+      ['discussion', 'discussion', 'kept', 5, 'chapters/5_discussion.tex'],
+      ['conclusion', 'conclusion', 'kept', 6, 'chapters/6_conclusion.tex'],
+      ['appendices', 'appendices', 'made', 7, 'chapters/appendix_instruments.tex'],
     ])
-    expect(out.record.groups[0]!.id).toBe('the-agent-seam')
-    /* Same parts, same ids, same headings, same references. */
-    expect(seen(out.record)).toEqual(seen(before))
-    /* The steps it did not name are the very objects they were. */
-    expect(out.record.steps.slice(2)).toEqual(before.steps.slice(2))
-    /* And the record it was handed is as it was. */
-    expect(before).toEqual(awkward())
   })
 
-  test('so rewording the heading afterwards does not orphan the assignment', () => {
-    const out = assign(awkward(), [1], 'later')
-    if (!out.ok) throw new Error(out.error)
-    const reworded = withPart(out.record, { id: 'later', heading: 'Sooner than that' })
-    if (!reworded.ok) throw new Error(reworded.error)
-    expect(partsOf(reworded.record).find((part) => part.id === 'later')).toMatchObject({
-      heading: 'Sooner than that',
-      steps: 1,
-    })
-    /* The other group called "Later" is still `later-2`, and its step is still in it. */
-    expect(partsOf(reworded.record).find((part) => part.id === 'later-2')?.steps).toBe(1)
-  })
-
-  test('refuses an id that is not a part, listing the ones that are', () => {
-    const out = assign(awkward(), [1], 'the-agent-seem')
-    expect(out.ok).toBe(false)
-    const said = (out as { error: string }).error
-    expect(said).toContain('"the-agent-seem" is not a part of this journey')
-    for (const id of ['the-agent-seam', 'later', 'part-3', 'later-2', 'kept-by-hand', 'part-6']) expect(said).toContain(id)
-    expect(notAPart({ steps: [], groups: [] }, 'anything')).toContain('not divided into parts at all')
-  })
-
-  test('refuses the whole call over one position that is not a step', () => {
-    const out = assign(awkward(), [1, 8, 0], 'later')
-    expect(out).toEqual({
-      ok: false,
-      error: 'this journey has 7 stored steps, and 8, 0 are not among them. Nothing was changed.',
-    })
-  })
-
-  test('null takes steps out of every part, and removes the field rather than emptying it', () => {
-    const out = assign(awkward(), [5, 1], null)
-    if (!out.ok) throw new Error(out.error)
-    expect(out.moved).toEqual([5])
-    expect(out.already).toEqual([1])
-    expect(Object.hasOwn(out.record.steps[4]!, 'part')).toBe(false)
-  })
-
-  test('a step naming a part that is gone is in no part', () => {
-    expect(unassigned(awkward())).toEqual([0, 1, 2, 3, 5])
+  test('is simple afterwards, and reading it again changes nothing', () => {
+    expect(isSimple(out.record)).toBe(true)
+    const again = simple(out.record)
+    expect(again.changed).toBe(false)
+    expect(again.record).toBe(out.record)
+    expect(mirrored(out.record)).toEqual(out.record)
   })
 })
 
-describe('the proposal by references', () => {
-  test('is the unassigned steps whose references are ALL among the part’s', () => {
-    /* One and Two name only gh#1 and gh#2. Three names gh#3 — and gh#9, which no part holds. */
-    expect(proposed(awkward(), 'the-agent-seam')).toEqual([0, 1])
-    expect(proposed(awkward(), 'later')).toEqual([])
+describe('sharing-and-collaboration, as its owner described it', () => {
+  const out = simple(SHARING)
+
+  test('all eight parts are still parts, under the ids they had', () => {
+    expect(picker(out.record).map((part) => part.id)).toEqual(SHARING.groups.map((group) => group.id))
+    expect(out.gone).toEqual([])
+    expect(out.record.steps).toHaveLength(8)
   })
 
-  test('never a step with no references, which would fit every part at once', () => {
-    for (const id of partIdsOf(awkward().groups) as string[]) expect(proposed(awkward(), id)).not.toContain(3)
-  })
-
-  test('never a step somebody already filed, and never anything for a part that is not one', () => {
-    /* Seven names gh#3, which “Later” holds, and is in `later-2`. */
-    expect(proposed(awkward(), 'later')).not.toContain(6)
-    expect(proposed(awkward(), 'nowhere')).toEqual([])
-  })
-
-  test('counts what a part holds the way a host does: its own list, and its steps’', () => {
-    /* Six names gh#5 and a part that is gone, so it is unassigned; gh#5 is `kept-by-hand`’s. */
-    expect(proposed(awkward(), 'kept-by-hand')).toEqual([5])
-    /* Filing Three under “Later” makes gh#9 one of that part’s references. */
-    const filed = assign(awkward(), [3], 'later')
-    if (!filed.ok) throw new Error(filed.error)
-    const more = { ...filed.record, steps: [...filed.record.steps, step('Eight', ['gh#9'])] }
-    expect(proposed(more, 'later')).toEqual([7])
-  })
-
-  test('proposes; it changes nothing', () => {
-    const before = awkward()
-    proposed(before, 'the-agent-seam')
-    expect(before).toEqual(awkward())
-  })
-})
-
-describe('the parts themselves', () => {
-  test('a new part goes at the end, with its id written from the start', () => {
-    const out = withPart(awkward(), { heading: '  What the page shows ' })
-    if (!out.ok) throw new Error(out.error)
-    expect(out).toMatchObject({ id: 'what-the-page-shows', heading: 'What the page shows', created: true })
-    expect(out.record.groups.at(-1)).toEqual({ heading: 'What the page shows', refs: [], id: 'what-the-page-shows' })
-    expect(seen(out.record).slice(0, 6)).toEqual(seen(awkward()))
-  })
-
-  test('rewording keeps the id, the references and every step', () => {
-    const out = withPart(awkward(), { id: 'part-3', heading: 'Named at last' })
-    if (!out.ok) throw new Error(out.error)
-    expect(out).toMatchObject({ id: 'part-3', created: false })
-    expect(partsOf(out.record)[2]).toEqual({ id: 'part-3', heading: 'Named at last', refs: ['gh#4'], steps: 1 })
-    expect(partIdsOf(out.record.groups)).toEqual(partIdsOf(awkward().groups))
-  })
-
-  test('refuses no heading, a heading another part has, and an id that is not a part', () => {
-    expect(withPart(awkward(), { heading: '   ' }).ok).toBe(false)
-    const twice = withPart(awkward(), { heading: 'the agent SEAM' })
-    expect((twice as { error: string }).error).toContain('already has a part called “The agent seam”')
-    expect(withPart(awkward(), { id: 'nope', heading: 'Anything' }).ok).toBe(false)
-    /* Rewording a part to the heading it has is not a clash with itself. */
-    expect(withPart(awkward(), { id: 'the-agent-seam', heading: 'The agent seam' }).ok).toBe(true)
-  })
-
-  test('refuses one more part than a host will read', () => {
-    const full = { steps: [], groups: Array.from({ length: 32 }, (_, i) => ({ heading: `Part ${i}`, refs: [] })) }
-    expect((withPart(full, { heading: 'One too many' }) as { error: string }).error).toContain('at most 32')
-  })
-
-  test('removing says what goes with it, before and in the same words', () => {
-    const gone = removalOf(awkward(), 'later')
-    expect(gone).toEqual({ heading: 'Later', steps: [], refs: ['gh#3'], loose: [] })
-    expect(removalSaid(removalOf(awkward(), 'part-3')!)).toBe(
-      'Its 1 step stays in the journey and becomes unassigned (in no part); the 1 reference listed under its '
-        + 'heading goes with it, all still named by a step. No step is deleted.',
+  test('the file two parts covered is the first one’s, and that is said, not chosen in silence', () => {
+    const parts = picker(out.record)
+    expect(parts.find((part) => part.id === 'refresh')?.file).toBe('chapters/refresh.tex')
+    expect(parts.find((part) => part.id === 'refresh-keeps-typing')?.file).toBeNull()
+    const shared = out.findings.filter((one) => one.code === 'shared')
+    expect(shared).toHaveLength(1)
+    expect(shared[0]!.said).toBe(
+      'chapters/refresh.tex was covered by two parts, “Refresh” and “Refresh keeps typing”. A document belongs to one part: '
+        + 'the first keeps it, and “Refresh keeps typing” now covers none.',
     )
-    const loose = removalOf({ steps: [step('A', ['gh#1'], 'x'), step('B', [], 'x')], groups: [{ heading: 'X', refs: ['gh#1', 'gh#7', 'gh#8'] }] }, 'x')!
-    expect(loose).toEqual({ heading: 'X', steps: [1, 2], refs: ['gh#1', 'gh#7', 'gh#8'], loose: ['gh#7', 'gh#8'] })
-    expect(removalSaid(loose)).toContain('Its 2 steps stay in the journey and become unassigned')
-    expect(removalSaid(loose)).toContain('2 of them are named by no step')
-    expect(removalOf(awkward(), 'nope')).toBeNull()
   })
 
-  test('removing a part deletes no step, unassigns its own, and renames no other part', () => {
-    const before = awkward()
-    /* Out of the middle: the group whose removal would turn `part-3` into `part-2`
-       and `later-2` into `later`. */
-    const out = withoutPart(before, 'later')
-    if (!out.ok) throw new Error(out.error)
-    expect(out.record.steps).toHaveLength(before.steps.length)
-    expect(out.record.steps.map((one) => one.title)).toEqual(before.steps.map((one) => one.title))
-    expect(seen(out.record)).toEqual(seen(before).filter((part) => part.id !== 'later'))
-    /* Five is still in `part-3` and Seven still in `later-2`. */
-    expect(partsOf(out.record).map((part) => [part.id, part.steps])).toEqual([
-      ['the-agent-seam', 0],
-      ['part-3', 1],
-      ['later-2', 1],
-      ['kept-by-hand', 0],
-      ['part-6', 0],
-    ])
-
-    const emptied = withoutPart(before, 'part-3')
-    if (!emptied.ok) throw new Error(emptied.error)
-    expect(Object.hasOwn(emptied.record.steps[4]!, 'part')).toBe(false)
-    expect(emptied.record.steps[4]!.title).toBe('Five')
-    expect(emptied.gone.steps).toEqual([5])
-  })
-})
-
-describe('the files a part owns', () => {
-  test('are kept in the protocol’s form, once each, and only what cannot change the file is tidied', () => {
-    expect(filesGiven([' chapters/design.tex ', './chapters/protocol.tex', 'chapters/design.tex', 'main.tex'])).toEqual({
-      ok: true,
-      files: ['chapters/design.tex', 'chapters/protocol.tex', 'main.tex'],
-    })
-    expect(filesGiven([])).toEqual({ ok: true, files: [] })
+  test('the part with no step has one made for it, and every other step is as it was', () => {
+    expect(out.record.steps.slice(0, 7)).toEqual(SHARING.steps)
+    expect(out.record.steps[7]).toEqual({ title: 'Offline', body: '', refs: [], notes: [], part: 'offline' })
+    expect(out.findings.map((one) => one.code).sort()).toEqual(['made', 'shared'])
   })
 
-  test('one name that is not a file’s refuses the whole list, and is named', () => {
-    for (const bad of ['../other/main.tex', '/Users/somebody/paper/main.tex', 'chapters\\design.tex', 'a//b.tex', 'C:paper.tex', '   ']) {
-      const out = filesGiven(['chapters/design.tex', bad])
-      expect(out.ok).toBe(false)
-      if (!out.ok) {
-        expect(out.error).toContain(`"${bad}" is not a name a part can hold for a file`)
-        expect(out.error).toContain('chapters/design.tex')
-        expect(out.error).toContain('Nothing was changed.')
-      }
+  test('every other part keeps its one file', () => {
+    const before = picker(SHARING)
+    const after = picker(out.record)
+    for (const part of before) {
+      if (part.id === 'refresh-keeps-typing') continue
+      expect(after.find((one) => one.id === part.id)?.file ?? null).toBe(part.file)
     }
-    const notText = filesGiven(['chapters/design.tex', 42])
-    expect(!notText.ok && notText.error).toContain('42 is not a name')
-    const notAList = filesGiven('chapters/design.tex')
-    expect(!notAList.ok && notAList.error).toContain('are a list of names')
-  })
-
-  test('more than a host will send is refused, not cut', () => {
-    const many = Array.from({ length: LIMITS.PART_FILES + 1 }, (_, i) => `chapters/${i}.tex`)
-    const out = filesGiven(many)
-    expect(!out.ok && out.error).toContain(`at most ${LIMITS.PART_FILES} files, and that was ${LIMITS.PART_FILES + 1}`)
-    expect(filesGiven(many.slice(1)).ok).toBe(true)
-    /* The same name thirty-three times is one file. */
-    expect(filesGiven(many.map(() => 'main.tex'))).toEqual({ ok: true, files: ['main.tex'] })
-  })
-
-  test('a list replaces, an empty list takes the key away, and absent leaves them alone', () => {
-    const before = awkward()
-    const given = withPart(before, { id: 'later', files: ['./chapters/later.tex'] })
-    if (!given.ok) throw new Error(given.error)
-    expect(given.record.groups[1]).toEqual({ heading: 'Later', refs: ['gh#3'], id: 'later', files: ['chapters/later.tex'] })
-    expect(given.files).toEqual(['chapters/later.tex'])
-    expect(partsOf(given.record)[1]?.files).toEqual(['chapters/later.tex'])
-    /* Nothing else a reader sees moved, and no other group was given the key. */
-    expect(seen(given.record)).toEqual(seen(before))
-    expect(given.record.groups.filter((group) => 'files' in group)).toHaveLength(1)
-
-    /* Absent: a rewording says nothing about files. */
-    const reworded = withPart(given.record, { id: 'later', heading: 'Afterwards' })
-    if (!reworded.ok) throw new Error(reworded.error)
-    expect(reworded.record.groups[1]).toMatchObject({ heading: 'Afterwards', files: ['chapters/later.tex'] })
-    expect(reworded.files).toBeNull()
-
-    const replaced = withPart(reworded.record, { id: 'later', files: ['main.tex', 'chapters/b.tex'] })
-    if (!replaced.ok) throw new Error(replaced.error)
-    expect(replaced.record.groups[1]?.files).toEqual(['main.tex', 'chapters/b.tex'])
-    /* And the heading it had is the heading it has: files are not a rewording. */
-    expect(replaced.record.groups[1]?.heading).toBe('Afterwards')
-
-    const emptied = withPart(replaced.record, { id: 'later', files: [] })
-    if (!emptied.ok) throw new Error(emptied.error)
-    expect(Object.hasOwn(emptied.record.groups[1]!, 'files')).toBe(false)
-    expect('files' in partsOf(emptied.record)[1]!).toBe(false)
-  })
-
-  test('a refused file changes nothing, and a new part can be made with its files', () => {
-    const before = awkward()
-    const refused = withPart(before, { id: 'later', heading: 'Reworded as well', files: ['ok.tex', '../no.tex'] })
-    expect(refused.ok).toBe(false)
-    const made = withPart(before, { heading: 'The design', files: ['chapters/design.tex'] })
-    if (!made.ok) throw new Error(made.error)
-    expect(made.record.groups.at(-1)).toEqual({ heading: 'The design', refs: [], files: ['chapters/design.tex'], id: 'the-design' })
-    /* A heading left out is only allowed for a part that already has one. */
-    expect(withPart(before, { files: ['a.tex'] }).ok).toBe(false)
-  })
-
-  test('a group with no heading of its own keeps none when only its files are set', () => {
-    const out = withPart(awkward(), { id: 'part-3', files: ['a.tex'] })
-    if (!out.ok) throw new Error(out.error)
-    expect(out.record.groups[2]).toEqual({ heading: '', refs: ['gh#4'], id: 'part-3', files: ['a.tex'] })
-    expect(partIdsOf(out.record.groups)).toEqual(partIdsOf(awkward().groups))
-  })
-
-  test('what is said afterwards names the files, a file two parts own, and a name with no extension', () => {
-    const record = {
-      steps: [],
-      groups: [
-        { heading: 'The design', refs: [], files: ['chapters/design.tex', 'chapters/shared.tex'] },
-        { heading: 'The protocol', refs: [], files: ['chapters/shared.tex', 'chapters/protocol'] },
-        { heading: 'Empty', refs: [] },
-      ],
-    }
-    expect(filesSaid(record, 'the-design')).toBe(
-      'It owns 2 files of the paper, named from the paper’s folder: chapters/design.tex, chapters/shared.tex. '
-        + 'chapters/shared.tex is also owned by “The protocol”: a file may be in more than one part, and is shown when '
-        + 'any of them is picked.',
-    )
-    expect(filesSaid(record, 'the-protocol')).toContain('chapters/protocol has no extension.')
-    expect(filesSaid(record, 'empty')).toBe('It owns no file of the paper.')
   })
 })
 
 /* ------------------------------------------------------------------ *
- * The doors
+ * Every rule, alone
  * ------------------------------------------------------------------ */
 
-const MINE = moduleFolder(ID)
-const made: string[] = []
-afterAll(() => made.forEach((root) => rmSync(root, { recursive: true, force: true })))
-
-const divided = {
-  slug: 'divided',
-  title: 'A divided journey',
-  groups: [
-    { heading: 'The agent seam', refs: ['gh#1', 'gh#2'] },
-    { heading: 'What the page shows', refs: ['gh#3'], colour: 'teal' },
-  ],
-  steps: [
-    { title: 'One', body: 'first', refs: ['gh#1'], notes: [] },
-    { title: 'Two', body: '', refs: ['gh#3'], notes: [], part: 'what-the-page-shows' },
-    { title: 'Three', body: '', refs: [], notes: [] },
-  ],
-}
-
-/** A journey as the file holds it, loosely: these tests read fields this app does not name. */
-interface OnDisk {
-  steps: { title: string; body?: string; refs?: string[]; part?: string }[]
-  groups: Record<string, unknown>[]
-}
-
-function project(journeys: Record<string, unknown> = { divided, plain: { slug: 'plain', title: 'Not divided', steps: [] } }) {
-  const root = mkdtempSync(join(tmpdir(), 'journeys-parts-'))
-  made.push(root)
-  mkdirSync(join(root, KEHIKOT_DIR, MINE), { recursive: true })
-  const file = join(root, KEHIKOT_DIR, MINE, 'journeys.json')
-  writeFileSync(file, `${JSON.stringify({ version: 1, journeys }, null, 2)}\n`)
-  const on = (slug = 'divided') => (JSON.parse(readFileSync(file, 'utf8')) as { journeys: Record<string, OnDisk> }).journeys[slug]!
-  const call = (name: string, args: Record<string, unknown>) =>
-    (
-      answer('POST', '/mcp', new URLSearchParams(), { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { project: root, ...args } } }, null)
-        ?.body as { result: { content: { text: string }[] } }
-    ).result.content[0]!.text
-  const post = (path: string, body: Record<string, unknown>) =>
-    answer('POST', path, new URLSearchParams(), { ...body, project: root, ticket: writeTicketFor(root) }, TICKET)
-  return { root, file, on, call, post }
-}
-
-describe('`part` on set_step', () => {
-  const whole = { slug: 'divided', position: 1, title: 'One', body: 'first, reworded', refs: ['gh#1'], notes: [] }
-
-  test('files the step, and writes the derived id onto the group in the same save', () => {
-    const { on, call } = project()
-    const before = partsOf(on())
-    expect(call('set_step', { ...whole, part: 'the-agent-seam' })).toContain('Set step 1 of divided')
-    expect(on().steps[0]!.part).toBe('the-agent-seam')
-    expect(on().groups[0]).toEqual({ heading: 'The agent seam', refs: ['gh#1', 'gh#2'], id: 'the-agent-seam' })
-    /* The group nobody filed under was not written on, and kept what this app does not name. */
-    expect(on().groups[1]).toEqual({ heading: 'What the page shows', refs: ['gh#3'], colour: 'teal' })
-    /* Nothing a reader sees moved: same ids, headings and references. */
-    expect(partsOf(on()).map(({ steps: _n, ...rest }) => rest)).toEqual(before.map(({ steps: _n, ...rest }) => rest))
+describe('the rules, one at a time', () => {
+  test('a part with one step: the step is the part’s, with its id, its name and its file', () => {
+    const out = simple({ steps: [step('A long sentence about one thing', 'one')], groups: [{ id: 'one', heading: 'One', refs: [], files: ['a.tex'] }] })
+    /* Already one step to a part: nothing to do, and the record is the one handed in. */
+    expect(out.changed).toBe(false)
   })
 
-  test('left out, it leaves the step in the part it was in — an agent editing a body does not unassign it', () => {
-    const { on, call } = project()
-    call('set_step', { slug: 'divided', position: 2, title: 'Two', body: 'corrected', refs: ['gh#3'], notes: [] })
-    expect(on().steps[1]).toMatchObject({ body: 'corrected', part: 'what-the-page-shows' })
+  test('a part whose id was never written keeps the id it answered to', () => {
+    const record = { steps: [step('First', 'the-agent-seam')], groups: [{ heading: 'The agent seam', refs: [] }] }
+    const out = simple(record)
+    expect(picker(out.record)).toEqual(picker(record))
+    expect(out.record.groups[0]).toEqual({ heading: 'The agent seam', refs: [], id: 'the-agent-seam' })
+    expect(out.findings).toEqual([])
   })
 
-  test('an explicit empty value takes the step out of every part', () => {
-    const { on, call } = project()
-    call('set_step', { slug: 'divided', position: 2, title: 'Two', refs: ['gh#3'], part: '' })
-    expect(Object.hasOwn(on().steps[1]!, 'part')).toBe(false)
+  test('a part with several steps: each is a part; the first keeps the id, the name and the file', () => {
+    const out = simple({
+      steps: [step('Alpha', 'methods'), step('Beta', 'methods'), step('Gamma', 'methods')],
+      groups: [{ id: 'methods', heading: 'Methods', refs: [], files: ['chapters/3_methods.tex'] }],
+    })
+    expect(picker(out.record)).toEqual([
+      { id: 'methods', heading: 'Methods', file: 'chapters/3_methods.tex', files: 1, steps: 1 },
+      { id: 'beta', heading: 'Beta', file: null, files: 0, steps: 1 },
+      { id: 'gamma', heading: 'Gamma', file: null, files: 0, steps: 1 },
+    ])
+    expect(out.findings.map((one) => one.code)).toEqual(['split'])
+    expect(out.findings[0]!.said).toBe(
+      '“Methods” held 3 steps, and a part has one. Step 1 keeps its id (methods), its name and chapters/3_methods.tex; '
+        + 'the other 2 are parts of their own, called by their titles and covering no document: beta, gamma.',
+    )
   })
 
-  test('an unknown id is refused with the valid ones, and nothing is written', () => {
-    const { file, call } = project()
-    const before = readFileSync(file, 'utf8')
-    const said = call('set_step', { ...whole, part: 'the-agent-seem' })
-    expect(said).toContain('"the-agent-seem" is not a part of this journey. Its parts are: the-agent-seam (“The agent seam”), what-the-page-shows (“What the page shows”).')
-    expect(said).toContain('The step was not written.')
-    expect(readFileSync(file, 'utf8')).toBe(before)
+  test('a part with no step: a step is made from it — its name, its file, its references — where it was in the order', () => {
+    const out = simple({
+      steps: [step('First', 'a'), step('Last', 'c')],
+      groups: [
+        { id: 'a', heading: 'A', refs: [] },
+        { id: 'b', heading: 'B', refs: ['gh#9'], files: ['b.tex'] },
+        { id: 'c', heading: 'C', refs: [] },
+      ],
+    })
+    expect(out.record.steps.map((one) => one.title)).toEqual(['First', 'B', 'Last'])
+    expect(out.record.steps[1]).toEqual({ title: 'B', body: '', refs: ['gh#9'], notes: [], part: 'b' })
+    expect(picker(out.record).map((part) => [part.id, part.file])).toEqual([['a', null], ['b', 'b.tex'], ['c', null]])
   })
 
-  test('the tool says the field exists and where its ids come from', () => {
-    const tools = (
-      answer('POST', '/mcp', new URLSearchParams(), { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)?.body as {
-        result: { tools: { name: string; description: string; inputSchema: { properties: Record<string, unknown> } }[] }
-      }
-    ).result.tools
-    const names = tools.map((tool) => tool.name)
-    for (const name of ['assign_steps', 'set_part', 'remove_part']) expect(names).toContain(name)
-    const setStep = tools.find((tool) => tool.name === 'set_step')!
-    expect(Object.keys(setStep.inputSchema.properties)).toContain('part')
-    expect(setStep.description).toContain('get_journey')
-    expect(setStep.description).toContain('NOT cleared by leaving it out')
+  test('…before the first step when it was the first part, and at the end when no part has a step', () => {
+    const first = simple({ steps: [step('Only', 'b')], groups: [{ id: 'a', heading: 'A', refs: [] }, { id: 'b', heading: 'B', refs: [] }] })
+    expect(first.record.steps.map((one) => one.part)).toEqual(['a', 'b'])
+    const none = simple({ steps: [step('Loose')], groups: [{ id: 'a', heading: 'A', refs: [] }, { id: 'b', heading: 'B', refs: [] }] })
+    expect(none.record.steps.map((one) => one.part)).toEqual(['loose', 'a', 'b'])
   })
 
-  test('the page’s door takes the same three values', () => {
-    const { on, post } = project()
-    expect(post('/api/step', { ...whole, part: 'the-agent-seam' })?.status).toBe(200)
-    expect(on().steps[0]!.part).toBe('the-agent-seam')
-    /* Absent: kept. */
-    post('/api/step', whole)
-    expect(on().steps[0]!.part).toBe('the-agent-seam')
-    /* Null, which is what JSON sends for "none": cleared. */
-    post('/api/step', { ...whole, part: null })
-    expect(Object.hasOwn(on().steps[0]!, 'part')).toBe(false)
-    const refused = post('/api/step', { ...whole, part: 'nope' })
-    expect(refused?.status).toBe(400)
-    expect((refused?.body as { error: string }).error).toContain('Its parts are: the-agent-seam')
+  test('a step in no part is a part of its own, with no file, called by its title', () => {
+    const out = simple({ steps: [step('Filed', 'a'), step('Never filed anywhere')], groups: [{ id: 'a', heading: 'A', refs: [] }] })
+    expect(picker(out.record)[1]).toEqual({ id: 'never-filed-anywhere', heading: 'Never filed anywhere', file: null, files: 0, steps: 1 })
+    expect(named(out.record, out.record.steps[1]!)).toBe(false)
+    expect(out.findings.map((one) => one.code)).toEqual(['unfiled'])
+  })
+
+  test('…and so is a step naming a part the journey does not have', () => {
+    const out = simple({ steps: [step('Stranded', 'gone')], groups: [] as { id: string }[] })
+    expect(out.record.steps[0]!.part).toBe('stranded')
+    expect(out.record.groups).toEqual([{ heading: 'Stranded', refs: [], id: 'stranded' }] as never)
+  })
+
+  test('a made id is never one the journey already answered to', () => {
+    const out = simple({
+      steps: [step('Results', 'a'), step('Results')],
+      groups: [{ id: 'a', heading: 'A', refs: [] }, { id: 'results', heading: 'Results', refs: [], files: ['r.tex'] }],
+    })
+    /* `results` is the part with no step; the unfiled step called Results is not mistaken for it. */
+    expect(out.record.steps.map((one) => one.part)).toEqual(['a', 'results', 'results-2'])
+    expect(fileOf(out.record, out.record.steps[1]!)).toBe('r.tex')
+    expect(out.record.steps[2]!.body).toBe('About Results.')
+  })
+
+  test('a part covering several files keeps the first, and the rest are named', () => {
+    const out = simple({
+      steps: [step('Results', 'results')],
+      groups: [{ id: 'results', heading: 'Results', refs: [], files: ['chapters/4_results.tex', 'generated/tab.tex', 'generated/quotes.tex'] }],
+    })
+    expect(out.record.groups[0]!.files).toEqual(['chapters/4_results.tex'])
+    expect(out.findings).toEqual([
+      {
+        code: 'extra',
+        said:
+          '“Results” covered 3 documents and a part covers one: it keeps chapters/4_results.tex, and generated/tab.tex, '
+          + 'generated/quotes.tex are no longer a part’s.',
+      },
+    ])
+  })
+
+  test('a part whose first file an earlier part took keeps the next one it has', () => {
+    const out = simple({
+      steps: [step('A', 'a'), step('B', 'b')],
+      groups: [{ id: 'a', heading: 'A', refs: [], files: ['shared.tex'] }, { id: 'b', heading: 'B', refs: [], files: ['shared.tex', 'own.tex'] }],
+    })
+    expect(picker(out.record).map((part) => part.file)).toEqual(['shared.tex', 'own.tex'])
+    expect(out.findings.map((one) => one.code)).toEqual(['shared'])
+    expect(out.findings[0]!.said).toContain('“B” covers own.tex')
+  })
+
+  test('references listed under a part’s heading and not on its step are put on the step', () => {
+    const out = simple({ steps: [step('One', 'a', ['gh#1'])], groups: [{ id: 'a', heading: 'A', refs: ['gh#1', 'gh#2', 'gh#3'] }] })
+    expect(out.record.steps[0]!.refs).toEqual(['gh#1', 'gh#2', 'gh#3'])
+    expect(out.record.groups[0]!.refs).toEqual([])
+    /* What a host lists under the part is what it listed before. */
+    expect(partsOf(out.record)[0]!.refs).toEqual(['gh#1', 'gh#2', 'gh#3'])
+    expect(out.findings.map((one) => one.code)).toEqual(['refs'])
+  })
+
+  test('the parts come out in the steps’ order, and it is said when that is not the order they were listed in', () => {
+    const out = simple({
+      steps: [step('First', 'b'), step('Second', 'a')],
+      groups: [{ id: 'a', heading: 'A', refs: [] }, { id: 'b', heading: 'B', refs: [] }],
+    })
+    expect(out.record.groups.map((group) => group.id)).toEqual(['b', 'a'])
+    expect(out.findings).toEqual([{ code: 'order', said: 'The parts are in the steps’ order now, which is not the order they were listed in: b, a.' }])
+  })
+
+  test('what a part or a step carried that nobody here knows is still on it', () => {
+    const out = simple({
+      steps: [{ ...step('One', 'a'), estimate: { days: 2 } }, { ...step('Two'), colour: 'teal' }],
+      groups: [{ id: 'a', heading: 'A', refs: [], collapsed: true }],
+    })
+    expect(out.record.steps[0]).toMatchObject({ estimate: { days: 2 } })
+    expect(out.record.steps[1]).toMatchObject({ colour: 'teal' })
+    expect(out.record.groups[0]).toMatchObject({ collapsed: true })
+  })
+
+  test('more steps than a host lists parts: every one is kept, and it is said', () => {
+    const steps = Array.from({ length: LIMITS.PARTS + 6 }, (_, i) => step(`Step number ${i + 1}`))
+    const out = simple({ steps, groups: [] as { id: string }[] })
+    expect(out.record.steps).toHaveLength(LIMITS.PARTS + 6)
+    expect(picker(out.record)).toHaveLength(LIMITS.PARTS)
+    expect(out.findings.find((one) => one.code === 'beyond')?.said).toContain(`steps ${LIMITS.PARTS + 1} to ${LIMITS.PARTS + 6} cannot be picked there`)
   })
 })
 
-describe('get_journey says the parts', () => {
-  test('each part’s id, what is in it, and which steps are in none', () => {
-    const { call } = project()
-    const said = call('get_journey', { slug: 'divided' })
-    expect(said).toContain('the-agent-seam\t“The agent seam”\t2 refs\tno steps')
-    expect(said).toContain('what-the-page-shows\t“What the page shows”\t1 ref\tsteps 2')
-    expect(said).toContain('IN NO PART: 2 steps of 3 — 1, 3')
-    /* The document is still there, whole, after the lines. */
-    expect(JSON.parse(said.slice(said.indexOf('{'))).steps[1].part).toBe('what-the-page-shows')
+/* ------------------------------------------------------------------ *
+ * Headings that were never parts
+ * ------------------------------------------------------------------ */
+
+describe('a heading with references under it, from before parts', () => {
+  /* The shape of every journey this app ships, and of the ones in the
+     projects it was first used on: headings nobody wrote an id on, covering
+     no file, with no step filed under them. */
+  const legacy = {
+    steps: [step('The one path that writes in public has a gate on it', undefined, ['gh#1']), step('The claim ledger is safe to be wrong about', undefined, ['gh#3'])],
+    groups: [{ heading: 'The posting seam', refs: ['gh#1', 'gh#3', 'gh#2'] }, { heading: 'The agent seam', refs: ['gh#4'] }],
+    stepsFrom: undefined,
+  }
+
+  test('is not made a step: the journey keeps the steps it has, each one a part', () => {
+    const out = simple(legacy)
+    expect(out.record.steps.map((one) => one.title)).toEqual(legacy.steps.map((one) => one.title))
+    expect(picker(out.record).map((part) => part.heading)).toEqual(legacy.steps.map((one) => one.title))
   })
 
-  test('and nothing at all about parts for a journey that has none', () => {
-    const { call } = project()
-    expect(call('get_journey', { slug: 'plain' }).startsWith('{')).toBe(true)
-  })
-})
-
-describe('assign_steps', () => {
-  test('files several steps at once and rewrites none of them', () => {
-    const { on, call } = project()
-    expect(call('assign_steps', { slug: 'divided', part: 'the-agent-seam', positions: [1, 3] })).toBe(
-      'Put 2 steps in “The agent seam” (the-agent-seam). Every step is in a part.',
-    )
-    expect(on().steps.map((one) => one.part)).toEqual(['the-agent-seam', 'what-the-page-shows', 'the-agent-seam'])
-    expect(on().steps[0]).toMatchObject({ title: 'One', body: 'first', refs: ['gh#1'] })
-    expect(on().groups[0]!).toMatchObject({ id: 'the-agent-seam' })
+  test('is kept in the record, references and all, under `headings`', () => {
+    const out = simple(legacy)
+    expect(out.record.headings).toEqual(legacy.groups)
+    expect(out.gone).toEqual(['the-posting-seam', 'the-agent-seam'])
+    expect(out.findings.map((one) => one.code)).toEqual(['unfiled', 'aside'])
+    expect(out.findings[1]!.said).toContain('“The posting seam”, “The agent seam” were headings')
+    expect(out.fates.map((fate) => [fate.was, fate.now, fate.how])).toEqual([
+      ['the-posting-seam', null, 'aside'],
+      ['the-agent-seam', null, 'aside'],
+    ])
   })
 
-  test('an empty part takes them out, and says how many are left in none', () => {
-    const { on, call } = project()
-    expect(call('assign_steps', { slug: 'divided', part: '', positions: [2] })).toBe(
-      'Took 1 step out of every part. 3 steps of 3 still in no part.',
-    )
-    expect(on().steps.some((one) => 'part' in one)).toBe(false)
+  test('and is added to the ones already set aside, never over them', () => {
+    const once = simple(legacy).record
+    const again = simple({ ...once, groups: [...once.groups, { heading: 'A third', refs: ['gh#7'] }] })
+    expect((again.record.headings as { heading: string }[]).map((one) => one.heading)).toEqual(['The posting seam', 'The agent seam', 'A third'])
   })
 
-  test('refuses an unknown part, a position that is not a step, and a journey with no parts', () => {
-    const { file, call } = project()
-    const before = readFileSync(file, 'utf8')
-    expect(call('assign_steps', { slug: 'divided', part: 'nope', positions: [1] })).toContain('Its parts are')
-    expect(call('assign_steps', { slug: 'divided', part: 'the-agent-seam', positions: [1, 9] })).toContain('9 is not among them')
-    expect(call('assign_steps', { slug: 'plain', part: 'anything', positions: [1] })).toContain('not divided into parts at all')
-    expect(readFileSync(file, 'utf8')).toBe(before)
+  test('with the other choice, it is made a step like any part with none', () => {
+    const out = simple(legacy, { headings: 'steps' })
+    expect(out.record.steps).toHaveLength(4)
+    expect(out.record.headings).toBeUndefined()
+    expect(out.gone).toEqual([])
   })
 
-  test('the page’s door is the same function, behind the ticket', () => {
-    const { root, on, post } = project()
-    const reply = post('/api/assign', { slug: 'divided', positions: [1], part: 'the-agent-seam' })
-    expect(reply?.status).toBe(200)
-    expect((reply?.body as { said: string }).said).toContain('Put 1 step in “The agent seam”')
-    expect(on().steps[0]!.part).toBe('the-agent-seam')
-    const blind = answer('POST', '/api/assign', new URLSearchParams(), { project: root, slug: 'divided', positions: [3], part: 'the-agent-seam' }, 'guessed')
-    expect(blind?.status).toBe(403)
-    expect(on().steps[2]!.part).toBeUndefined()
-  })
-})
-
-describe('set_part and remove_part', () => {
-  test('makes a part in a journey that had none, and answers with its id', () => {
-    const { on, call } = project()
-    expect(call('set_part', { slug: 'plain', heading: 'Reading the trackers' })).toBe(
-      'Made the part “Reading the trackers”, with the id reading-the-trackers. No step is in it yet: file steps under that id.',
-    )
-    expect(on('plain').groups).toEqual([{ heading: 'Reading the trackers', refs: [], id: 'reading-the-trackers' }])
+  test('a heading somebody MADE a part — an id written on it, or a file — is a part, step or no step', () => {
+    const out = simple({ steps: [step('One')], groups: [{ id: 'future-work', heading: 'Future work', refs: [] }, { heading: 'Appendix', refs: [], files: ['x.tex'] }] })
+    expect(out.record.steps.map((one) => one.part)).toEqual(['one', 'future-work', 'appendix'])
+    expect(out.record.headings).toBeUndefined()
   })
 
-  test('rewords a part without moving its id, so the steps in it stay in it', () => {
-    const { on, call } = project()
-    expect(call('set_part', { slug: 'divided', id: 'what-the-page-shows', heading: 'What a person sees' })).toContain(
-      '“What the page shows” is now called “What a person sees”. Its id is still what-the-page-shows',
-    )
-    expect(on().groups[1]).toEqual({ heading: 'What a person sees', refs: ['gh#3'], colour: 'teal', id: 'what-the-page-shows' })
-    expect(partsOf(on())[1]).toMatchObject({ id: 'what-the-page-shows', heading: 'What a person sees', steps: 1 })
+  test('a journey whose steps are kept elsewhere is given no step: its headings are set aside', () => {
+    const out = simple({ steps: [], stepsFrom: { projector: 'paper', where: 'paper/x.tex' }, groups: [{ id: 'a', heading: 'A', refs: ['gh#1'], files: ['a.tex'] }] })
+    expect(out.record.steps).toEqual([])
+    expect(out.record.groups).toEqual([])
+    expect(out.record.headings).toEqual([{ id: 'a', heading: 'A', refs: ['gh#1'], files: ['a.tex'] }])
+    expect(out.findings.map((one) => one.code)).toEqual(['elsewhere'])
   })
 
-  test('removes a part, keeps every step, and says what went', () => {
-    const { on, call } = project()
-    const said = call('remove_part', { slug: 'divided', id: 'what-the-page-shows' })
-    expect(said).toBe(
-      'Removed the part “What the page shows” (what-the-page-shows). Its 1 step stays in the journey and becomes '
-        + 'unassigned (in no part); the 1 reference listed under its heading goes with it, all still named by a step. '
-        + 'No step is deleted.',
-    )
-    expect(on().steps.map((one) => one.title)).toEqual(['One', 'Two', 'Three'])
-    expect(on().steps.some((one) => 'part' in one)).toBe(false)
-    expect(partsOf(on()).map((part) => part.id)).toEqual(['the-agent-seam'])
-  })
-
-  test('each refuses what it cannot do, in words, and writes nothing', () => {
-    const { file, call, post } = project()
-    const before = readFileSync(file, 'utf8')
-    expect(call('set_part', { slug: 'divided', heading: 'The agent seam' })).toContain('already has a part called')
-    expect(call('set_part', { slug: 'divided', id: 'nope', heading: 'Anything' })).toContain('Its parts are')
-    expect(call('remove_part', { slug: 'divided', id: 'nope' })).toContain('Its parts are')
-    expect(call('set_part', { slug: 'no-such-journey', heading: 'Anything' })).toContain('does not hold a journey')
-    expect(post('/api/part', { slug: 'divided', heading: '' })?.status).toBe(400)
-    expect(post('/api/part/remove', { slug: 'no-such-journey', id: 'x' })?.status).toBe(404)
-    expect(readFileSync(file, 'utf8')).toBe(before)
-  })
-
-  test('the page’s doors answer with the journey and the sentence', () => {
-    const { post } = project()
-    const made = post('/api/part', { slug: 'divided', heading: 'Later' })?.body as { id: string; said: string; journey: { groups: unknown[] } }
-    expect(made.id).toBe('later')
-    expect(made.journey.groups).toHaveLength(3)
-    const gone = post('/api/part/remove', { slug: 'divided', id: 'later' })?.body as { said: string; journey: { groups: unknown[] } }
-    expect(gone.said).toContain('No step is in it; it lists no references. No step is deleted.')
-    expect(gone.journey.groups).toHaveLength(2)
+  test('a journey with no steps and no parts is simple as it is', () => {
+    expect(simple({ steps: [], groups: [] }).changed).toBe(false)
   })
 })
 
-describe('a part’s files, through both doors', () => {
-  test('set_part writes the tidied names onto the group and says them back', () => {
-    const { on, call } = project()
-    expect(call('set_part', { slug: 'divided', id: 'the-agent-seam', files: ['./chapters/seam.tex', ' chapters/agents.tex '] })).toBe(
-      'Kept “The agent seam” (the-agent-seam). It owns 2 files of the paper, named from the paper’s folder: '
-        + 'chapters/seam.tex, chapters/agents.tex.',
-    )
-    expect(on().groups[0]).toEqual({ heading: 'The agent seam', refs: ['gh#1', 'gh#2'], id: 'the-agent-seam', files: ['chapters/seam.tex', 'chapters/agents.tex'] })
-    /* The other group, and what it carries that this app does not name, untouched. */
-    expect(on().groups[1]).toEqual({ heading: 'What the page shows', refs: ['gh#3'], colour: 'teal' })
+/* ------------------------------------------------------------------ *
+ * Keeping a record simple
+ * ------------------------------------------------------------------ */
+
+const EMPTY: Divided = { steps: [], groups: [] }
+
+describe('writing a record that is one step to a part', () => {
+  const base = simple(THESIS).record
+
+  test('a step added is given its part: an id from its title, called by its title, covering nothing', () => {
+    const out = withStep(base, base.steps.length, step('A reader can check the instruments'))
+    expect(out.steps).toHaveLength(8)
+    expect(out.groups[7]).toEqual({ heading: 'A reader can check the instruments', refs: [], id: 'a-reader-can-check-the-instruments' })
+    expect(isSimple(out)).toBe(true)
   })
 
-  test('absent leaves them, a rename leaves them, and an empty list removes the key', () => {
-    const { on, call } = project()
-    call('set_part', { slug: 'divided', id: 'the-agent-seam', files: ['chapters/seam.tex'] })
-    call('set_part', { slug: 'divided', id: 'the-agent-seam', heading: 'The seam', refs: ['gh#1'] })
-    expect(on().groups[0]).toMatchObject({ heading: 'The seam', refs: ['gh#1'], files: ['chapters/seam.tex'] })
-    expect(call('set_part', { slug: 'divided', id: 'the-agent-seam', files: [] })).toBe('Kept “The seam” (the-agent-seam). It owns no file of the paper.')
-    expect(Object.hasOwn(on().groups[0]!, 'files')).toBe(false)
+  test('a long title makes a short id, cut at a word', () => {
+    const id = idFor('A reader could repeat the study, and knows what each research question was measured with', [])
+    expect(id).toBe('a-reader-could-repeat-the-study-and')
+    expect(id.length).toBeLessThanOrEqual(40)
+    expect(idFor('…', [], 4)).toBe('step-4')
+    expect(idFor('Methods', ['methods', 'methods-2'])).toBe('methods-3')
   })
 
-  test('a name that is not a file’s is refused by name, and the file is as it was', () => {
-    const { file, call, post } = project()
-    const before = readFileSync(file, 'utf8')
-    const said = call('set_part', { slug: 'divided', id: 'the-agent-seam', files: ['chapters/seam.tex', '../../etc/passwd'] })
-    expect(said).toContain('"../../etc/passwd" is not a name a part can hold for a file')
-    expect(call('set_part', { slug: 'divided', id: 'the-agent-seam', files: 'chapters/seam.tex' })).toContain('are a list of names')
-    const refused = post('/api/part', { slug: 'divided', id: 'the-agent-seam', files: ['/abs/olute.tex'] })
-    expect(refused?.status).toBe(400)
-    expect((refused?.body as { error: string }).error).toContain('"/abs/olute.tex" is not a name')
-    const many = Array.from({ length: LIMITS.PART_FILES + 1 }, (_, i) => `c/${i}.tex`)
-    expect(call('set_part', { slug: 'divided', id: 'the-agent-seam', files: many })).toContain(`at most ${LIMITS.PART_FILES} files`)
-    expect(readFileSync(file, 'utf8')).toBe(before)
+  test('a step replaced keeps its part — the id, the name somebody gave, the file', () => {
+    const out = withStep(base, 2, { ...step('Reworded entirely') })
+    expect(out.steps[2]!.part).toBe('methods')
+    expect(out.groups[2]).toEqual(base.groups[2])
   })
 
-  test('the page’s door takes the list without a heading and answers with what was kept', () => {
-    const { on, post } = project()
-    const reply = post('/api/part', { slug: 'divided', id: 'what-the-page-shows', files: ['./chapters/page.tex'] })
-    expect(reply?.status).toBe(200)
-    const body = reply?.body as { said: string; journey: { groups: { files?: string[]; heading: string }[] } }
-    expect(body.journey.groups[1]).toMatchObject({ heading: 'What the page shows', files: ['chapters/page.tex'] })
-    expect(body.said).toContain('chapters/page.tex')
-    expect(on().groups[1]).toEqual({ heading: 'What the page shows', refs: ['gh#3'], colour: 'teal', id: 'what-the-page-shows', files: ['chapters/page.tex'] })
-    /* `null` is JSON's "not given", and leaves them. */
-    post('/api/part', { slug: 'divided', id: 'what-the-page-shows', heading: 'Seen', files: null })
-    expect(on().groups[1]).toMatchObject({ heading: 'Seen', files: ['chapters/page.tex'] })
+  test('a name that was only ever the title follows the title', () => {
+    const one = withStep(EMPTY, 0, step('First wording'))
+    expect(one.groups[0]!.heading).toBe('First wording')
+    const two = withStep(one, 0, step('Second wording'))
+    expect(two.groups[0]).toEqual({ heading: 'Second wording', refs: [], id: 'first-wording' })
   })
 
-  test('a file two parts own is allowed, and said', () => {
-    const { on, call } = project()
-    call('set_part', { slug: 'divided', id: 'the-agent-seam', files: ['chapters/shared.tex'] })
-    const said = call('set_part', { slug: 'divided', id: 'what-the-page-shows', files: ['chapters/shared.tex'] })
-    expect(said).toContain('chapters/shared.tex is also owned by “The agent seam”')
-    expect(on().groups.map((group) => group.files)).toEqual([['chapters/shared.tex'], ['chapters/shared.tex']])
+  test('a step removed takes its part with it, and the others keep theirs', () => {
+    const out = withoutStep(base, 2)
+    expect(out.groups.map((group) => group.id)).toEqual(['introduction', 'literature-review', 'results', 'discussion', 'conclusion', 'appendices'])
+    expect(isSimple(out)).toBe(true)
   })
 
-  test('get_journey prints each part’s files, and says where the names are counted from', () => {
-    const { call } = project()
-    expect(call('get_journey', { slug: 'divided' })).toContain('No part names a file of the paper yet')
-    call('set_part', { slug: 'divided', id: 'what-the-page-shows', files: ['chapters/page.tex', 'figures/page.tex'] })
-    const said = call('get_journey', { slug: 'divided' })
-    expect(said).toContain('what-the-page-shows\t“What the page shows”\t1 ref\tsteps 2\tfiles chapters/page.tex, figures/page.tex')
-    /* A part with none prints the four columns it always printed. */
-    expect(said).toContain('the-agent-seam\t“The agent seam”\t2 refs\tno steps\n')
-    expect(said).toContain('(.kehikot/paper/divided/)')
+  test('naming a part, and clearing the name back to the title', () => {
+    const titled = withStep(EMPTY, 0, step('A long title for a step'))
+    const namedOne = withPart(titled, 0, { name: '  Short  ' })
+    expect(namedOne.ok && namedOne.record.groups[0]!.heading).toBe('Short')
+    const cleared = namedOne.ok ? withPart(namedOne.record, 0, { name: '' }) : namedOne
+    expect(cleared.ok && cleared.record.groups[0]!.heading).toBe('A long title for a step')
   })
 
-  test('the tool says the field, its form and an example', () => {
-    const tools = (
-      answer('POST', '/mcp', new URLSearchParams(), { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)?.body as {
-        result: { tools: { name: string; description: string; inputSchema: { required: string[]; properties: Record<string, unknown> } }[] }
-      }
-    ).result.tools
-    const setPart = tools.find((tool) => tool.name === 'set_part')!
-    expect(Object.keys(setPart.inputSchema.properties)).toContain('files')
-    expect(setPart.description).toContain('chapters/design.tex')
-    expect(setPart.description).toContain('relative to the paper’s folder')
-    expect(setPart.inputSchema.required).toEqual(['project', 'slug'])
+  test('giving a part its file, taking it away, and leaving it alone', () => {
+    const given = withPart(base, 6, { file: './chapters/b_appendix.tex' })
+    expect(given.ok && given.record.groups[6]!.files).toEqual(['chapters/b_appendix.tex'])
+    const none = withPart(base, 6, { file: '' })
+    expect(none.ok && Object.hasOwn(none.record.groups[6]!, 'files')).toBe(false)
+    const left = withPart(base, 6, { name: 'Appendix' })
+    expect(left.ok && left.record.groups[6]!.files).toEqual(['chapters/appendix_instruments.tex'])
   })
-})
 
-describe('the first step of a journey that has none', () => {
-  test('is a write to position one, which the page can now make', () => {
-    const { on, post } = project()
-    expect(post('/api/step', { slug: 'plain', position: 1, title: 'The first thing', body: '', refs: [], notes: [] })?.status).toBe(200)
-    expect(on('plain').steps.map((one) => one.title)).toEqual(['The first thing'])
+  test('a file another step has is refused, naming the step — a file belongs to one part', () => {
+    const out = withPart(base, 6, { file: 'chapters/3_methods.tex' })
+    expect(out.ok).toBe(false)
+    expect(!out.ok && out.error).toContain('chapters/3_methods.tex is the document of step 3')
+  })
+
+  test('a name that is not a file’s is refused, by name', () => {
+    for (const bad of ['../outside.tex', '/abs/path.tex', 'a//b.tex']) {
+      const out = fileGiven(bad)
+      expect(out.ok).toBe(false)
+      expect(!out.ok && out.error).toContain(`"${bad}" is not a name a part can hold for a document`)
+    }
+    expect(fileGiven(null)).toEqual({ ok: true, file: null })
+  })
+
+  test('`mirrored` is not the migration: it keeps one group to a step and nothing else', () => {
+    const out = mirrored({ steps: [step('One', 'a')], groups: [{ id: 'a', heading: 'A', refs: [] }, { id: 'b', heading: 'B', refs: [] }] })
+    expect(out.groups.map((group) => group.id)).toEqual(['a'])
   })
 })
