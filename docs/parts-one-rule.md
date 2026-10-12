@@ -198,3 +198,39 @@ local `main` was read).
 - Reading an older record never writes; it is read as one step to a part.
   The first deliberate write stores it and keeps the record as it was in
   `journeys.before-parts.json`.
+
+## What the change after it built (Journeys on protocol 1.2.0)
+
+The protocol and the host sections above have shipped (protocol 1.2.0; the
+host from app 0.1.17). This is what Journeys does about them.
+
+- **Who keeps the list is decided in one place**, `keeper.ts`: the host,
+  exactly when the epic's own file has a `parts` key — the host's own test —
+  and otherwise this app, in the record's `groups`, as before. Where the host
+  keeps it, `groups` is neither written nor read, and whatever is in the
+  record stays as it is; where this app does, every write is the one it was.
+- **A step asks the host for its part.** A new step, a part's name, a step
+  moved and a step removed each ask `parts.set` from the press. A host from
+  before the method answers that it does not know it, nothing has changed
+  anywhere, and the write that follows is the old one.
+- **The host first for a new step, the store first for a removed one.** A step
+  is never written pointing at a part that was not made: this app's store
+  refuses an id the host does not list. A host that declines leaves the step
+  kept, in no part; a store that fails after the host made the part leaves a
+  part with no step, and Save again files the step under it.
+- **The two edges of a list somebody else edits.** A step whose part was
+  removed in the picker is a step in no part: drawn with nothing picked,
+  hidden under a pick, and its editor offers to make it a part again. A part
+  added in the picker has nothing drawn for it until its step is written,
+  which one quiet control beside "add a step" offers.
+- **What a step holds for its part is published** — its references, in
+  `.kehikot/journeys/parts.json` (`writeHoldings`) — after every write of a
+  journey and never on a read.
+- **Nothing here knows the Paper module.** `paper.ts`, `chapters.ts`, the
+  chapter field, `/api/chapters`, `/api/steps/chapters` and "a step for each
+  chapter" are gone. A document an earlier version recorded on a group is
+  carried and never set.
+- **One rule, one sentence.** Steps are narrowed with
+  `useFocus(context).narrow(steps, anchorOf, { noun: 'step', keep })`, and an
+  empty view says the protocol's `empty`. The standing "Framed, reading …"
+  paragraph above the journey is gone.

@@ -12,19 +12,25 @@ import { LIMITS, PART_ID, partFile, slugFrom, stepPart } from 'kehikot-module-pr
  * and nothing here files, assigns or arranges: writing a step makes its part
  * and removing the step takes the part with it.
  *
- * ## Why the list of parts is still written in this app's record
+ * ## Who keeps the list, and so who this file is for
  *
- * Because that is the only place a released host reads it. A host (through
- * 1.0 of the protocol) reads an epic's parts out of this record's `groups` —
- * `{ id, heading, refs, files }` — and counts a step into a part when the
- * step's `part` names the group's id. So the record keeps `groups`, one for
- * each step, in the steps' order, and it is held to that by `mirrored` on
- * every write. A group carries what is the part's and not the step's: its
- * name (`heading`) and the one document the part covers (`files`, zero or
- * one). Nothing in this file reads what the document IS; it is a name.
+ * The list of parts is the epic's, and a host from protocol 1.2.0 keeps it in
+ * the epic's own file. A host from before that reads it out of this app's
+ * record instead: its `groups` — `{ id, heading, refs, files }` — counting a
+ * step into a part when the step's `part` names the group's id. `keeper.ts`
+ * says which of the two is true of an epic.
  *
- * The day a host keeps the list with the epic itself, `groups` stops being
- * written here and this file shrinks to the first paragraph.
+ * Everything below the first two functions is for the second case and for
+ * nothing else: the record keeps `groups`, one for each step, in the steps'
+ * order, held to that by `mirrored` on every write, and each new part's id is
+ * made here (`idFor`). A group carries what is the part's and not the step's:
+ * its name (`heading`) and, where an earlier version wrote one, the document
+ * the part covered (`files`). That document is carried and never set here any
+ * more: what a part's document is belongs to whichever module keeps it.
+ *
+ * Where the host keeps the list none of it runs. A step's `part` is an id the
+ * host made, `groups` is left exactly as it is in the record — unread and
+ * unwritten — and the only arithmetic is on the steps (`doors.ts`).
  *
  * ## Everything here is arithmetic
  *
@@ -61,9 +67,6 @@ export interface Divided<S extends PartStep = PartStep, G extends PartGroup = Pa
 }
 
 export type Refused = { ok: false; error: string }
-
-/** One example of a part's document, said wherever a person or an agent is asked for one. */
-export const FILE_EXAMPLE = 'chapters/design.tex'
 
 function shortened(text: string, max = 80): string {
   return text.length > max ? `${text.slice(0, max)}…` : text
@@ -574,31 +577,6 @@ export function mirrored<R extends Divided>(record: R): R {
   return { ...record, steps, groups } as R
 }
 
-/**
- * The one document somebody gave for a part, in the form it is stored in — or
- * a sentence saying why it is not one. `null` is "none".
- *
- * The form is the protocol's (`partFile`): a path relative to the folder the
- * epic's documents are kept in, with forward slashes and its extension. What
- * is NOT checked is that the file exists: a part may be given its document
- * before it is written, and this function opens nothing.
- */
-export function fileGiven(raw: unknown): { ok: true; file: string | null } | Refused {
-  if (raw === null || raw === undefined || raw === '') return { ok: true, file: null }
-  const file = partFile(raw)
-  if (file === null) {
-    const shown = typeof raw === 'string' ? `"${shortened(raw)}"` : shortened(JSON.stringify(raw) ?? String(raw))
-    return {
-      ok: false,
-      error:
-        `${shown} is not a name a part can hold for a document. It is a path with forward slashes and its extension — `
-        + `${FILE_EXAMPLE} — not absolute, with no ".." or empty segment in it, and at most ${LIMITS.PART_FILE} characters. `
-        + 'Nothing was changed.',
-    }
-  }
-  return { ok: true, file }
-}
-
 /** The zero-based position of the step that is the step of part `id`, or -1. */
 export function stepOfPart(record: Divided, id: string): number {
   return record.steps.findIndex((step) => stepPart(step) === id)
@@ -616,20 +594,12 @@ export function notAStep(record: Divided, id: string): string {
 export type Parted<R> = { ok: true; record: R; id: string } | Refused
 
 /**
- * Say what the part of the step at `at` (zero-based) is called and which
- * document it covers. `name` and `file` are each three-valued: `undefined`
- * leaves it, `''`/`null` clears it (the name falls back to the step's title;
- * the part covers nothing), a value sets it.
- *
- * Refused: a document that is not a name, and a document another part of this
- * journey covers — a document belongs to one part, and taking it silently
- * would be one press changing two steps.
+ * Say what the part of the step at `at` (zero-based) is called. `name` is
+ * three-valued: `undefined` leaves it, `''`/`null` clears it (the name falls
+ * back to the step's title), a value sets it. The document a part may carry
+ * from an earlier version stays as it is.
  */
-export function withPart<R extends Divided>(
-  record: R,
-  at: number,
-  given: { name?: string | null; file?: unknown },
-): Parted<R> {
+export function withPart<R extends Divided>(record: R, at: number, given: { name?: string | null }): Parted<R> {
   const base = mirrored(record)
   const group = base.groups[at]
   const step = base.steps[at]
@@ -638,23 +608,6 @@ export function withPart<R extends Divided>(
   if (given.name !== undefined) {
     const said = (given.name ?? '').trim().slice(0, LIMITS.TITLE)
     next = { ...next, heading: said || headingFrom(step.title ?? '') }
-  }
-  if (given.file !== undefined) {
-    const read = fileGiven(given.file)
-    if (!read.ok) return read
-    if (read.file !== null) {
-      const other = base.groups.findIndex((one, i) => i !== at && filesOf(one)[0] === read.file)
-      if (other >= 0) {
-        return {
-          ok: false,
-          error:
-            `${read.file} is the document of step ${other + 1} (“${shortened(base.steps[other]?.title ?? '')}”), and a document `
-            + 'belongs to one part. Take it off that step first. Nothing was changed.',
-        }
-      }
-    }
-    const { files: _files, ...rest } = next
-    next = read.file === null ? rest : { ...rest, files: [read.file] }
   }
   const groups = base.groups.map((one, i) => (i === at ? next : one))
   return { ok: true, record: { ...base, groups } as R, id: group.id as string }
@@ -678,6 +631,21 @@ export function withStep<R extends Divided>(record: R, at: number, step: PartSte
     i === at && follows ? { ...group, heading: headingFrom(step.title ?? '') || group.heading } : group,
   )
   return { ...base, steps, groups } as R
+}
+
+/**
+ * The record with the step at `from` (zero-based) moved to `to`. Its part
+ * moves with it: the parts are in the steps' order.
+ */
+export function withStepMoved<R extends Divided>(record: R, from: number, to: number): R {
+  const base = mirrored(record)
+  const moved = <T,>(list: readonly T[]): T[] => {
+    const out = [...list]
+    const [one] = out.splice(from, 1)
+    out.splice(to, 0, one as T)
+    return out
+  }
+  return { ...base, steps: moved(base.steps), groups: moved(base.groups) } as R
 }
 
 /** The record without the step at `at` (zero-based). Its part goes with it. */

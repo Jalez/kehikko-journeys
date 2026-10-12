@@ -73,7 +73,7 @@ describe('the page, under a host', () => {
     expect(wire.getSnapshot().where).toBe('hosted')
   })
 
-  test('hosted with a project and no epic: the no-epic cover stands where the status line stood', async () => {
+  test('hosted with a project and no epic: the no-epic cover, and no line of this page’s own beside it', async () => {
     const host = stubHost()
     host.greet([], { projectPath: `${PROJECT}-no-epic`, epic: null })
     await settle()
@@ -87,7 +87,9 @@ describe('the page, under a host', () => {
     await settle()
     await settle()
     expect(cover()).toBeNull()
-    expect(document.body.textContent).toContain('Framed, reading probe')
+    /* Nothing stands above the journey: the paragraph that opened every framed page is gone. */
+    expect(document.body.textContent).not.toContain('Framed, reading')
+    expect(document.querySelector('article h2')?.textContent).toBe('A journey')
     /* The host's theme is on the document, put there by the protocol's `applyTheme`. */
     expect(document.documentElement.classList.contains('light')).toBe(true)
   })

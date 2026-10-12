@@ -4,8 +4,9 @@ import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'k
 
 import { Button } from '@/components/ui/button.tsx'
 
-import { saidOfNone, shownSteps, type Shown } from './focus.ts'
+import { NOUN, anchorOf, indexed, type Shown } from './focus.ts'
 import {
+  addTarget,
   begin,
   clearPick,
   getSnapshot,
@@ -16,9 +17,8 @@ import {
   reopenHeld,
   retry,
   setAdding,
-  stepsFromChapters,
+  stepless,
   subscribe,
-  type PaperChapters,
 } from './journeys.ts'
 import type { JourneyView, Live } from './kinds.ts'
 import { cardsUnder } from './live/lookup.ts'
@@ -28,7 +28,6 @@ import { NO_PROJECT_SAID, NoJourneys, Trouble, UNHOSTED_SAID } from './view/nowh
 import { Picker } from './view/picker.tsx'
 import { Prose } from './view/prose.tsx'
 import { ReadingProvider } from './view/reading.tsx'
-import { Sight } from './view/sight.tsx'
 import { StepBlock } from './view/step.tsx'
 
 /**
@@ -85,8 +84,24 @@ export function App() {
    * So everything below stays MOUNTED under a cover and is only hidden; Try again asks the server
    * and re-reads what is missing without touching a journey that is already on screen (`retry`).
    *
-   * "No epic" covers nothing: it stands where the status line stood, and what the project holds
-   * (or that it holds no journeys yet) is still said underneath.
+   * "No epic" covers nothing: what the project holds (or that it holds no journeys yet) is still
+   * said underneath.
+   *
+   * ## Nothing stands above the journey
+   *
+   * A bordered paragraph used to open every framed page here: "Framed, reading thesis." and four
+   * lines on whose the steps are and where the states beside the references come from. It was the
+   * same paragraph on every load, about 170 pixels of a container that is often 340 tall. It is
+   * gone, and each thing it said is said where it applies or not at all:
+   *
+   *  - that the host handed over no tracker reading, and why: beside each reference, by its own
+   *    badge (`withheld`), which already said it;
+   *  - that the trackers are being read again: in the line under the page, which is always there,
+   *    while it is true;
+   *  - that no epic is open: the cover's;
+   *  - that this project holds no journey for the open epic: the press that begins one, which
+   *    names the epic;
+   *  - what the page is and where a reading comes from: nowhere. It was an explanation.
    *
    * The cover is given no height. This page reports its content's height to the host (`grow`), and
    * a full-frame cover would be this page asking for the height it was given.
@@ -114,7 +129,6 @@ export function App() {
         marks: state.marks,
         hidden: state.hidden,
         unfolded: state.unfolded,
-        chapters: state.chapters,
       }}
     >
       <div className="mx-auto w-full max-w-[44rem] px-3 pt-3 pb-12 @min-[26rem]/container:px-4 @min-[26rem]/container:pt-4">
@@ -128,14 +142,6 @@ export function App() {
         )}
         <div hidden={whole} className={whole ? undefined : 'contents'}>
         <Head journey={state.journey} />
-        {cover === 'no-epic' ? null : <Sight
-          framed={state.framed}
-          refused={state.refused}
-          epic={state.epic}
-          journey={state.journey}
-          live={state.live}
-          busy={state.busy}
-        />}
         {!state.framed && <Picker index={state.index} journey={state.journey} />}
         {/*
          * Where the journeys are, before anything about which one is open.
@@ -154,11 +160,7 @@ export function App() {
             read again, and a file that would not parse has no honest answer
             to "is there a journey for this". */}
         {state.framed && !state.journey && !state.trouble && !state.nowhere && state.unwritten === state.epic && state.epic && (
-          <Begin
-            epic={state.epic}
-            busy={state.beginning}
-            chapters={state.chapters}
-          />
+          <Begin epic={state.epic} busy={state.beginning} />
         )}
         {state.journey && (
           <Journey
@@ -166,11 +168,11 @@ export function App() {
             live={state.live}
             editing={state.editing}
             adding={state.adding}
+            addingFor={state.addingFor}
             selection={state.selection}
             parts={state.parts}
+            projectPath={state.projectPath}
             framed={state.framed}
-            chapters={state.chapters}
-            busy={state.beginning}
           />
         )}
         {/* The one line this app uses to answer the reader. Polite rather than
@@ -196,13 +198,20 @@ export function App() {
           </section>
         )}
         <p aria-live="polite" className="mt-4 min-h-[1.4em] text-[0.82rem] text-muted-foreground">
-          {state.said}
+          {state.said || (state.busy && state.journey ? BUSY_SAID : '')}
         </p>
         </div>
       </div>
     </ReadingProvider>
   )
 }
+
+/**
+ * What the line under the page says while the trackers are being read again and nothing else is
+ * being answered: the states on screen are the reading before, and a reader comparing them with
+ * the tracker should know a newer one is on its way.
+ */
+export const BUSY_SAID = 'The trackers are being read again; the states shown are the reading before.'
 
 /** A held draft's words for reading: a step's four fields on their own lines, anything else as it is. */
 function wordsOf(text: string): string {
@@ -299,29 +308,22 @@ function Nothing({ state }: { state: ReturnType<typeof getSnapshot> }) {
  * else, for the reason at the top of `src/journeys.ts`: the components here
  * hold none.
  *
- * ## The presses, and nothing else
+ * ## The press, and nothing else
  *
  * This used to be a paragraph on what beginning a journey copies, and under
- * it a second section for dividing the epic into parts. A part is a step
- * now, so there is nothing to divide before there are steps; the paragraph
- * is the first press's tooltip; and that this project holds no journey for
- * the epic is already said at the top of the page. What is left costs one
- * line of a container that has few: the press that begins the journey from
- * what the host holds, and — for an epic whose paper pulls in chapter
- * files — the press that begins it with a step for each of them, which is
- * every part of a thesis from one press.
+ * it a second section for dividing the epic into parts. The paragraph is the
+ * press's tooltip, and that this project holds no journey for the epic is
+ * what the press itself says. What is left costs one line of a container
+ * that has few.
+ *
+ * There was a second press here, "begin it with a step for each of the
+ * paper's chapters". It read another module's folder to count them, and is
+ * gone with that read: a part's chapter is kept by the module that keeps the
+ * paper.
  *
  * `data-begin` is what a host's walk to the parts lands on; see `settleParts`.
  */
-/** How many chapters of the epic's paper have no step: what one press would make. */
-function freeChapters(chapters: PaperChapters | null, epic: string): number {
-  return chapters && chapters.slug === epic && chapters.paper ? chapters.chapters.filter((one) => one.part === null).length : 0
-}
-
-const chaptersSaid = (n: number) => (n === 1 ? 'the paper’s 1 chapter' : `each of the paper’s ${n} chapters`)
-
-function Begin({ epic, busy, chapters }: { epic: string; busy: boolean; chapters: PaperChapters | null }) {
-  const free = freeChapters(chapters, epic)
+function Begin({ epic, busy }: { epic: string; busy: boolean }) {
   return (
     <section data-begin className="mt-3 flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1.5 text-[0.85rem] leading-6">
       <Button
@@ -334,11 +336,6 @@ function Begin({ epic, busy, chapters }: { epic: string; busy: boolean; chapters
       >
         {busy ? 'beginning…' : `begin the journey for ${epic}`}
       </Button>
-      {free > 0 && (
-        <Button type="button" variant="outline" size="container" data-make="chapters" disabled={busy} onClick={() => void stepsFromChapters()}>
-          begin it with a step for {chaptersSaid(free)}
-        </Button>
-      )}
     </section>
   )
 }
@@ -355,27 +352,33 @@ function Journey({
   live,
   editing,
   adding,
+  addingFor,
   selection,
   parts,
+  projectPath,
   framed,
-  chapters,
-  busy,
 }: {
   journey: JourneyView
   live: Live | null
   editing: number
   adding: boolean
+  addingFor: string | null
   selection: readonly string[]
   parts: readonly EpicPart[]
+  projectPath: string | null
   framed: boolean
-  chapters: PaperChapters | null
-  busy: boolean
 }) {
-  /* Worked out once, here, and handed to both things that act on "the steps":
-     the pair of presses above them and the list itself. Two filters would be
-     a "pick every step" that picked steps nobody can see. */
-  const focus = useFocus({ parts })
-  const shown = journey.plan === 'stored' ? shownSteps(focus.parts, journey.steps, editing) : []
+  /* The one rule, applied by the protocol: a step is shown when the part it
+     is the step of is picked, or when nothing is. Worked out once, here, and
+     handed to both things that act on "the steps": the pair of presses above
+     them and the list itself. Two filters would be a "pick every step" that
+     picked steps nobody can see. The step whose editor is open is kept. */
+  const focus = useFocus({ parts, epic: journey.slug, projectPath })
+  const narrowedTo = focus.narrow(journey.plan === 'stored' ? indexed(journey.steps) : [], anchorOf, {
+    noun: NOUN,
+    keep: ({ index }) => index === editing,
+  })
+  const shown = narrowedTo.shown
   const narrowed = focus.focused
   const meta = [
     journey.umbrella ? `umbrella ${journey.umbrella}` : '',
@@ -406,12 +409,11 @@ function Journey({
         shown={shown}
         editing={editing}
         adding={adding}
+        addingFor={addingFor}
         narrowed={narrowed}
-        none={narrowed && shown.length === 0 ? saidOfNone(focus.parts) : null}
+        none={narrowedTo.empty || null}
         selection={selection}
         framed={framed}
-        free={freeChapters(chapters, journey.slug)}
-        busy={busy}
       />
     </article>
   )
@@ -506,12 +508,11 @@ function Plan({
   shown,
   editing,
   adding,
+  addingFor,
   narrowed,
   none,
   selection,
   framed,
-  free,
-  busy,
 }: {
   journey: JourneyView
   /** The steps to draw, each with its own position in the journey. See `focus.ts`. */
@@ -519,17 +520,17 @@ function Plan({
   editing: number
   /** The editor for a step that is not written yet is open. */
   adding: boolean
+  /** The part that step is for, when it is for one the host lists and that has none. */
+  addingFor: string | null
   /** The host says some parts are picked, so not every step is drawn. */
   narrowed: boolean
-  /** The one sentence for a journey the picked parts left no step of, or null. Nothing else is said about a focus. */
+  /** The protocol's one sentence for a journey the picked parts left no step of, or null. Nothing else is said about a focus. */
   none: string | null
   selection: readonly string[]
   framed: boolean
-  /** How many chapters of the epic's paper have no step: what one press would make. */
-  free: number
-  /** A journey is being begun, or steps are being made. */
-  busy: boolean
 }) {
+  /* The parts the host lists that have no step: offered where a step is added. */
+  const free = stepless(journey)
   if (journey.plan === 'elsewhere' && journey.stepsFrom) {
     const from = journey.stepsFrom
     return (
@@ -556,16 +557,7 @@ function Plan({
           No steps have been written for this journey yet. Nothing is hidden and nothing is elsewhere — there simply
           are none.
         </p>
-        <Adding at={1} open={adding} first>
-          {/* Every part of an epic with a paper, from one press: a step for
-              each chapter the paper pulls in. Offered here and where a journey
-              is begun, the two places there are no steps yet. */}
-          {free > 0 && !adding && (
-            <Button type="button" variant="outline" size="container" data-make="chapters" disabled={busy} onClick={() => void stepsFromChapters()}>
-              a step for {chaptersSaid(free)}
-            </Button>
-          )}
-        </Adding>
+        <Adding at={1} open={adding} forPart={addingFor} free={free} first />
       </>
     )
   }
@@ -605,7 +597,7 @@ function Plan({
       {/* Not under a focus. A step written here is a part of its own, which
           is not one of the picked ones: it would vanish the moment it is
           saved — kept, but a strange answer to "add a step". */}
-      {!narrowed && <Adding at={journey.steps.length + 1} open={adding} />}
+      {!narrowed && <Adding at={journey.steps.length + 1} open={adding} forPart={addingFor} free={free} />}
     </>
   )
 }
@@ -620,23 +612,84 @@ function Plan({
  * The store has always taken a position one past the end as "append"; this is
  * the editor pointed there, over an empty step.
  */
-function Adding({ at, open, first = false, children }: { at: number; open: boolean; first?: boolean; children?: React.ReactNode }) {
+function Adding({
+  at,
+  open,
+  forPart,
+  free,
+  first = false,
+}: {
+  at: number
+  open: boolean
+  /** The part the open editor's step is for, or null: a step for a part that does not exist yet. */
+  forPart: string | null
+  /** The parts the host lists that have no step, in the list's order. */
+  free: readonly { id: string; name: string }[]
+  first?: boolean
+}) {
+  const part = free.find((one) => one.id === forPart) ?? null
   return (
     <section data-adding={at} className={first ? 'mt-2' : 'mt-1 border-t pt-2.5'}>
       <span className="flex flex-wrap items-baseline gap-2">
-      <Button
-        type="button"
-        variant={first ? 'outline' : 'ghost'}
-        size="container"
-        className={first ? undefined : 'text-muted-foreground'}
-        aria-expanded={open}
-        onClick={() => setAdding(!open)}
-      >
-        {open ? 'close' : first ? 'write the first step' : 'add a step'}
-      </Button>
-      {children}
+        <Button
+          type="button"
+          variant={first ? 'outline' : 'ghost'}
+          size="container"
+          className={first ? undefined : 'text-muted-foreground'}
+          aria-expanded={open}
+          onClick={() => setAdding(!open)}
+        >
+          {open ? 'close' : first ? 'write the first step' : 'add a step'}
+        </Button>
+        {/*
+          A part somebody added in the host's picker has no step until one is
+          written for it. One quiet control, here where a step is added and
+          nowhere else: a press for one such part, a list for several. It
+          opens the same editor, and Save files the step under that part
+          instead of asking the host for a new one.
+        */}
+        {!open && free.length === 1 && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="container"
+            data-step-for={free[0]!.id}
+            className="text-muted-foreground"
+            title={`“${free[0]!.name}” is a part of this epic with no step. Writes its step.`}
+            onClick={() => setAdding(true, free[0]!.id)}
+          >
+            a step for “{free[0]!.name}”
+          </Button>
+        )}
+        {!open && free.length > 1 && (
+          <select
+            data-step-for=""
+            aria-label="Write the step of a part that has none"
+            className="h-7 max-w-full rounded-md border bg-transparent px-1.5 text-[0.8rem] text-muted-foreground"
+            value=""
+            onChange={(event) => {
+              if (event.target.value) setAdding(true, event.target.value)
+            }}
+          >
+            <option value="">a step for a part that has none…</option>
+            {free.map((one) => (
+              <option key={one.id} value={one.id}>
+                {one.name}
+              </option>
+            ))}
+          </select>
+        )}
+        {open && part && <span className="text-[0.8rem] text-muted-foreground">the step of “{part.name}”</span>}
       </span>
-      {open && <Editor step={{ title: '', body: '', refs: [], notes: [] }} position={at} target="add" />}
+      {open && (
+        <Editor
+          key={addTarget(part?.id ?? null)}
+          step={{ title: part?.name ?? '', body: '', refs: [], notes: [] }}
+          position={at}
+          target={addTarget(part?.id ?? null)}
+          forPart={part?.id ?? null}
+        />
+      )}
     </section>
   )
 }

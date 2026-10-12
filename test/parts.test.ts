@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test'
 import { LIMITS, journeyRecordSchema, partsOf, stepPart } from 'kehikot-module-protocol'
 
 import {
-  fileGiven,
   fileOf,
   idFor,
   isSimple,
@@ -12,6 +11,7 @@ import {
   simplified,
   withPart,
   withStep,
+  withStepMoved,
   withoutStep,
   type Divided,
 } from '../parts.ts'
@@ -446,28 +446,18 @@ describe('writing a record that is one step to a part', () => {
     expect(cleared.ok && cleared.record.groups[0]!.heading).toBe('A long title for a step')
   })
 
-  test('giving a part its file, taking it away, and leaving it alone', () => {
-    const given = withPart(base, 6, { file: './chapters/b_appendix.tex' })
-    expect(given.ok && given.record.groups[6]!.files).toEqual(['chapters/b_appendix.tex'])
-    const none = withPart(base, 6, { file: '' })
-    expect(none.ok && Object.hasOwn(none.record.groups[6]!, 'files')).toBe(false)
+  test('naming a part leaves alone the document an earlier version recorded for it', () => {
     const left = withPart(base, 6, { name: 'Appendix' })
+    expect(left.ok && left.record.groups[6]).toEqual({ ...base.groups[6], heading: 'Appendix' })
     expect(left.ok && left.record.groups[6]!.files).toEqual(['chapters/appendix_instruments.tex'])
   })
 
-  test('a file another step has is refused, naming the step — a file belongs to one part', () => {
-    const out = withPart(base, 6, { file: 'chapters/3_methods.tex' })
-    expect(out.ok).toBe(false)
-    expect(!out.ok && out.error).toContain('chapters/3_methods.tex is the document of step 3')
-  })
-
-  test('a name that is not a file’s is refused, by name', () => {
-    for (const bad of ['../outside.tex', '/abs/path.tex', 'a//b.tex']) {
-      const out = fileGiven(bad)
-      expect(out.ok).toBe(false)
-      expect(!out.ok && out.error).toContain(`"${bad}" is not a name a part can hold for a document`)
-    }
-    expect(fileGiven(null)).toEqual({ ok: true, file: null })
+  test('a step moved takes its part with it: the parts stay in the steps’ order', () => {
+    const out = withStepMoved(base, 6, 0)
+    expect(out.steps.map((one) => one.part)).toEqual(['appendices', 'introduction', 'literature-review', 'methods', 'results', 'discussion', 'conclusion'])
+    expect(out.groups.map((group) => group.id)).toEqual(out.steps.map((one) => one.part))
+    expect(out.groups[0]).toEqual(base.groups[6])
+    expect(isSimple(out)).toBe(true)
   })
 
   test('`mirrored` is not the migration: it keeps one group to a step and nothing else', () => {

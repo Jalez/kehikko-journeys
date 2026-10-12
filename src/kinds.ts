@@ -57,6 +57,13 @@ export interface JourneyView {
   groups?: Group[]
   /** The record on disk is still in the older shape of parts; what is here is how it reads. */
   unsettled?: boolean
+  /**
+   * The epic's list of parts where the HOST keeps it — ids and names, in the
+   * epic's order, as the epic's own file has them — or null/absent where this
+   * app keeps the list in `groups`. See `keeper.ts`. With a list, `groups` is
+   * not sent.
+   */
+  listed?: { id: string; name: string }[] | null
   stepsFrom?: StepsFrom
   blockedBy: Record<string, string[]>
   /** Decision issues no commit will close, answered by these changes instead. Read as `done` once they merge. */

@@ -81,7 +81,7 @@ describe('reading the trackers', () => {
     expect(live?.missing.get('gh#3')).toBe('pending')
   })
 
-  test('a refusal is said, and no reading is drawn as if it were one', async () => {
+  test('a refusal is said beside the references, and no reading is drawn as if it were one', async () => {
     const host = stubHost()
     projects += 1
     host.greet([], { projectPath: `/Users/somebody/Projects/tracker-${projects}` })
@@ -89,7 +89,7 @@ describe('reading the trackers', () => {
     host.refuse('trackers:read is not granted', 'tracker.get')
     await settle()
     expect(wire.getSnapshot().live).toBeNull()
-    expect(wire.getSnapshot().refused).toContain('tracker.get')
+    /* The reason alone, for each reference's own badge: nothing above the journey says it. */
     expect(wire.getSnapshot().withheld).toContain('trackers:read is not granted')
   })
 })

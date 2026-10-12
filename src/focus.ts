@@ -1,4 +1,4 @@
-import { anchorInFocus, narrowToFocus, pickedParts, stepPart, type Anchor, type EpicPart } from 'kehikot-module-protocol'
+import { anchorInFocus, narrowToFocus, stepPart, type Anchor, type EpicPart } from 'kehikot-module-protocol'
 
 import type { Step } from './kinds.ts'
 
@@ -6,44 +6,37 @@ import type { Step } from './kinds.ts'
  * Which of a journey's steps are in front of the person, when the host has
  * been pointed at some of the epic's parts.
  *
- * ## What the host says, and what this page does about it
+ * ## The one rule, and nothing of this app's own beside it
  *
  * `context.parts` is every part of the open epic, each with `picked`. None
- * picked is the whole epic, and that is the resting state: this file then
- * answers with every step and says nothing, and the page is exactly the page
- * it was before it read the field.
+ * picked is the whole epic and the resting state: every step is drawn and
+ * nothing is said. With some picked, a step is drawn when the part it is the
+ * step of is one of them. That is the protocol's rule and it is applied by
+ * the protocol: the page narrows with `useFocus(context).narrow(steps,
+ * anchorOf, { noun, keep })`, and this file is the three things that call
+ * needs — what one item is (`Shown`), its anchor (`anchorOf`) and what it is
+ * called (`NOUN`).
  *
- * With some picked, a step is shown when the part it is the step of is one of
- * them — its anchor is `{ part: stepPart(step) }`, and the protocol's one rule
- * (`anchorInFocus`, `narrowToFocus`) decides, not a rule of this app's own.
- * A step is one part of the epic and a part is one step, so picking a part
- * is picking its step: there is no step in no part, and none in two.
+ * A step's anchor is `{ part }`: the id in its own `part` field, and nothing
+ * else — not the references it names. A step whose `part` is absent, or names
+ * a part the epic no longer has (somebody removed it in the host's picker),
+ * is in no part: it is drawn with nothing picked and hidden under a pick,
+ * like any item of any module that belongs to the epic as a whole.
  *
- * (A record read from before that was so is read as if it were — `simplified`
- * in `parts.ts` — so every step here carries the id of its own part.)
+ * ## What is said about the pick: one sentence, and only in an empty view
  *
- * ## Nothing here overrides the focus, and nothing announces it
- *
- * There is no "show the rest" on this page and there must not be one. The
- * focus is the person's, held by the host for the whole canvas; a module that
- * widened it locally would be one pane disagreeing with every pane beside it
- * about what is in front of the person, with nothing on the canvas to say so.
- *
- * The page used to draw a bordered paragraph above the steps whenever a part
- * was picked — `Narrowed to Methods. 3 of 38 steps shown · 35 outside the
- * picked part…`, where the picking is done, and that an edited step was being
- * held. It took several rows of a container that has few, the host's bar
- * already shows the pick, and the steps drawn are the message. So nothing is
- * said while there is a step to draw. A page the pick left with NO step says
- * one sentence where the steps would be (`saidOfNone`), because an empty
- * journey with no reason reads as broken.
+ * `narrow(...).empty` — the protocol's `emptySaid(parts, 'step')`, `No step
+ * is in the picked part.` — where the steps would have been, when the pick
+ * left none of a journey that has some. While any step is drawn nothing about
+ * the pick is drawn at all: the host's bar already says what is picked. There
+ * is no "show the rest" here and there must not be one.
  *
  * ## The index is the step's own, not its place among the shown
  *
  * A step is numbered, edited, saved and walked to by its position in the
  * journey. Narrowing must not renumber: "step 7" in a host's `kehikot.goto`,
  * in the editor's save and in somebody's sentence is the seventh step of the
- * journey whichever parts are picked. So what comes back carries the index.
+ * journey whichever parts are picked. So an item carries its index.
  */
 export interface Shown {
   step: Step
@@ -51,27 +44,29 @@ export interface Shown {
   index: number
 }
 
-/** What ties a step to a part: the part it says it is in, and nothing else. */
-const anchorOf = (step: Step): Anchor => ({ part: stepPart(step) })
+/** What one item is called in the protocol's sentence for an empty view. */
+export const NOUN = 'step'
+
+/** A journey's steps as the items that are narrowed: each with its own position. */
+export const indexed = (steps: readonly Step[]): Shown[] => steps.map((step, index) => ({ step, index }))
+
+/** What ties a step to a part: the part it says it is the step of, and nothing else. */
+export const anchorOf = ({ step }: Shown): Anchor => ({ part: stepPart(step) })
 
 /** Whether one step is in front of the person. True for every step when nothing is picked. */
 export function stepInFocus(parts: readonly EpicPart[], step: Step): boolean {
-  return anchorInFocus(parts, anchorOf(step))
+  return anchorInFocus(parts, anchorOf({ step, index: 0 }))
 }
 
 /**
- * The steps to draw, in the journey's order, each with its own position.
+ * The steps in front of the person, for the half of this page that is not
+ * React (`src/journeys.ts` counts the cards a filter may hide): the same
+ * rule, `narrowToFocus`, with the same anchor and the same thing kept.
  *
  * `editing` is the position of the step whose editor is open, or -1. That one
- * is drawn though it is outside: a tick in another control does not take a
+ * is kept though it is outside: a tick in another control does not take a
  * half-written step out of somebody's hands.
  */
 export function shownSteps(parts: readonly EpicPart[], steps: readonly Step[], editing = -1): Shown[] {
-  const each = steps.map((step, index) => ({ step, index }))
-  return narrowToFocus(parts, each, ({ step }) => anchorOf(step), { keep: ({ index }) => index === editing }).shown
-}
-
-/** The one sentence for a journey the picked parts left no step of, drawn where the steps would have been. */
-export function saidOfNone(parts: readonly EpicPart[]): string {
-  return `No step is in the picked ${pickedParts(parts).length === 1 ? 'part' : 'parts'}.`
+  return narrowToFocus(parts, indexed(steps), anchorOf, { keep: ({ index }) => index === editing }).shown
 }

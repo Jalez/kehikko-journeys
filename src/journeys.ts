@@ -4,6 +4,7 @@ import {
   TRACKER_REFRESH_WITHIN_MS,
   contentStamp,
   filterChoiceSchema,
+  partsSetResult,
   readTrackerRef,
   trackerReadingResult,
   trackerRefreshResult,
@@ -19,7 +20,7 @@ import { HostRefused, held as heldStore, hostStore, probeServer, type Draft, typ
 import { HIDE_GROUP, countFacets, hiddenIn, offer, type Facet } from 'kehikot-module-protocol/facets'
 
 import { ID } from '../manifest.ts'
-import { GET_EPIC, GET_TRACKER, PARTS_REF, REFRESH_TRACKER, REPORT_CHANGE } from '../wire/methods.ts'
+import { GET_EPIC, GET_TRACKER, PARTS_REF, REFRESH_TRACKER, REPORT_CHANGE, SET_PARTS } from '../wire/methods.ts'
 import type { Brief, JourneyView, Live, Target } from './kinds.ts'
 import { cardsUnder, facetsOfRef, readingOf, refsOf, unreadLinks, type Around } from './live/lookup.ts'
 import { shownSteps, stepInFocus } from './focus.ts'
@@ -126,12 +127,10 @@ export interface State {
    */
   busy: boolean
   /**
-   * The host's own words for why it handed over no reading, when it refused.
-   *
-   * Apart from `refused` because that one is a whole sentence for the banner
-   * and is cleared by the next context; this is the reason alone, for the
-   * badge and the rail to quote, and it lasts as long as the missing reading
-   * it explains.
+   * The host's own words for why it handed over no reading, when it refused:
+   * the reason alone, for the badge and the rail beside each reference to
+   * quote. It lasts as long as the missing reading it explains. Nothing above
+   * the journey says it — it is said where the state would have been.
    */
   withheld: string | null
   /** People's marks on why references closed: `context.dispositions`, whole. */
@@ -193,8 +192,6 @@ export interface State {
   where: Where
   /** Where the host says the project is on disk, or null. What the cover asks `coverFor` about. */
   projectPath: string | null
-  /** The host said no to something we asked. */
-  refused: string | null
   /** Which step has its editor open, or -1. */
   editing: number
   /**
@@ -207,11 +204,11 @@ export interface State {
    */
   adding: boolean
   /**
-   * The documents the epic's paper is made of, each with the part that covers
-   * it, for the epic in `slug`. Null until it has been asked for; `paper:
-   * false` when the epic has no paper in this project. See `readChapters`.
+   * The part that new step is being written FOR, or null: a part the host
+   * lists that has no step yet (somebody added it in the host's picker).
+   * Saved, the step is filed under it and no part is asked for.
    */
-  chapters: PaperChapters | null
+  addingFor: string | null
   /** The one line this app uses to answer the reader. */
   said: string
   /**
@@ -236,11 +233,6 @@ export interface State {
   from: string | null
 }
 
-/** What `/api/chapters` answers, and which epic it is for. */
-export type PaperChapters =
-  | { slug: string; paper: false }
-  | { slug: string; paper: true; chapters: { file: string; heading: string; part: string | null }[] }
-
 let state: State = {
   index: [],
   journey: null,
@@ -259,10 +251,9 @@ let state: State = {
   framed: false,
   where: 'listening',
   projectPath: null,
-  refused: null,
   editing: -1,
   adding: false,
-  chapters: null,
+  addingFor: null,
   said: '',
   /* True until a host says otherwise, and true forever if none ever does. A
      page opened directly has no canvas to tell it which project it is standing
@@ -325,10 +316,6 @@ export function setEditing(which: number): void {
      always has. Their held copy goes with them: that is a person throwing them away on purpose. */
   if (state.editing >= 0) hold(targetOf(state.editing), null)
   set({ editing: state.editing === which ? -1 : which })
-  /* What the paper offers is read when an editor opens and not before: it is
-     a read of somebody's `.tex` files, and a journey is read far more often
-     than a step is edited. */
-  if (state.editing >= 0) void readChapters()
 }
 
 /**
@@ -363,7 +350,8 @@ function aimOf(target: string, journey: JourneyView): number {
  * it out, or on a read — and the write is not retried. So every box on this
  * page writes its words as they change (the protocol's `held`), under the project
  * and under what they were aimed at: the journey's slug, then `step@<id>` for
- * an open step (`targetOf`) and `add` for a step not written yet.
+ * an open step (`targetOf`), `add` for a step not written yet and `add@<id>`
+ * for the step of a part that has none (`addTarget`).
  * A draft is cleared by the write that kept it, by emptying the box, and by
  * closing the editor.
  * ------------------------------------------------------------------ */
@@ -402,12 +390,12 @@ export function reopenHeld(): void {
   if (!journey) return
   for (const [target] of heldHere()) {
     if (target === 'add') setAdding(true)
-    else if (target.startsWith('step')) {
+    else if (target.startsWith('add@')) {
+      const id = target.slice('add@'.length)
+      if (stepless(journey).some((part) => part.id === id)) setAdding(true, id)
+    } else if (target.startsWith('step')) {
       const at = aimOf(target, journey)
-      if (state.editing < 0 && at >= 0) {
-        set({ editing: at })
-        void readChapters()
-      }
+      if (state.editing < 0 && at >= 0) set({ editing: at })
     }
   }
 }
@@ -422,7 +410,13 @@ export function heldStrays(): { target: string; draft: Draft }[] {
   const journey = state.journey
   if (!journey) return []
   return heldHere()
-    .filter(([target]) => (target.startsWith('step') ? aimOf(target, journey) < 0 : target.startsWith('part:')))
+    .filter(([target]) =>
+      target.startsWith('step')
+        ? aimOf(target, journey) < 0
+        : target.startsWith('add@')
+          ? !stepless(journey).some((part) => part.id === target.slice('add@'.length))
+          : target.startsWith('part:'),
+    )
     .map(([target, draft]) => ({ target, draft }))
 }
 
@@ -433,37 +427,42 @@ export function discardHeld(target: string): void {
   set({})
 }
 
-/** Open or close the editor for a step that is not written yet. */
-export function setAdding(on: boolean): void {
-  if (!on) hold('add', null)
-  set({ adding: on })
-  if (on) void readChapters()
+/**
+ * Open or close the editor for a step that is not written yet. `forPart` is
+ * the id of a part with no step that the step is for; without one it is a
+ * step for a part that does not exist yet either.
+ */
+export function setAdding(on: boolean, forPart: string | null = null): void {
+  if (!on) {
+    hold(addTarget(state.addingFor), null)
+    made.clear()
+  }
+  set({ adding: on, addingFor: on ? forPart : null })
+}
+
+/** Where the words typed into the box for a new step are held: `add`, or `add@<id>` for the step of a part that has none. */
+export function addTarget(forPart: string | null): string {
+  return forPart === null ? 'add' : `add@${forPart}`
 }
 
 /**
- * Ask this app's own server which documents the epic's paper is made of.
- *
- * For the journey on screen, or — framed, with none — for the epic the canvas
- * is standing on: what beginning a journey from the paper would make has to
- * be readable BEFORE one is begun, and the server answers it without one.
- * Read again after every write, because a document some step now has is no
- * longer free.
- *
- * A failure leaves what was there. This is an offer; the editor it is drawn
- * in works without it.
+ * The parts the host lists that no step is the step of, in the list's order:
+ * what somebody added in the host's picker and nothing here has been written
+ * for. Empty while this app keeps the list — there a part IS its step.
  */
-export async function readChapters(): Promise<void> {
-  const slug = state.journey?.slug ?? (state.framed ? standingOn : null) ?? null
-  if (!slug) return
-  const project = standingIn
-  try {
-    const out = await get<{ ok: boolean } & Record<string, unknown>>('/api/chapters', { slug })
-    if (standingIn !== project || (state.journey?.slug ?? standingOn) !== slug) return
-    if (!out.ok) return
-    set({ chapters: { ...out, slug } as unknown as PaperChapters })
-  } catch {
-    /* Left as it was. */
-  }
+export function stepless(journey: JourneyView): { id: string; name: string }[] {
+  const listed = journey.listed ?? null
+  if (listed === null || journey.plan === 'elsewhere') return []
+  const taken = new Set(journey.steps.map((step) => stepPart(step)))
+  return listed.filter((part) => !taken.has(part.id))
+}
+
+/** Whether a step is the step of a part: always while this app keeps the list, and by the host's list where it does. */
+export function inPart(journey: JourneyView, step: { part?: string } | undefined): boolean {
+  const id = step ? stepPart(step) : null
+  if (id === null) return false
+  const listed = journey.listed ?? null
+  return listed === null || listed.some((part) => part.id === id)
 }
 
 /** Open or fold the changes under one issue. */
@@ -577,9 +576,7 @@ async function load(slug: string | null): Promise<void> {
     await readIndex()
     if (!current()) return
     if (!listed(slug)) {
-      set({ journey: null, editing: -1, adding: false, said: '', unwritten: slug })
-      /* What beginning this journey from the epic's paper would make. */
-      void readChapters()
+      set({ journey: null, editing: -1, adding: false, addingFor: null, said: '', unwritten: slug })
       settleParts()
       return
     }
@@ -594,14 +591,13 @@ async function load(slug: string | null): Promise<void> {
     unwritten: null,
     editing: -1,
     adding: false,
+    addingFor: null,
     /* Nothing is said when there is nowhere to read. The screen for that is
        already on the page and says the whole thing; repeating the server's
        sentence in the answer line underneath would be the same news twice, and
        the answer line is for answering something the reader just did. */
     said: out.ok || state.nowhere ? '' : (out.error ?? 'no such journey here'),
   })
-  /* A journey with no step yet offers one for each chapter of the epic's paper. */
-  if (state.journey?.plan === 'none') void readChapters()
   settleParts()
 }
 
@@ -760,6 +756,147 @@ async function readIndex(): Promise<void> {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * Asking the host to edit the epic's list of parts
+ *
+ * The list of an epic's parts is the epic's, and a host from protocol 1.2.0
+ * keeps it. This app keeps one step for a part, so four presses here are also
+ * an edit of that list — a new step (add), a part's name (rename), a step
+ * moved (move), a step removed (remove) — and each ASKS, with `parts.set`,
+ * from the press and from nothing else.
+ *
+ * ## What the answer decides, and what it does not
+ *
+ * Only whether there is a part: the id the host made for a new step, or that
+ * a rename, a move or a removal happened. It does NOT decide who keeps the
+ * list. That is `keeper.ts`, read off the epic's own file by this app's
+ * server at the write that follows — the same fact the host goes by. The two
+ * agree by construction: a host that changes the list has written the file
+ * before it answers.
+ *
+ * So every press is the same two moves, whichever host is there:
+ *
+ *  1. ask the host (`askParts`);
+ *  2. write the step through this app's own store, saying what the host
+ *     answered — the id of the part it made, when it made one.
+ *
+ * A host from before `parts.set` answers that it does not know the method
+ * (`cannot`). Nothing was changed anywhere, the store finds that this app
+ * still keeps the list, and the write is exactly the one it always was: the
+ * part and its id are made here, and the name goes into the record.
+ *
+ * ## The order, and what a failure leaves
+ *
+ * A new step: the HOST FIRST, because the step is filed under an id only the
+ * host can make. The store refuses an id the host does not list, so a step is
+ * never written pointing at a part that was not made.
+ *
+ *  - The host declines, fails or does not answer in time: the step is still
+ *    written — nothing typed is lost — in NO part, and the line under the
+ *    page says so with the host's own reason. Its editor offers to make it a
+ *    part again.
+ *  - The host made the part and the store then failed: a part with no step.
+ *    The editor stays open with every word, the id is remembered (`made`) so
+ *    that Save again files the step under it rather than asking for a second
+ *    part, and the part is offered beside "add a step" like any part with no
+ *    step.
+ *
+ * A step removed: THE STORE FIRST. What the person asked for is that the step
+ * goes; if the host then will not remove the part, it is a part with no
+ * step, and the line says why. Renaming and moving ask the host first and
+ * write the step whatever it answered.
+ * ------------------------------------------------------------------ */
+
+/** What came of asking the host for one edit of the epic's list of parts. */
+export type Asked =
+  /** It is so now: the list changed, or already was as asked. `id` is the part the edit was about. */
+  | { said: 'done'; id: string | null; list: { id: string; name: string }[] }
+  /** The host has no part by the id, or the `after`, that was named. Nothing changed. */
+  | { said: 'gone' }
+  /** The host answered that it will not, could not be understood, or did not answer. Nothing is known to have changed. */
+  | { said: 'declined'; why: string }
+  /** There is nobody to ask: no host, or one from before `parts.set`. Nothing changed. */
+  | { said: 'cannot' }
+
+/**
+ * Ask the host for ONE edit of an epic's parts. Never throws.
+ *
+ * `cannot` is the honest reading of the one refusal that means "this host
+ * does not have the method" (`unknown-method`), and of there being no host at
+ * all. Every other failure is `declined`: a host that knows the method and
+ * did not do it is not an older host, and is not treated as one.
+ */
+export async function askParts(epic: string, edit: Record<string, unknown>): Promise<Asked> {
+  if (!greeted()) return { said: 'cannot' }
+  try {
+    const read = partsSetResult.safeParse(await host.request(SET_PARTS, { epic, ...edit }))
+    if (!read.success) return { said: 'declined', why: `The host answered ${SET_PARTS} with something that is not an answer to it.` }
+    const { outcome, id, parts, why } = read.data
+    if (outcome === 'changed' || outcome === 'unchanged') return { said: 'done', id, list: parts }
+    if (outcome === 'no-such-part') return { said: 'gone' }
+    return { said: 'declined', why: why || 'The host declined, and did not say why.' }
+  } catch (error) {
+    if (error instanceof HostRefused && error.refusal.reason === 'unknown-method') return { said: 'cannot' }
+    return { said: 'declined', why: error instanceof HostRefused ? error.refusal.error : (error as Error).message }
+  }
+}
+
+/**
+ * The part the host made for a step whose write then failed, by the box the
+ * step was typed in. Save again files the step under it; closing the box
+ * forgets it, and the part is then offered as any part with no step is.
+ */
+const made = new Map<string, string>()
+
+/** A step's title or a typed name as a part's name: one line, no longer than a host takes. */
+const asName = (said: string): string => said.replace(/\s+/g, ' ').trim().slice(0, LIMITS.TITLE)
+
+/**
+ * The part a step at zero-based `at` of `steps` comes after in the epic's
+ * list: the part of the nearest step before it that is in one. `undefined`
+ * when no step before it is in a part.
+ */
+function partBefore(journey: JourneyView, steps: readonly { part?: string }[], at: number): string | undefined {
+  for (let i = at - 1; i >= 0; i -= 1) {
+    if (inPart(journey, steps[i])) return stepPart(steps[i]) ?? undefined
+  }
+  return undefined
+}
+
+type Wrote = { ok: boolean; error?: string; journey?: JourneyView; said?: string }
+
+/**
+ * Presses of this page's own that are between asking the host and hearing
+ * back from this app's store.
+ *
+ * A host that edits the list says so to every module at once — this one
+ * included — as a context with a different list, and `context` answers a
+ * different list by reading the journey again. For an edit this page asked
+ * for, that read is a race with the write the press is about to make: landing
+ * first, it would replace the journey on screen with one from before the
+ * write, and the write's own answer — which is the newer — would then be
+ * dropped as an answer nobody is waiting on, leaving the editor open over a
+ * step that has been saved. So while one of these is in flight the read is
+ * OWED instead (`relistOwed`), and paid once when the last of them is done:
+ * by then the write's answer is on screen, with the list as the store read it
+ * after the host wrote it.
+ */
+let writing = 0
+let relistOwed = false
+
+async function whileWriting<T>(work: () => Promise<T>): Promise<T> {
+  writing += 1
+  try {
+    return await work()
+  } finally {
+    writing -= 1
+    if (writing === 0 && relistOwed) {
+      relistOwed = false
+      readAgain()
+    }
+  }
+}
+
 /**
  * Save one step, whole.
  *
@@ -767,28 +904,80 @@ async function readIndex(): Promise<void> {
  * stored rather than leaving it blank: a form that saved an empty body because
  * the box started empty would delete somebody's writing to record a change to
  * the title.
+ *
+ * `how.part` files a NEW step under a part the host already lists and that
+ * has no step. `how.make` asks for a part for a step that EXISTS and is in
+ * none. A new step without `how.part` asks for a part of its own. See the
+ * essay above for the order and for what each failure leaves.
  */
-export async function saveStep(
+export function saveStep(
   position: number,
-  fields: { title: string; body: string; refs: string[]; notes: string[]; name?: string; file?: string },
+  fields: { title: string; body: string; refs: string[]; notes: string[]; name?: string },
+  how: { part?: string | null; make?: boolean } = {},
+): Promise<void> {
+  return whileWriting(() => savingStep(position, fields, how))
+}
+
+async function savingStep(
+  position: number,
+  fields: { title: string; body: string; refs: string[]; notes: string[]; name?: string },
+  how: { part?: string | null; make?: boolean },
 ): Promise<void> {
   const being = state.journey
   if (!being) return
+  const fresh = position > being.steps.length
   /* Held under the step's own name, worked out before the write moves anything. */
-  const target = position > being.steps.length ? 'add' : targetOf(position - 1)
+  const target = fresh ? addTarget(how.part ?? null) : targetOf(position - 1)
   const at = being.steps[position - 1]
   const id = at ? stepPart(at) : null
-  const out = await post<{ ok: boolean; error?: string; journey?: JourneyView; said?: string }>('/api/step', {
-    slug: being.slug,
-    /* By the id of its part where it has one: a step removed through the
-       other door while this box was open has moved every position after it. */
-    ...(id ? { step: id } : { position }),
-    ...fields,
-  })
+  const here = `${being.slug}|${target}`
+  const { name: typed, ...step } = fields
+  const name = asName(typed ?? '')
+
+  let part: string | undefined
+  let asked: Asked | null = null
+  let renamed = false
+  if (fresh && how.part) part = how.part
+  else if (fresh || (how.make && !inPart(being, at))) {
+    part = made.get(here)
+    if (part === undefined) {
+      const add = { name: name || asName(fields.title), after: partBefore(being, being.steps, fresh ? being.steps.length : position - 1) ?? (fresh ? undefined : null) }
+      asked = await askParts(being.slug, { add })
+      /* The part it was to come after has gone from the list since this page read it: last, then. */
+      if (asked.said === 'gone') asked = await askParts(being.slug, { add: { name: add.name } })
+      if (asked.said === 'done' && asked.id) {
+        part = asked.id
+        made.set(here, part)
+      }
+    }
+  } else if (id && inPart(being, at) && name && name !== nameOfPart(being, at)) {
+    asked = await askParts(being.slug, { rename: { id, name } })
+    renamed = asked.said === 'done'
+  }
+  /* The canvas moved while the host was being asked: what was typed stays held, and nothing is written. */
+  if (state.journey !== being) return
+
+  let out: Wrote
+  try {
+    out = await post<Wrote>('/api/step', {
+      slug: being.slug,
+      /* By the id of its part where it has one: a step removed through the
+         other door while this box was open has moved every position after it. */
+      ...(id ? { step: id } : { position }),
+      ...step,
+      ...(part ? { part } : {}),
+      /* The name is the record's to keep only while this app keeps the list,
+         and not when the host has just taken it. */
+      ...((being.listed ?? null) === null && !renamed && part === undefined ? { name: typed ?? '' } : {}),
+    })
+  } catch {
+    out = { ok: false, error: 'This app could not reach its own store, so the step was not kept. What was typed is still here.' }
+  }
   if (!out.ok || !out.journey) {
     say(out.error ?? 'that was not kept')
     return
   }
+  made.delete(here)
   /* Said before the check below, not after it: the step is on disk whether or
      not the canvas has moved since, and the other containers on that epic are
      showing the journey from before it. */
@@ -803,24 +992,50 @@ export async function saveStep(
   if (state.journey !== being) return
   /* Kept by the store: there is nothing left to hold for that box. */
   hold(target, null)
-  set({ editing: -1, adding: false, journey: out.journey, said: out.said || 'kept' })
+  const now = out.journey
+  const saved = fresh ? now.steps[now.steps.length - 1] : now.steps[position - 1]
+  const loose = (now.listed ?? null) !== null && !inPart(now, saved)
+  let said = out.said || 'kept'
+  if (asked?.said === 'declined' && loose) said = `Kept, in no part: the host did not add one. ${asked.why}`
+  else if (asked?.said === 'cannot' && loose && (fresh || how.make)) {
+    said = 'Kept, in no part: the list of this epic’s parts is kept by the host, and there is no host here to add one to it.'
+  } else if (asked?.said === 'declined' && !fresh && !how.make) said = `Kept. The part was not renamed: ${asked.why}`
+  set({ editing: -1, adding: false, addingFor: null, journey: now, said })
   /* The step may name references it did not name before, and the reading on
      screen was asked for the old ones. Not awaited: the save is done, and the
      states beside the references arrive when the host answers. */
   void fill()
 }
 
+/** What a step's part is called: the host's name for it where the host keeps the list, else the record's. */
+export function nameOfPart(journey: JourneyView, step: { title?: string; part?: string } | undefined): string {
+  const id = step ? stepPart(step) : null
+  if (id === null) return ''
+  const listed = journey.listed ?? null
+  if (listed !== null) return listed.find((part) => part.id === id)?.name ?? ''
+  return (journey.groups ?? []).find((group) => group.id === id)?.heading ?? ''
+}
+
 /**
- * Take the step at a zero-based position out of the journey. Its part goes
- * with it; the store says so in the line it answers with.
+ * Take the step at a zero-based position out of the journey — and its part
+ * out of the epic's list.
+ *
+ * The store first; see the essay above. While this app keeps the list the
+ * store's own write takes the part with the step, as it always did, and the
+ * host is not asked. Where the host keeps it, the host is asked to remove the
+ * part once the step is gone, and the line says what it answered.
  */
-export async function removeStep(index: number): Promise<void> {
+export function removeStep(index: number): Promise<void> {
+  return whileWriting(() => removingStep(index))
+}
+
+async function removingStep(index: number): Promise<void> {
   const being = state.journey
   const step = being?.steps[index]
   if (!being || !step) return
   const id = stepPart(step)
   const target = targetOf(index)
-  const out = await post<{ ok: boolean; error?: string; journey?: JourneyView; said?: string }>('/api/step/remove', {
+  const out = await post<Wrote>('/api/step/remove', {
     slug: being.slug,
     ...(id ? { step: id } : { position: index + 1 }),
   })
@@ -829,48 +1044,61 @@ export async function removeStep(index: number): Promise<void> {
     return
   }
   report(being.slug)
+  let now = out.journey
+  let said = out.said ?? 'removed'
+  if (id && (now.listed ?? []).some((part) => part.id === id)) {
+    const asked = await askParts(being.slug, { remove: { id } })
+    if (asked.said === 'done' || asked.said === 'gone') {
+      now = { ...now, listed: (now.listed ?? []).filter((part) => part.id !== id) }
+      said = `Removed step ${index + 1} (“${step.title}”), and its part with it.`
+    } else if (asked.said === 'declined') said = `${said} The host did not remove it. ${asked.why}`
+  }
   if (state.journey !== being) return
   hold(target, null)
-  set({ editing: -1, journey: out.journey, said: out.said ?? 'removed' })
+  set({ editing: -1, journey: now, said })
   void fill()
 }
 
 /**
- * A step for each chapter of the epic's paper that has none — and the journey
- * begun first, when there is none, in the same press.
- *
- * An epic with a paper and no journey is the ordinary first sight of this for
- * somebody with a thesis: seven chapter files, and nothing here. One press
- * makes the seven parts, each with its step and its chapter. `begin` is the
- * function the other press calls, unchanged: it asks the host what it holds
- * and makes the record from that. The server works out which chapters from
- * the disk at the moment of the press.
+ * Move the step at a zero-based position one place up (`by` -1) or down (1).
+ * The host is asked to move its part to match, first; the step moves whatever
+ * the host answered, and the line says when the part did not.
  */
-export async function stepsFromChapters(): Promise<void> {
-  if (state.beginning) return
-  if (!state.journey) {
-    if (!state.unwritten) return
-    await begin()
-    if (!state.journey) return
-  }
+export function moveStep(index: number, by: -1 | 1): Promise<void> {
+  return whileWriting(() => movingStep(index, by))
+}
+
+async function movingStep(index: number, by: -1 | 1): Promise<void> {
   const being = state.journey
-  const began = state.said
-  set({ beginning: true })
-  try {
-    const out = await post<{ ok: boolean; error?: string; journey?: JourneyView; said?: string }>('/api/steps/chapters', {
-      slug: being.slug,
-    })
-    if (!out.ok || !out.journey) {
-      say(out.error ?? 'no step was made')
-      return
-    }
-    report(being.slug)
+  const step = being?.steps[index]
+  const to = index + by
+  if (!being || !step || to < 0 || to >= being.steps.length) return
+  const id = stepPart(step)
+  let asked: Asked | null = null
+  if (id && inPart(being, step)) {
+    const after = [...being.steps]
+    after.splice(index, 1)
+    after.splice(to, 0, step)
+    asked = await askParts(being.slug, { move: { id, after: partBefore(being, after, to) ?? null } })
     if (state.journey !== being) return
-    set({ journey: out.journey, adding: false, said: [began, out.said].filter(Boolean).join(' ') })
-    void readChapters()
-  } finally {
-    set({ beginning: false })
   }
+  const out = await post<Wrote>('/api/step/move', {
+    slug: being.slug,
+    ...(id ? { step: id } : { position: index + 1 }),
+    to: to + 1,
+  })
+  if (!out.ok || !out.journey) {
+    say(out.error ?? 'that was not moved')
+    return
+  }
+  report(being.slug)
+  if (state.journey !== being) return
+  /* The editor follows its step; what is typed in it is held under the step's id, not its place. */
+  set({
+    editing: state.editing === index ? to : state.editing === to ? index : state.editing,
+    journey: out.journey,
+    said: asked?.said === 'declined' ? `${out.said ?? 'moved'} Its part was not moved in the epic’s list: ${asked.why}` : (out.said ?? 'moved'),
+  })
 }
 
 /**
@@ -1029,6 +1257,9 @@ const KEPT_BY: readonly string[] = [ID]
  */
 let material: string | undefined = undefined
 
+/** The epic's list of parts as the last context had it — ids and names, in order — as one string; `undefined` before any context. */
+let listedAs: string | undefined = undefined
+
 /** Journey reads in flight: an `open`, or a `readAgain`. */
 let reading = 0
 /** A change was announced while one was in flight. */
@@ -1151,7 +1382,7 @@ async function fill(): Promise<void> {
   if (!refs.length) {
     /* Nothing a tracker could answer, which is an answer: an empty reading,
        not a missing one. `tracker.get` takes at least one ref. */
-    set({ live: readingOf([]), refused: null, withheld: null })
+    set({ live: readingOf([]), withheld: null })
     announce()
     return
   }
@@ -1160,7 +1391,7 @@ async function fill(): Promise<void> {
     if (!current()) return
     const live = readingOf(first)
     /* Drawn at once: the issues need not wait for the changes under them. */
-    set({ live, refused: null, withheld: null })
+    set({ live, withheld: null })
     announce()
     const links = unreadLinks(live)
     if (!links.length) return
@@ -1176,13 +1407,8 @@ async function fill(): Promise<void> {
     }
   } catch (e) {
     if (!current()) return
-    set({
-      live: null,
-      withheld: e instanceof HostRefused ? e.refusal.error : (e as Error).message,
-      refused:
-        `The host refused ${GET_TRACKER} (${(e as Error).message}). Everything below still works; the states beside ` +
-        'the references are what is missing, and they are marked as missing rather than guessed.',
-    })
+    /* Said beside each reference, by its own badge, and nowhere above the journey. */
+    set({ live: null, withheld: e instanceof HostRefused ? e.refusal.error : (e as Error).message })
     announce()
   }
 }
@@ -1873,11 +2099,17 @@ function context({ epic: named, projectPath: project, selection: chosen, chosen:
   const stamp = contentStamp(next.content, { sources: KEPT_BY, epic: slug })
   const rewritten = material !== undefined && stamp !== material
   material = stamp
+  /* The epic's list of parts, by the same rule: only a CHANGE of the list —
+     an id, a name, the order; not what is picked — is news. Somebody edited it
+     in the host's picker, and which steps are in a part, what each part is
+     called and which parts have no step are read off the store again. */
+  const list = parts.map((part) => `${part.id}\u0000${part.heading}`).join('\u0001')
+  const relisted = listedAs !== undefined && list !== listedAs
+  listedAs = list
   set({
     framed: true,
     where: 'hosted',
     projectPath: project,
-    refused: null,
     epic: slug,
     selection: picked,
     /* The focus rides in the same patch for the reason the selection does: a
@@ -1901,9 +2133,8 @@ function context({ epic: named, projectPath: project, selection: chosen, chosen:
   if (moved) {
     owed = false
     loading += 1
-    /* Whatever was known to be missing was missing for the epic just left —
-       and so was the offer to divide it, and what its paper said. */
-    set({ unwritten: null, chapters: null })
+    /* Whatever was known to be missing was missing for the epic just left. */
+    set({ unwritten: null })
   }
 
   if (relocated) {
@@ -1972,6 +2203,11 @@ function context({ epic: named, projectPath: project, selection: chosen, chosen:
      another container, an edit to the file — and what is on screen is the
      journey from before. */
   if (rewritten) readAgain()
+  else if (relisted) {
+    /* Not beside a write of this page's own: see `whileWriting`. */
+    if (writing > 0) relistOwed = true
+    else readAgain()
+  }
 }
 
 /**

@@ -8,8 +8,8 @@ import { Button } from '@/components/ui/button.tsx'
 import { cn } from '@/lib/utils.ts'
 
 import { cardsUnder, facetsOfRef, stateOf, standing, toneOf, type Standing, type Tone } from '../live/lookup.ts'
-import { fileOf, nameOf, named } from '../../parts.ts'
-import { pick, setEditing, setFolds, targetOf, toggleFold } from '../journeys.ts'
+import { named } from '../../parts.ts'
+import { inPart, nameOfPart, pick, setEditing, setFolds, targetOf, toggleFold } from '../journeys.ts'
 import type { Live, Step } from '../kinds.ts'
 import { pickedState } from '../refs.ts'
 import { Card } from './card.tsx'
@@ -128,8 +128,9 @@ export function StepBlock({
   const around = aroundOf(reading)
   const refs = step.refs ?? []
   const notes = step.notes ?? []
-  /* The epic's parts as the record lists them: what this step's part is called and covers. */
-  const record = { groups: reading.journey?.groups ?? [] }
+  const journey = reading.journey
+  /* Who keeps the epic's list of parts: the host (`listed`), or this app, in the record's `groups`. */
+  const hosted = (journey?.listed ?? null) !== null
   const where = standing(live, refs, around)
   const drawn = cardsUnder(live, refs)
 
@@ -249,11 +250,17 @@ export function StepBlock({
           position={index + 1}
           target={targetOf(index)}
           existing
+          of={journey?.steps.length}
           part={{
             id: stepPart(step),
-            /* Empty for a part called by its step's title: there is no name to edit until one is given. */
-            name: named(record, step) ? nameOf(record, step) : '',
-            file: fileOf(record, step),
+            /* The host's name for the part where the host keeps the list. In this app's own record,
+               empty for a part called by its step's title: there is no name to edit until one is given. */
+            name: !journey
+              ? ''
+              : hosted || named({ groups: journey.groups ?? [] }, step)
+                ? nameOfPart(journey, step)
+                : '',
+            listed: journey ? inPart(journey, step) : true,
           }}
         />
       ) : (
