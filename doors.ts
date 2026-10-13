@@ -16,6 +16,7 @@ import {
   createJourney,
   dataFile,
   held,
+  hostEpic,
   isSlug,
   journeyIn,
   listJourneys,
@@ -597,6 +598,233 @@ function settle(
   return { ok: true, journey: written.journey, keeper: written.keeper, said: (settledSaid(written) + unpublishedSaid(written)).trim() }
 }
 
+/* ------------------------------------------------------------------ *
+ * Writing the prose around the steps
+ * ------------------------------------------------------------------ */
+
+/** The sentences of a journey that are one string each. */
+const PROSE = ['title', 'lede', 'callout', 'missing'] as const
+/** Its lists of sentences. */
+const LISTS = ['exists', 'open'] as const
+/** Everything `setProse` writes, in the order it is said back. */
+const PROSE_FIELDS = [...PROSE, ...LISTS, 'headings'] as const
+type ProseField = (typeof PROSE_FIELDS)[number]
+
+/** One heading of the older shape as a caller says it: what it is called and the references listed under it. */
+interface HeadingSaid {
+  heading: string
+  refs: string[]
+}
+
+/** What a caller said about a journey's prose: only the fields it named are here. */
+interface ProseSaid {
+  title?: string
+  lede?: string
+  callout?: string
+  missing?: string
+  exists?: string[]
+  open?: string[]
+  headings?: HeadingSaid[]
+}
+
+/** How long one sentence of `exists` or `open` may be. The longest this app ships is under a thousand characters. */
+const MAX_ITEM = 4_000
+
+/**
+ * What a caller said about a journey's prose, out of a bag of arguments — or
+ * the sentence that refuses it.
+ *
+ * Read the way `given` reads `name`: a field that is not there was not said
+ * and stays as it is; one that is there and empty (`""`, `[]`, or the `null`
+ * a page's JSON sends) clears it.
+ *
+ * Nothing here is cut to fit or guessed at, which is where it parts from
+ * `str` and `list`. Those bound a step by slicing; here a callout that is too
+ * long, or an `open` that is a string where a list was meant, is REFUSED and
+ * nothing is written — `list()` reads anything that is not an array as `[]`,
+ * and on this door `[]` means "clear it", so a mistyped argument would empty
+ * somebody's list and report that it had.
+ */
+function proseSaid(bag: Record<string, unknown>): { ok: true; said: ProseSaid } | { ok: false; error: string } {
+  const said: ProseSaid = {}
+  const no = (why: string) => ({ ok: false as const, error: `${why} Nothing was written.` })
+  const has = (key: string) => Object.hasOwn(bag, key) && bag[key] !== undefined
+
+  for (const key of PROSE) {
+    if (!has(key)) continue
+    const value = bag[key] ?? ''
+    if (typeof value !== 'string') return no(`\`${key}\` is text.`)
+    const text = value.trim()
+    const max = key === 'title' ? MAX_TITLE : MAX_BODY
+    if (text.length > max) return no(`\`${key}\` runs to ${max} characters at most; this is ${text.length}.`)
+    said[key] = text
+  }
+
+  /** A list of strings, trimmed, the empty ones dropped — or why it is not one. */
+  const strings = (value: unknown, name: string, max: number): string[] | string => {
+    if (value === null) return []
+    if (!Array.isArray(value)) return `\`${name}\` is a list of strings; pass [] to clear it.`
+    if (value.length > MAX_LIST) return `\`${name}\` holds ${MAX_LIST} entries at most; this is ${value.length}.`
+    const out: string[] = []
+    for (const one of value) {
+      if (typeof one !== 'string') return `\`${name}\` is a list of strings, and one entry of this is not a string.`
+      const text = one.trim()
+      if (text.length > max) return `An entry of \`${name}\` runs to ${max} characters at most; one of these is ${text.length}.`
+      if (text) out.push(text)
+    }
+    return out
+  }
+
+  for (const key of LISTS) {
+    if (!has(key)) continue
+    const out = strings(bag[key], key, MAX_ITEM)
+    if (typeof out === 'string') return no(out)
+    said[key] = out
+  }
+
+  if (has('headings')) {
+    const value = bag.headings ?? []
+    if (!Array.isArray(value)) return no('`headings` is a list of { heading, refs }; pass [] to remove them all.')
+    if (value.length > MAX_LIST) return no(`\`headings\` holds ${MAX_LIST} entries at most; this is ${value.length}.`)
+    const out: HeadingSaid[] = []
+    for (const one of value) {
+      if (!one || typeof one !== 'object' || Array.isArray(one)) return no('Each of `headings` is { heading, refs }.')
+      const { heading, refs } = one as { heading?: unknown; refs?: unknown }
+      if (typeof heading !== 'string' || !heading.trim()) {
+        return no('Each of `headings` says what it is called, in `heading`; to remove one, leave it out of the list.')
+      }
+      const name = heading.trim()
+      if (name.length > MAX_TITLE) return no(`A heading runs to ${MAX_TITLE} characters at most; one of these is ${name.length}.`)
+      const listed = strings(refs === undefined ? [] : refs, `refs\` of “${name.slice(0, 60)}”, in \`headings`, MAX_REF)
+      if (typeof listed === 'string') return no(listed)
+      out.push({ heading: name, refs: listed })
+    }
+    said.headings = out
+  }
+
+  if (!PROSE_FIELDS.some((key) => said[key] !== undefined)) {
+    return no(`Which of ${PROSE_FIELDS.map((key) => `\`${key}\``).join(', ')}? None was passed, and a field that is not passed is left as it is.`)
+  }
+  if (said.title === '') return no('A journey has to be called something: `title` can be changed and cannot be cleared.')
+  return { ok: true, said }
+}
+
+/**
+ * Write the prose around a journey's steps: its title, lede and callout, what
+ * it says exists, is open and is missing, and the headings of the older shape.
+ *
+ * The one writer of these fields. Before it there was none — the page draws
+ * the title, the lede and the callout and has no box for any of them — so an
+ * agent that finished a step and found the callout still saying the work was
+ * open had the file to edit and nothing else, which is the write this app's
+ * doors exist to make unnecessary. A page that grows an editor for them calls
+ * this, as `/api/step` calls `setStep`.
+ *
+ * ## A patch, where a step is written whole — and why that is not a second rule
+ *
+ * `setStep` replaces the four things it takes, because a caller says all four
+ * every time. Here a caller correcting a callout has said nothing about the
+ * lede, and a door that cleared the lede because it was not mentioned would
+ * destroy a paragraph to change another. So: a field that was passed is
+ * replaced, whole; a field that was not is not touched. Within a field the
+ * rule is `setStep`'s — `open` is the list as passed, not merged into what
+ * was there.
+ *
+ * ## `headings`
+ *
+ * A record may carry `headings`: what `simplified` set aside from the older
+ * shape of parts, a heading and the references once listed under it ("Open
+ * MRs", with the changes that have since merged). No page draws them, and
+ * they are still read: their references count among the journey's
+ * (`refsOf`), and `get_journey` hands them to whoever reads the record. So
+ * they are written here too, as the whole list — a heading left out is
+ * removed, and an empty list takes the key off the record. A heading that
+ * keeps its name keeps whatever else it carried (an `id`, `files`, a field
+ * this version does not name); only what it is called and its references are
+ * a caller's to say.
+ *
+ * These are never parts. `groups`, and the list a host keeps, are not written
+ * here and are not reachable from here (`keeper.ts`).
+ *
+ * ## A write that changes nothing writes nothing
+ *
+ * The file is not touched, and so not stored in a newer shape either: saying
+ * what a journey already says is not the deliberate write `Unsettled` waits
+ * for.
+ */
+function setProse(
+  project: string | null,
+  slug: string,
+  said: ProseSaid,
+):
+  | { ok: false; error: string; status?: number }
+  | { ok: true; journey: Journey; keeper: Keeper; changed: ProseField[]; same: ProseField[]; removed: string[]; said: string } {
+  if (!isSlug(slug)) return { ok: false, error: 'that is not a journey name' }
+  const store = held(project)
+  const nothing = nothingToReadIn(store)
+  if (nothing) return { ok: false, error: nothing, status: 409 }
+  const journey = journeyIn(store, slug)
+  if (!journey) {
+    return {
+      ok: false,
+      status: 404,
+      error: `no journey "${slug}" here, so there is no prose to change. Begin one with \`create_journey\`. Nothing was written.`,
+    }
+  }
+
+  const next: Journey = { ...journey }
+  const removed: string[] = []
+  for (const key of PROSE) if (said[key] !== undefined) next[key] = said[key]
+  for (const key of LISTS) if (said[key] !== undefined) next[key] = said[key]
+  if (said.headings !== undefined) {
+    const had = [...(journey.headings ?? [])]
+    const kept = said.headings.map((one) => {
+      const at = had.findIndex((was) => (was.heading ?? '').trim() === one.heading)
+      const [was] = at < 0 ? [] : had.splice(at, 1)
+      return { ...was, heading: one.heading, refs: one.refs }
+    })
+    removed.push(...had.map((was) => (was.heading ?? '').trim() || 'an unnamed heading'))
+    if (kept.length) next.headings = kept
+    else delete next.headings
+  }
+
+  const named = PROSE_FIELDS.filter((key) => said[key] !== undefined)
+  const changed = named.filter((key) => JSON.stringify(next[key] ?? null) !== JSON.stringify(journey[key] ?? null))
+  const same = named.filter((key) => !changed.includes(key))
+  const keeper = keeperIn(store, slug)
+  if (!changed.length) return { ok: true, journey, keeper, changed, same, removed: [], said: '' }
+
+  const written = writeJourney(project, next)
+  if (!written.ok) return { ok: false, error: written.error }
+
+  /* The record's title is what this app's page and `list_journeys` show. A
+     host keeps a title of its own for the epic, in its own file, which this
+     app reads and never writes — so a caller is told when the two now differ. */
+  let hosts = ''
+  if (changed.includes('title')) {
+    const host = hostEpic(project, slug)
+    const theirs = host.found === 'epic' && typeof host.epic.title === 'string' ? host.epic.title.trim() : ''
+    if (host.found === 'epic' && theirs && theirs !== written.journey.title) {
+      hosts =
+        ` The host keeps a title of its own for this epic (“${theirs}”, in ${host.path}), and that was not changed: `
+        + 'this is the title this app shows, and the epic is renamed in the host.'
+    }
+  }
+  return {
+    ok: true,
+    journey: written.journey,
+    keeper: written.keeper,
+    changed,
+    same,
+    removed,
+    said: hosts + settledSaid(written) + unpublishedSaid(written),
+  }
+}
+
+/** `a`, `a and b`, `a, b and c`. */
+const andSaid = (words: string[]): string =>
+  words.length < 2 ? (words[0] ?? '') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`
+
 /**
  * Why there is nothing to read in this project, or null because there is.
  *
@@ -720,6 +948,13 @@ interface ToolCall {
  * need for it — a stored step nothing reads and nothing can remove would sit in
  * the file forever.
  *
+ * And `set_journey`, for the prose around the steps (`setProse`). It came
+ * later than the rest and its absence had a cost: `get_journey` handed an
+ * agent a callout and two lists it could read and not correct, so a step
+ * marked done sat under a callout saying the work was open until somebody
+ * edited the file by hand. Every tool that changes a step now says to keep
+ * that prose true, and names the tool that does.
+ *
  * There is no tool for parts. The list of an epic's parts is the epic's: a
  * host from protocol 1.2.0 keeps it and edits it at its own door (`set_parts`
  * there), and this door files a step under a part's id (`part` on
@@ -812,7 +1047,9 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       'JSON list every step with its position, the id of its part (what `step` takes on `set_step`, `move_step` ' +
       'and `remove_step`) and what the part is called, and say who keeps the list of parts — the host, in the ' +
       'epic’s own file, or this app for a host that does not. In the JSON a step’s `part` is that id; `groups` ' +
-      'is the list as an older host reads it, and is not read where the host keeps its own.',
+      'is the list as an older host reads it, and is not read where the host keeps its own. What is written ' +
+      'with what: steps with `set_step`, `move_step` and `remove_step`; `blockedBy` with `set_dependency`; ' +
+      '`title`, `lede`, `callout`, `missing`, `exists`, `open` and `headings` with `set_journey`.',
     schema: {
       type: 'object',
       properties: {
@@ -880,6 +1117,69 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
     },
   },
 
+  set_journey: {
+    description:
+      'The prose around a journey’s steps, which nothing else here writes: `title`, `lede`, `callout` (the note ' +
+      'above the steps), `missing` (what is assumed but not built), the lists `exists` and `open`, and `headings` ' +
+      '— reference lists kept from an older shape, each { heading, refs }. Use it after `set_step`, `remove_step` ' +
+      'or `set_dependency` whenever what you changed makes a sentence here untrue: a step marked done under a ' +
+      'callout that still says the work is open is a journey contradicting itself. Unlike `set_step` this is a ' +
+      'patch: a field you leave out is not touched; a field you pass replaces what was stored, whole; "" or [] ' +
+      'clears it. So for `exists`, `open` and `headings` pass the full list as it should now read — read it with ' +
+      '`get_journey` first. In `headings`, a heading left out of the list is removed with its references, and [] ' +
+      'removes them all; a heading that keeps its name keeps anything else stored on it. `title` can be changed ' +
+      'and not cleared, and the epic’s own title in a host is the host’s: the answer says when the two differ. ' +
+      'Nothing is cut to fit — text that is too long, or a list that is not one, is refused with nothing ' +
+      'written. A call that changes nothing writes nothing. This does not write steps, dependencies or the ' +
+      'epic’s parts, and no other journey in the file is rewritten. The answer says which fields changed.',
+    schema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Absolute path of the project folder' },
+        slug: { type: 'string', description: 'The journey’s slug, which is the epic’s' },
+        title: { type: 'string', description: 'What the journey is called on this app’s page. Cannot be empty.' },
+        lede: { type: 'string', description: 'The sentence under the title. "" clears it.' },
+        callout: { type: 'string', description: 'The note above the steps: where the whole journey stands. "" clears it.' },
+        missing: { type: 'string', description: 'What is assumed but not built. "" clears it.' },
+        exists: { type: 'array', items: { type: 'string' }, description: 'What already exists, one sentence each; the whole list. [] clears it.' },
+        open: { type: 'array', items: { type: 'string' }, description: 'What is still undecided, one sentence each; the whole list. [] clears it.' },
+        headings: {
+          type: 'array',
+          description: 'The whole list of older reference headings. One left out is removed; [] removes all.',
+          items: {
+            type: 'object',
+            properties: {
+              heading: { type: 'string', description: 'What the heading is called, e.g. "Open MRs"' },
+              refs: { type: 'array', items: { type: 'string' }, description: 'The references under it, e.g. ["!1801", "gh#41"]' },
+            },
+            required: ['heading', 'refs'],
+          },
+        },
+      },
+      required: ['project', 'slug'],
+    },
+    annotations: { title: 'Write a journey’s prose', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run(args) {
+      const named = projectArg(args.project)
+      if ('error' in named) return named.error
+      const asked = proseSaid(args)
+      if (!asked.ok) return asked.error
+      const out = setProse(named.project, str(args.slug, MAX_SLUG), asked.said)
+      if (!out.ok) return out.error
+      const quoted = (keys: string[]) => andSaid(keys.map((key) => `\`${key}\``))
+      const slug = out.journey.slug
+      if (!out.changed.length) {
+        return `Nothing was written: ${quoted(out.same)} of ${slug} already ${out.same.length === 1 ? 'reads' : 'read'} so.`
+      }
+      return (
+        `Set ${quoted(out.changed)} of ${slug}, in ${dataFile(named.project).path} and nowhere else.`
+        + (out.removed.length ? ` Removed from \`headings\`, with the references under ${out.removed.length === 1 ? 'it' : 'them'}: ${andSaid(out.removed.map((one) => `“${one}”`))}.` : '')
+        + (out.same.length ? ` ${quoted(out.same)} already read so.` : '')
+        + out.said
+      )
+    },
+  },
+
   set_step: {
     description:
       'One numbered stop on the journey: what has to become true for a user, and which issues and changes ' +
@@ -897,7 +1197,10 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       'picked (short — "Methods"; without one it is the step’s title; "" clears it; left out, it stays), and ' +
       '`part` is not taken. What the step’s refs are is published for its part after every write, so other ' +
       'modules can narrow by them. A part’s chapter is not set here: it is kept by the module that keeps the ' +
-      'paper. The answer says the step’s position and the id of its part.',
+      'paper. The answer says the step’s position and the id of its part. Writing a step does not touch the ' +
+      'prose around the steps: if the journey’s `callout`, `lede`, `exists`, `open`, `missing` or `headings` ' +
+      'now says something this step makes untrue — work described as open that this step records as done — ' +
+      'correct it with `set_journey` in the same sitting.',
     schema: {
       type: 'object',
       properties: {
@@ -960,7 +1263,8 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       'Move one step to another place in the journey, by its 1-based `position` or by `step` (the id of its ' +
       'part), to the 1-based position `to`; the steps between move by one and nothing else about any step ' +
       'changes. Where this app keeps the list of the epic’s parts, the part moves with its step. Where the host ' +
-      'keeps the list, only the step moves here: the order of the parts is changed at the host’s door.',
+      'keeps the list, only the step moves here: the order of the parts is changed at the host’s door. If the ' +
+      'journey’s prose refers to steps by number, correct it with `set_journey`.',
     schema: {
       type: 'object',
       properties: {
@@ -994,7 +1298,8 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       'only the step goes: the part stays listed until it is removed at the host’s door, and the answer says ' +
       'so. Allowed on a journey whose steps ' +
       'are projected elsewhere, because there the stored steps are leftovers nothing reads — removing them is ' +
-      "the cleanup set_step's refusal creates the need for.",
+      "the cleanup set_step's refusal creates the need for. The prose around the steps is not touched: if the " +
+      'callout or a list still speaks of what this step said, correct it with `set_journey`.',
     schema: {
       type: 'object',
       properties: {
@@ -1021,7 +1326,8 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
     description:
       'Record that something cannot start until other things land. Trackers almost never hold these links, so ' +
       'this is where the real order of work lives. A blocker may be an issue, a change, or free text for a gate ' +
-      'outside every tracker. Pass an empty list to clear.',
+      'outside every tracker. Pass an empty list to clear. If the journey’s prose names the same gate, keep it ' +
+      'true with `set_journey`.',
     schema: {
       type: 'object',
       properties: {
@@ -1112,7 +1418,11 @@ function mcp(rpc: Rpc): Reply {
       serverInfo: { name: ID, version: VERSION },
       instructions:
         'The journeys themselves: what has to become true for a user, step by step, what blocks what, and the ' +
-        'prose around it. They are kept inside the project they are about, in .kehikot/journeys/journeys.json, so every ' +
+        'prose around it. All of it is written here: steps with `set_step`, `move_step` and `remove_step`, what ' +
+        'blocks what with `set_dependency`, and the prose — title, lede, callout, what exists, is open and is ' +
+        'missing, and the older reference headings — with `set_journey`. A journey is one document a person ' +
+        'reads top to bottom, so after changing a step, read the prose again and correct whatever the change ' +
+        'made untrue; never edit the file by hand. They are kept inside the project they are about, in .kehikot/journeys/journeys.json, so every ' +
         'tool here takes `project` — the absolute path of the project folder — and refuses without one rather ' +
         'than guessing which project you meant. This server reads no tracker and holds no credential, so nothing ' +
         "here can tell you whether an issue is open — that is read by a host and handed to this app's page. " +
