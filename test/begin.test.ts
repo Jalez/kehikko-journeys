@@ -120,12 +120,6 @@ describe('from the MCP door, which has a project path and no host to ask', () =>
     expect(journeyIn(held(root), 'the-posting-seam')?.title).toBe('The posting seam')
   })
 
-  test('a host file from before the rename is found where a host still reads it', () => {
-    const root = project({ 'the-posting-seam': hosted }, 'roadmap')
-    expect(hostEpic(root, 'the-posting-seam').found).toBe('epic')
-    expect(rpc('create_journey', { project: root, slug: 'the-posting-seam' })).toContain('3 steps')
-  })
-
   test('a journey that is already there is never overwritten', () => {
     const root = project({ 'the-posting-seam': hosted })
     rpc('create_journey', { project: root, slug: 'the-posting-seam' })

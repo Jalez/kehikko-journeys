@@ -605,7 +605,7 @@ export type Document = z.infer<typeof documentSchema>
  * folder inside SOMEBODY ELSE'S REPOSITORY, and "empty" is a fact about their
  * project rather than about this installation. An automatic seed would mean:
  * open the container on any project on the machine, and thirteen of Kehikot's
- * own journeys — `the-roadmap-tracks-itself`, `modes-are-modules`, fifty
+ * own journeys — `the-host-tracks-itself`, `modes-are-modules`, fifty
  * kilobytes of somebody's narrative about a different codebase — appear inside
  * it, get written to `.kehikot/journeys/journeys.json` there, and are then the answer
  * this app gives about that project forever. Nothing would have gone wrong on
@@ -1065,17 +1065,15 @@ function inTheOrderOf(was: unknown, now: unknown): unknown {
  * ------------------------------------------------------------------ */
 
 /**
- * Where a host keeps its own file for an epic: `kehikko`, and `roadmap` from
- * before the host was renamed, which it still reads where the new folder is
- * not there.
+ * Where a host keeps its own file for an epic: `kehikko`.
  *
- * These two words are a host's, spelled in a module, and that is exactly the
+ * This word is a host's, spelled in a module, and that is exactly the
  * thing the protocol's `journey.ts` argues against — so it is said plainly
- * rather than tucked away. They are read by `hostEpic` below and by nothing
+ * rather than tucked away. It is read by `hostEpic` below and by nothing
  * else, once, at the moment a record is first made. If the protocol package
  * comes to name the host's folder, this is the line that becomes an import.
  */
-const HOST_FOLDERS = ['kehikko', 'roadmap'] as const
+const HOST_FOLDERS = ['kehikko'] as const
 
 export type HostEpic =
   /** No host has a file for that epic in this project, in either place a host keeps one. */

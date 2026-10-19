@@ -1,11 +1,11 @@
 {
-  "slug": "the-roadmap-tracks-itself",
-  "title": "The roadmap can be trusted about its own state",
+  "slug": "the-host-tracks-itself",
+  "title": "The host can be trusted about its own state",
   "lede": "This tool keeps what you decided apart from what is true, refuses to print a guess as a fact, and leaves the deciding to a person. Applied to itself it fails all three. The one path that writes somewhere public had no gate. Controls return nothing and call it an empty list; a refresh claims it read nothing having just read sixteen issues; a finished run reads as stuck. And the largest pile of decided material in the project — the prompts every agent is given, and the checklist every change is held to — is the one part with no surface, so the person whose queue and budget these agents spend cannot see what they are told, let alone change it. None of these are new features. They are the tool's own rules, not yet applied to the tool.",
   "written": "2026-08-22",
-  "tab": "Roadmap",
-  "project": "Roadmap",
-  "callout": "Every defect here is one word standing in for two. A filter with no input renders an empty list, which is also what a genuine empty result renders as. Claude Code's `blocked` means waiting on a person and this roadmap's means an agent cannot go on, so a run that had finished was reported as stuck. A refresh counting only GitLab totals reads zero and blames the VPN. The remedy is never a new feature: it is saying which of the two it is.",
+  "tab": "Host",
+  "project": "Host",
+  "callout": "Every defect here is one word standing in for two. A filter with no input renders an empty list, which is also what a genuine empty result renders as. Claude Code's `blocked` means waiting on a person and this host's means an agent cannot go on, so a run that had finished was reported as stuck. A refresh counting only GitLab totals reads zero and blames the VPN. The remedy is never a new feature: it is saying which of the two it is.",
   "steps": [
     {
       "title": "The one path that writes in public has a gate on it",
@@ -67,7 +67,7 @@
     },
     {
       "title": "The roster is about this work",
-      "body": "gh#8. runners(cwd?) takes a directory filter and documents exactly what it is for — \"anything elsewhere is somebody else's business\" — and not one of the six call sites in the server passes it. Measured live: 83 sessions on this machine, none of them in the roadmap's directory, all 83 on the roster, and the headline \"N free\" computed from the lot. The number a person reads before deciding to start work currently means \"some Claude sessions on this laptop are idle\", most of them in a repo with nothing to do with any journey on the page. The right scope is the epic's own repo directory, not the roadmap's — journeys.ts already gets this right when resolving a single run.",
+      "body": "gh#8. runners(cwd?) takes a directory filter and documents exactly what it is for — \"anything elsewhere is somebody else's business\" — and not one of the six call sites in the server passes it. Measured live: 83 sessions on this machine, none of them in the host's directory, all 83 on the roster, and the headline \"N free\" computed from the lot. The number a person reads before deciding to start work currently means \"some Claude sessions on this laptop are idle\", most of them in a repo with nothing to do with any journey on the page. The right scope is the epic's own repo directory, not the host's — journeys.ts already gets this right when resolving a single run.",
       "refs": [
         "gh#8"
       ],
@@ -83,7 +83,7 @@
     },
     {
       "title": "The page speaks the tracker it actually reads",
-      "body": "gh#10. Eleven rendered strings still say GitLab on a roadmap whose seven epics hold zero GitLab refs, and the worst of them is not decoration but instruction: the Ask box's placeholder still offers to start work on a bare GitLab issue number, from a project this tool no longer tracks, so a reader typing what it suggests gets nothing. The link layer was already fixed properly — watchesGitlab() suppresses dead links — and the copy layer never caught up. The same family: activity.ts still documents listening as calling poll_ask, a tool that does not exist, while join's own description names next_ask correctly.",
+      "body": "gh#10. Eleven rendered strings still say GitLab on a host whose seven epics hold zero GitLab refs, and the worst of them is not decoration but instruction: the Ask box's placeholder still offers to start work on a bare GitLab issue number, from a project this tool no longer tracks, so a reader typing what it suggests gets nothing. The link layer was already fixed properly — watchesGitlab() suppresses dead links — and the copy layer never caught up. The same family: activity.ts still documents listening as calling poll_ask, a tool that does not exist, while join's own description names next_ask correctly.",
       "refs": [
         "gh#10"
       ],
@@ -109,7 +109,7 @@
     },
     {
       "title": "Landing work and releasing it read differently",
-      "body": "gh#13. released.ts argues at length that in-development and in-prod are two stages because one \"Merged\" badge covered exactly the gap the promotion process exists to manage. The stage is fed only by epic.branches.prod, and no epic sets branches — parsed all seven, the key is undefined in every one. So the stage sits last in STAGE_ORDER with a label and a remedy string and is unreachable, on a roadmap tracking a repo whose development-to-prod promotion is the very thing it was built to show. The other input is ready: nine merged pull requests already carry a sha, and branches defaults to the right pair for that repo, so \"branches\": {} is enough to opt in.",
+      "body": "gh#13. released.ts argues at length that in-development and in-prod are two stages because one \"Merged\" badge covered exactly the gap the promotion process exists to manage. The stage is fed only by epic.branches.prod, and no epic sets branches — parsed all seven, the key is undefined in every one. So the stage sits last in STAGE_ORDER with a label and a remedy string and is unreachable, on a host tracking a repo whose development-to-prod promotion is the very thing it was built to show. The other input is ready: nine merged pull requests already carry a sha, and branches defaults to the right pair for that repo, so \"branches\": {} is enough to opt in.",
       "refs": [
         "gh#13"
       ],
@@ -139,7 +139,7 @@
     },
     {
       "title": "A run that has finished says it has finished",
-      "body": "gh#25. Two words spelled the same. Claude Code's `blocked` means waiting on a human; this roadmap's `blocked` means an agent cannot go on. The supervisor tested `session.state` against a set holding both meanings and printed the second having read the first, appending \"it is not going to get any further on its own\" — its own inference, and backwards. Underneath that, a run's state came from whether its process was alive, so a run that had released every step and closed its ask was indistinguishable from one still working. The roadmap's own records already knew. It matters beyond the wording because the page's headline question is whether anybody is on this: a finished-but-open session counted as somebody, so idle capacity read as busy and ready work looked spoken for.",
+      "body": "gh#25. Two words spelled the same. Claude Code's `blocked` means waiting on a human; this host's `blocked` means an agent cannot go on. The supervisor tested `session.state` against a set holding both meanings and printed the second having read the first, appending \"it is not going to get any further on its own\" — its own inference, and backwards. Underneath that, a run's state came from whether its process was alive, so a run that had released every step and closed its ask was indistinguishable from one still working. The host's own records already knew. It matters beyond the wording because the page's headline question is whether anybody is on this: a finished-but-open session counted as somebody, so idle capacity read as busy and ready work looked spoken for.",
       "refs": [
         "gh#25"
       ],
@@ -160,7 +160,7 @@
     },
     {
       "title": "Clicking an issue takes you to it in the journey",
-      "body": "gh#27. The status lanes render each ref as a plain anchor with target=\"_blank\", so clicking one leaves for the tracker. That is the wrong way round: the lanes are the roadmap talking about its own plan, and the reader clicking there is asking where this sits in the story — which step it belongs to, what it waits on — the one question only this page answers. Leaving is also the more expensive move: a new tab, and the reading position lost. The behaviour already exists one layer up. The index rail switches tab, finds the ref in the journey, scrolls to it and flashes it, and has an answer for a ref named in no step. The lanes never picked it up, and the routine wants factoring out rather than copying.",
+      "body": "gh#27. The status lanes render each ref as a plain anchor with target=\"_blank\", so clicking one leaves for the tracker. That is the wrong way round: the lanes are the host talking about its own plan, and the reader clicking there is asking where this sits in the story — which step it belongs to, what it waits on — the one question only this page answers. Leaving is also the more expensive move: a new tab, and the reading position lost. The behaviour already exists one layer up. The index rail switches tab, finds the ref in the journey, scrolls to it and flashes it, and has an answer for a ref named in no step. The lanes never picked it up, and the routine wants factoring out rather than copying.",
       "refs": [
         "gh#27"
       ],
@@ -203,7 +203,7 @@
     },
     {
       "title": "The checklist is yours to change",
-      "body": "gh#23. The merge-request and issue checklists are hardcoded arrays, so adding an item, removing one or rewording one means editing TypeScript and shipping a change. It is also the kind of thing that wants tuning against a real queue: the size thresholds were calibrated on one merge request in one project, and `changeset` carries a paragraph explaining why it does not apply on GitHub, which is what a hardcoded list makes you write instead of just removing the item. The constraint that shapes it: agent items are assertions only an agent can make, so they are prose and freely addable; derived items are read from the tracker and each is backed by code. A dialog that let somebody add a derived item would create a control that reads unknown forever — the defect this roadmap already fixed once.",
+      "body": "gh#23. The merge-request and issue checklists are hardcoded arrays, so adding an item, removing one or rewording one means editing TypeScript and shipping a change. It is also the kind of thing that wants tuning against a real queue: the size thresholds were calibrated on one merge request in one project, and `changeset` carries a paragraph explaining why it does not apply on GitHub, which is what a hardcoded list makes you write instead of just removing the item. The constraint that shapes it: agent items are assertions only an agent can make, so they are prose and freely addable; derived items are read from the tracker and each is backed by code. A dialog that let somebody add a derived item would create a control that reads unknown forever — the defect this host already fixed once.",
       "refs": [
         "gh#23"
       ],
@@ -225,7 +225,7 @@
     },
     {
       "title": "The page stops paying for an audience it no longer has",
-      "body": "Decided: the built page does not have to be self-contained, because it is not being sent to anyone. That promise shaped a great deal — every `if (!live)` fallback and its placeholder copy, the inline-everything rule that made the client one enormous template literal, build-time stamps standing in for answers a server could give, and copy hedged because the page could never be sure it was live. The build-time `data-gap` is the worked example: three states on an attribute because a page from disk has nobody to ask.\n\nThe second half is the file itself. With the server required, dist/roadmap.html is a copy nothing reads and something must keep from going stale — so it goes, and a save reports the save rather than a rebuild nobody checks.\n\nWhat is NOT retired is the honesty: removing the disk-mode branches removes an audience, not a standard.",
+      "body": "Decided: the built page does not have to be self-contained, because it is not being sent to anyone. That promise shaped a great deal — every `if (!live)` fallback and its placeholder copy, the inline-everything rule that made the client one enormous template literal, build-time stamps standing in for answers a server could give, and copy hedged because the page could never be sure it was live. The build-time `data-gap` is the worked example: three states on an attribute because a page from disk has nobody to ask.\n\nThe second half is the file itself. With the server required, dist/host.html is a copy nothing reads and something must keep from going stale — so it goes, and a save reports the save rather than a rebuild nobody checks.\n\nWhat is NOT retired is the honesty: removing the disk-mode branches removes an audience, not a standard.",
       "refs": [
         "gh#34",
         "gh#106"
@@ -292,7 +292,7 @@
     },
     {
       "title": "A reader can tell which product a journey belongs to",
-      "body": "Nine journeys across three products sit in one strip with nothing saying which belongs to what, so Practices and Roadmap and Workbench read as three concerns of one thing. They are three things, and the strip grows by one tab per journey forever. gh#53 puts a project tab above and that project's journeys below. The project is written rather than derived: deriving it from repo is almost right and fails on the workbench journey, which has none, so it would land in a group called nothing. One project shows no strip at all — a second row of chrome above a single group answers a question nobody has. And selecting a journey has to select its project, because the deep links reach a hidden journey by clicking its tab and a tab behind an unselected project cannot be clicked.",
+      "body": "Nine journeys across three products sit in one strip with nothing saying which belongs to what, so Practices and Host and Workbench read as three concerns of one thing. They are three things, and the strip grows by one tab per journey forever. gh#53 puts a project tab above and that project's journeys below. The project is written rather than derived: deriving it from repo is almost right and fails on the workbench journey, which has none, so it would land in a group called nothing. One project shows no strip at all — a second row of chrome above a single group answers a question nobody has. And selecting a journey has to select its project, because the deep links reach a hidden journey by clicking its tab and a tab behind an unselected project cannot be clicked.",
       "refs": [
         "gh#53"
       ],
@@ -340,7 +340,7 @@
     },
     {
       "title": "An agent on a step says where its conversation is",
-      "body": "A claim says who holds a step and when, never where to find them. A reader wanting to see what an agent did, take the work over, or ask it something has a name and nothing else.\n\nThe roadmap cannot work this out for itself, which is what makes it a step rather than a tidy-up. The session id it reads from the machine is a uuid; a conversation's address is a different identifier in a different format, and neither yields the other. The server is spawned once per session and shared by every subagent under it, so anything read from its own environment credits a parent with its children's work.\n\nSo the agent says, and is refused if it does not. Nearly right is worse than absent: it renders as a link somebody clicks. A claim made before this reads as not given, never as blank.",
+      "body": "A claim says who holds a step and when, never where to find them. A reader wanting to see what an agent did, take the work over, or ask it something has a name and nothing else.\n\nThe host cannot work this out for itself, which is what makes it a step rather than a tidy-up. The session id it reads from the machine is a uuid; a conversation's address is a different identifier in a different format, and neither yields the other. The server is spawned once per session and shared by every subagent under it, so anything read from its own environment credits a parent with its children's work.\n\nSo the agent says, and is refused if it does not. Nearly right is worse than absent: it renders as a link somebody clicks. A claim made before this reads as not given, never as blank.",
       "refs": [
         "gh#104"
       ],
@@ -403,7 +403,7 @@
     "Is a review one comment or one comment per finding? The ledger claims a target once, which reads as one comment; the drafts are per-finding, which reads as several.",
     "Is GitLab still live? trackers/gitlab.ts is 29K of working code and holds the only comment-posting path in the project, so retiring it would take the poster's one existing implementation with it — while every epic tracked here is GitHub and the state files hold zero GitLab refs.",
     "Should a claim ever expire on its own? Today it never does, the reasoning holds, and the consequence is that a reboot mid-run wedges a journey with no way back except editing the database.",
-    "Should opting out of the promotion gap have to be explicit? An epic that forgot branches and an epic that deliberately does not track promotion are currently indistinguishable — the same cannot-tell-versus-no confusion released.ts is otherwise scrupulous about. This epic is itself an example: the roadmap repo has one branch, so it has no promotion gap to track, and it says so here rather than by omission.",
+    "Should opting out of the promotion gap have to be explicit? An epic that forgot branches and an epic that deliberately does not track promotion are currently indistinguishable — the same cannot-tell-versus-no confusion released.ts is otherwise scrupulous about. This epic is itself an example: the host repo has one branch, so it has no promotion gap to track, and it says so here rather than by omission.",
     "When a dead control's input is missing, is the honest answer to hide it or to disable it with a reason? The Who picker hides, the mark filters do not, and nobody has decided which is right."
   ],
   "quizzes": [
@@ -449,7 +449,7 @@
     },
     {
       "term": "run",
-      "means": "One started orchestrator, identified by a token written into its opening prompt (roadmap-run:<journey>#<ask>). The token is the only name a background session has that nothing later rewrites — the pid belongs to a launcher that exits within the second, and the name is rewritten by the labelling cron."
+      "means": "One started orchestrator, identified by a token written into its opening prompt (host-run:<journey>#<ask>). The token is the only name a background session has that nothing later rewrites — the pid belongs to a launcher that exits within the second, and the name is rewritten by the labelling cron."
     },
     {
       "term": "ask",
@@ -461,7 +461,7 @@
     },
     {
       "term": "the posting switch",
-      "means": "One setting deciding whether a review agent may write to a pull request, a merge request or an issue. Off is the absence of the file, so a roadmap that has never heard of it reads as no rather than as unknown. Turning it on requires stating what you are agreeing to; turning it off requires nothing, because the safe direction is never gated."
+      "means": "One setting deciding whether a review agent may write to a pull request, a merge request or an issue. Off is the absence of the file, so a host that has never heard of it reads as no rather than as unknown. Turning it on requires stating what you are agreeing to; turning it off requires nothing, because the safe direction is never gated."
     },
     {
       "term": "concern",
@@ -481,7 +481,7 @@
     },
     {
       "term": "brief",
-      "means": "The document composed for a dispatched session: what the journey is, what is ready, what is blocked and by what, and how to work here. It is the roadmap's only chance to orient an agent — which is why a test that checks a section exists rather than what it says can leave the brief telling a session that a step is finished when nobody wrote down what it is."
+      "means": "The document composed for a dispatched session: what the journey is, what is ready, what is blocked and by what, and how to work here. It is the host's only chance to orient an agent — which is why a test that checks a section exists rather than what it says can leave the brief telling a session that a step is finished when nobody wrote down what it is."
     }
   ],
   "blockedBy": {
@@ -549,7 +549,7 @@
       ]
     },
     {
-      "heading": "What the roadmap says about itself",
+      "heading": "What the host says about itself",
       "refs": [
         "gh#24",
         "gh#25",
@@ -580,6 +580,6 @@
     }
   ],
   "watch": [],
-  "repo": "jaakkorajalasol/roadmap",
+  "repo": "jaakkorajalasol/kehikko",
   "branches": null
 }

@@ -84,9 +84,9 @@
     }
   ],
   "stepsFrom": {
-    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "projector": "the paper reader in the host this app was extracted from (src/modules/paper/steps.ts)",
     "where": "data/papers/permissions-say-what-they-enforce/main.tex",
-    "why": "This journey has a paper as well as the steps stored here. Where a roadmap is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
+    "why": "This journey has a paper as well as the steps stored here. Where a host is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
   },
   "exists": [
     "Permission names are generated into app/lib/rbac/*.generated.ts — the single source of truth. RBAC_ROUTE_CATALOG.md is a planning spec and stale where they disagree, by its own banner (gh#843 tracks the drift).",
