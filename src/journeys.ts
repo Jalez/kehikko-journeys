@@ -14,6 +14,7 @@ import {
   type EpicPart,
   type FilterChoice,
   type ModuleContext,
+  projectKey,
   type TrackerReading,
 } from 'kehikot-module-protocol'
 import { HostRefused, held as heldStore, hostStore, probeServer, type Draft, type HostStanding, type Where } from 'kehikot-module-protocol/client'
@@ -192,6 +193,8 @@ export interface State {
   where: Where
   /** Where the host says the project is on disk, or null. What the cover asks `coverFor` about. */
   projectPath: string | null
+  /** The project's permanent id (a host from 2.1.0), or null. It does not change when the folder is renamed. */
+  projectId: string | null
   /** Which step has its editor open, or -1. */
   editing: number
   /**
@@ -251,6 +254,7 @@ let state: State = {
   framed: false,
   where: 'listening',
   projectPath: null,
+  projectId: null,
   editing: -1,
   adding: false,
   addingFor: null,
@@ -356,26 +360,56 @@ function aimOf(target: string, journey: JourneyView): number {
  * closing the editor.
  * ------------------------------------------------------------------ */
 
-/** By project, then by the journey's slug and the box. An untouched or emptied draft is never one: the protocol's reader drops it. */
+/**
+ * By project, then by the journey's slug and the box. An untouched or emptied draft is never one: the protocol's reader drops it.
+ *
+ * The project is `projectKey(context)`, its id, so a folder renamed or moved under an open page keeps
+ * what was typed. Drafts held before this under the path are read once as a fallback and carried over to
+ * the id the first time they are touched.
+ */
 const drafts = heldStore('kehikot.journeys.drafts')
+
+/** The scope drafts are held under now, and the one an older page held them under. */
+function scopes(): { now: string | null; was: string | null } {
+  const at = projectKey({ projectId: state.projectId, projectPath: state.projectPath })
+  return { now: at?.key ?? null, was: state.projectPath }
+}
+
+/** Everything held for the project, the id's own and (once) what the path held, carried across to the id. */
+function allHeld(): Record<string, Draft> {
+  const { now, was } = scopes()
+  const here = drafts.at(now)
+  if (was === null || was === now) return here.all()
+  const old = drafts.at(was)
+  const carried = old.all()
+  for (const [target, draft] of Object.entries(carried)) {
+    if (!here.read(target)) here.keep(target, draft)
+    old.keep(target, null)
+  }
+  return here.all()
+}
 
 /** The words held for one box of the journey that is open, or null. */
 export function held(target: string): Draft | null {
   const slug = state.journey?.slug
-  return slug ? drafts.at(state.projectPath).read(`${slug}|${target}`) : null
+  if (!slug) return null
+  allHeld()
+  return drafts.at(scopes().now).read(`${slug}|${target}`)
 }
 
 /** Hold the words in one box of the journey that is open; `null` forgets them. */
 export function hold(target: string, draft: Draft | null): void {
   const slug = state.journey?.slug
-  if (slug) drafts.at(state.projectPath).keep(`${slug}|${target}`, draft)
+  if (!slug) return
+  allHeld()
+  drafts.at(scopes().now).keep(`${slug}|${target}`, draft)
 }
 
 /** Every held draft for the journey that is open, by target. */
 function heldHere(): [string, Draft][] {
   const slug = state.journey?.slug
   if (!slug) return []
-  return Object.entries(drafts.at(state.projectPath).all())
+  return Object.entries(allHeld())
     .filter(([target]) => target.startsWith(`${slug}|`))
     .map(([target, one]) => [target.slice(slug.length + 1), one])
 }
@@ -2062,7 +2096,7 @@ let standingIn: string | null | undefined = undefined
  * journey, and the comparison that says "you are already showing this" is only
  * true within one store.
  */
-function context({ epic: named, projectPath: project, selection: chosen, chosen: filters, parts }: HostStanding, next: ModuleContext): void {
+function context({ epic: named, projectPath: project, projectId: id, selection: chosen, chosen: filters, parts }: HostStanding, next: ModuleContext): void {
   const slug = named !== null && /^[a-z0-9-]{1,80}$/.test(named) ? named : null
 
   /* `epic` goes into state beside `framed`, in the same patch, because the two
@@ -2110,6 +2144,7 @@ function context({ epic: named, projectPath: project, selection: chosen, chosen:
     framed: true,
     where: 'hosted',
     projectPath: project,
+    projectId: id ?? null,
     epic: slug,
     selection: picked,
     /* The focus rides in the same patch for the reason the selection does: a

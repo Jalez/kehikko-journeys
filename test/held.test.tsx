@@ -205,4 +205,50 @@ describe('typed words are held across the page going away, aimed at what they we
     const kept = document.querySelector('[data-kept-words]') as HTMLElement
     expect(kept.textContent).toContain('Reading the track')
   })
+
+describe('typed words are held by the project, not the folder it happens to be in', () => {
+  const ID = 'proj-1234abcd'
+  const onWith = async (project: string, projectId: string | null) => {
+    const host = stubHost()
+    host.greet([], { projectPath: project, projectId })
+    await settle()
+    await settle()
+    return host
+  }
+
+  test('a folder renamed under the page keeps what was typed: the id is the key', async () => {
+    const before = fresh()
+    const after = fresh()
+    await onWith(before, ID)
+    render(<App />)
+    wire.setEditing(1)
+    await settle()
+    fireEvent.change(title(), { target: { value: 'Two, rewritten' } })
+    expect(Object.keys(held(ID))).toEqual(['probe|step:1'])
+    expect(held(before)).toEqual({})
+
+    await onWith(after, ID)
+    await settle()
+    expect(held(after)).toEqual({})
+    expect(Object.keys(held(ID))).toEqual(['probe|step:1'])
+    expect(wire.getSnapshot().editing).toBe(1)
+    expect(title().value).toBe('Two, rewritten')
+  })
+
+  test('words held under the path by an older page are read once, under the id, and carried over', async () => {
+    const project = fresh()
+    await onWith(project, null)
+    render(<App />)
+    wire.setEditing(1)
+    await settle()
+    fireEvent.change(title(), { target: { value: 'typed before the host sent an id' } })
+    expect(Object.keys(held(project))).toEqual(['probe|step:1'])
+
+    await onWith(project, ID)
+    await settle()
+    expect(Object.keys(held(ID))).toEqual(['probe|step:1'])
+    expect(held(project)).toEqual({})
+    expect(title().value).toBe('typed before the host sent an id')
+  })
+})
 })

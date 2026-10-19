@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, test } from 'bun:test'
 import { KEHIKOT_DIR, moduleFolder } from 'kehikot-module-protocol'
 
-import { answer } from '../doors.ts'
+import { answerAt as answer } from '../doors.ts'
 import { ID } from '../manifest.ts'
 import { BEFORE } from '../store.ts'
 
