@@ -65,7 +65,7 @@ function project(parts?: { id: string; name: string }[] | null, journey: Record<
   mkdirSync(dir, { recursive: true })
   const file = join(dir, 'journeys.json')
   writeFileSync(file, `${JSON.stringify({ version: 1, journeys: { thesis: journey } }, null, 2)}\n`)
-  const epics = join(root, KEHIKOT_DIR, 'kehikko', 'epics')
+  const epics = join(root, KEHIKOT_DIR, 'host', 'epics')
   mkdirSync(epics, { recursive: true })
   const epic = join(epics, 'thesis.json')
   if (parts !== null) writeFileSync(epic, `${JSON.stringify({ slug: 'thesis', title: 'Thesis', ...(parts ? { parts } : {}) }, null, 2)}\n`)
@@ -319,7 +319,7 @@ describe('beginning a journey for an epic whose list the host keeps', () => {
   test('the host’s list is not copied into the record, where it would be a second list', () => {
     const root = mkdtempSync(join(tmpdir(), 'journeys-keeper-'))
     made.push(root)
-    const epics = join(root, KEHIKOT_DIR, 'kehikko', 'epics')
+    const epics = join(root, KEHIKOT_DIR, 'host', 'epics')
     mkdirSync(epics, { recursive: true })
     writeFileSync(
       join(epics, 'thesis.json'),

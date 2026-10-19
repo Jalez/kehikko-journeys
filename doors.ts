@@ -1090,7 +1090,7 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       'Begin the journey for an epic that has none yet: the first record, from which this app owns that epic’s ' +
       'steps and the prose around them. It is NOT made empty. The record starts as ' +
       'everything the host holds for that epic — this reads the host’s own file, ' +
-      '.kehikot/kehikko/epics/<slug>.json in the project, once and without changing it — because from the moment ' +
+      '.kehikot/host/epics/<slug>.json in the project (.kehikot/kehikko/ from an older host), once and without changing it — because from the moment ' +
       'a record exists a host answers from the record and not from its file, and an empty one would hide every ' +
       'step already written. Refused, with nothing written, if the journey already exists or if that file does ' +
       'not read as a journey. If no host holds that epic here, pass `title` to make a journey that stands on its ' +

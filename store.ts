@@ -1065,15 +1065,20 @@ function inTheOrderOf(was: unknown, now: unknown): unknown {
  * ------------------------------------------------------------------ */
 
 /**
- * Where a host keeps its own file for an epic: `kehikko`.
+ * Where a host keeps its own file for an epic, in the order to look:
+ * `host` (protocol 2.2.0's `HOST_FOLDER`), then `kehikko`
+ * (`LEGACY_HOST_FOLDER`, where a host before 2.2.0 kept it, and where a
+ * project the host could not move still has it).
  *
- * This word is a host's, spelled in a module, and that is exactly the
+ * These words are a host's, spelled in a module, and that is exactly the
  * thing the protocol's `journey.ts` argues against — so it is said plainly
- * rather than tucked away. It is read by `hostEpic` below and by nothing
- * else, once, at the moment a record is first made. If the protocol package
- * comes to name the host's folder, this is the line that becomes an import.
+ * rather than tucked away. They are read by `hostEpic` below and by nothing
+ * else, once, at the moment a record is first made. They are the values of
+ * the protocol's constants rather than imports until this module is pinned
+ * to `kehikot-module-protocol#v2.2.0`; then this line becomes
+ * `[HOST_FOLDER, LEGACY_HOST_FOLDER]`.
  */
-const HOST_FOLDERS = ['kehikko'] as const
+const HOST_FOLDERS = ['host', 'kehikko'] as const
 
 export type HostEpic =
   /** No host has a file for that epic in this project, in either place a host keeps one. */
@@ -1088,7 +1093,8 @@ export type HostEpic =
  * ## The one read this app makes of somebody else's file, and why it is allowed
  *
  * Everything else in this file confines itself to `.kehikot/journeys/`. This
- * reads `.kehikot/kehikko/epics/<slug>.json`, which is a host's, and it does
+ * reads `.kehikot/host/epics/<slug>.json` (or, from a host before protocol
+ * 2.2.0, `.kehikot/kehikko/epics/<slug>.json`), which is a host's, and it does
  * so for one purpose: `createJourney`, when there is no host to ASK.
  *
  * The page has one. Framed, it asks `epic.get` and hands the answer over, and
