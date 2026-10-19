@@ -6,7 +6,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { KEHIKOT_DIR, journeyIn as recordIn, moduleFolder, partsOf } from 'kehikot-module-protocol'
 import { readHoldings, readJourneys } from 'kehikot-module-protocol/serve'
 
-import { TICKET, answer, writeTicketFor } from '../doors.ts'
+import { TICKET, answerAt as answer, writeTicketFor } from '../doors.ts'
 import { JOURNEYS_KEEP, keeperFrom, listedBy } from '../keeper.ts'
 import { ID } from '../manifest.ts'
 import { BEFORE, holdingsOf, keeperOf } from '../store.ts'

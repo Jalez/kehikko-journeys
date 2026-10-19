@@ -7,6 +7,7 @@ import { stepPart } from 'kehikot-module-protocol'
 
 import { JOURNEYS_KEEP, listedBy, type Keeper } from './keeper.ts'
 import { ID, MANIFEST, VERSION } from './manifest.ts'
+import { resolveProject } from './project.ts'
 import { fileOf, findingsSaid, idFor, nameOf, notAStep, stepOfPart, withPart, withStep, withStepMoved, withoutStep } from './parts.ts'
 import {
   type Held,
@@ -1481,7 +1482,65 @@ function mcp(rpc: Rpc): Reply {
  * which is how the page, the client module and Vite's own hot-reload socket
  * keep working without being enumerated here.
  */
-export function answer(
+/**
+ * The door. Every project path in a request — `project` in the query, in the body or in a tool's
+ * arguments — is put to the host first (`resolveProject`); what is worked on is the path it gives
+ * back, never the one that was sent, and a folder the host does not vouch for is refused before
+ * anything is read or made. A move that was followed is said in the answer. `answerAt` below is the
+ * door for a path that has already been vouched for; tests of what the doors DO start there.
+ */
+export async function answer(
+  method: string,
+  path: string,
+  query: URLSearchParams,
+  body: Record<string, unknown> | null,
+  ticket: string | null,
+): Promise<Reply | null> {
+  const notes: string[] = []
+  let refusal: string | null = null
+  const resolve = async (named: unknown): Promise<unknown> => {
+    if (typeof named !== 'string' || !named.trim()) return named
+    const at = await resolveProject(named.trim())
+    if (!at.ok) {
+      refusal = at.error
+      return named
+    }
+    if (at.followed && !notes.includes(at.followed)) notes.push(at.followed)
+    return at.path
+  }
+  const refused = (why: string): Reply =>
+    path === '/mcp'
+      ? { status: 200, body: { jsonrpc: '2.0', id: (body?.id as number | string | undefined) ?? null, result: { content: [{ type: 'text', text: why }], isError: true } } }
+      : bad(why, 409)
+
+  let asked = query
+  let sent = body
+  if (path.startsWith('/api/') && query.has('project')) {
+    asked = new URLSearchParams(query)
+    asked.set('project', (await resolve(query.get('project'))) as string)
+  }
+  if (path.startsWith('/api/') && sent && 'project' in sent) sent = { ...sent, project: await resolve(sent.project) }
+  if (path === '/mcp' && method === 'POST' && sent?.method === 'tools/call') {
+    const params = (sent.params ?? {}) as { arguments?: Record<string, unknown> }
+    if (params.arguments && 'project' in params.arguments) {
+      sent = { ...sent, params: { ...params, arguments: { ...params.arguments, project: await resolve(params.arguments.project) } } }
+    }
+  }
+  if (refusal !== null) return refused(refusal)
+
+  const reply = answerAt(method, path, asked, sent, ticket)
+  if (!reply || notes.length === 0) return reply
+  const said = reply.body as Record<string, unknown> | null
+  if (path === '/mcp' && said && typeof said === 'object') {
+    const result = said.result as { content?: { type: string; text: string }[] } | undefined
+    if (result?.content) result.content = [...result.content, ...notes.map((text) => ({ type: 'text', text }))]
+  } else if (said && typeof said === 'object' && !Array.isArray(said)) {
+    said.movedFrom = notes
+  }
+  return reply
+}
+
+export function answerAt(
   method: string,
   path: string,
   query: URLSearchParams,
