@@ -9,7 +9,7 @@
   "callout": "",
   "steps": [],
   "stepsFrom": {
-    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "projector": "the paper reader in the host this app was extracted from (src/modules/paper/steps.ts)",
     "where": "data/papers/an-action-is-one-thing/main.tex",
     "why": "The steps of this journey are the sections of its paper. Nothing is stored here because nothing was ever written here — they are projected out of LaTeX at read time by a program this app is not. This app cannot parse a paper and will not learn how, so it says so rather than showing an empty journey."
   },

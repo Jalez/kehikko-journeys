@@ -125,9 +125,9 @@
     }
   ],
   "stepsFrom": {
-    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "projector": "the paper reader in the host this app was extracted from (src/modules/paper/steps.ts)",
     "where": "data/papers/practices-are-the-only-governor/main.tex",
-    "why": "This journey has a paper as well as the steps stored here. Where a roadmap is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
+    "why": "This journey has a paper as well as the steps stored here. Where a host is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
   },
   "exists": [
     "docs/PRACTICES_MODEL.md is the authoritative spec (owner decisions 2026-08-13/14) — targeting + placement + action, build order in §11. It supersedes the shape of PRACTICE_WHEN_MODEL.md, TALON_TAVAT_UNIFICATION.md and ROUTINES_GENERALIZATION_SPEC.md; each carries a banner saying what still holds.",

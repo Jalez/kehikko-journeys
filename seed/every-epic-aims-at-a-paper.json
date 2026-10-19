@@ -1,10 +1,10 @@
 {
   "slug": "every-epic-aims-at-a-paper",
   "title": "Every epic aims at a paper you can read and argue with",
-  "lede": "Each journey carries a target-architecture paper, read in the roadmap page with the workbench's reading desk, and the paper's sections are where the steps come from",
+  "lede": "Each journey carries a target-architecture paper, read in the host page with the workbench's reading desk, and the paper's sections are where the steps come from",
   "written": "2026-08-24",
   "tab": "Papers",
-  "project": "Roadmap",
+  "project": "Host",
   "callout": "A journey says what has to become true and a tracker says what is true. Neither says what the thing is meant to look like when it is finished, so that has lived in issue comments and in somebody's head. The paper is that third thing — and because it is the written half, it is where the steps come from rather than a document beside them.",
   "steps": [
     {
@@ -31,7 +31,7 @@
     },
     {
       "title": "A section names the work that delivers it, and the page reads that work's state",
-      "body": "A paper that names no work is an essay, and drifts from the product without anything noticing. A section declares the issues and changes meant to deliver it, in the paper's own language rather than in a sidecar file, and the margin shows what the trackers say about each — the same reading the journey already gets, in the place the claim is made. The split the roadmap enforces holds unchanged: the paper says what was decided and never says what is true, because the state beside a reference is read at build time and cannot be typed into the prose.",
+      "body": "A paper that names no work is an essay, and drifts from the product without anything noticing. A section declares the issues and changes meant to deliver it, in the paper's own language rather than in a sidecar file, and the margin shows what the trackers say about each — the same reading the journey already gets, in the place the claim is made. The split the host enforces holds unchanged: the paper says what was decided and never says what is true, because the state beside a reference is read at build time and cannot be typed into the prose.",
       "refs": [
         "gh#69"
       ],
@@ -53,7 +53,7 @@
     },
     {
       "title": "You can question a paragraph of the architecture where you are reading it",
-      "body": "Disagreeing with a design used to mean leaving the page: open the repo, find the file, write the change, or say it in an issue where it is no longer beside the sentence it is about. A highlight in the paper becomes a thread anchored to a byte range, and the answer arrives in the card that asked. The run goes through the roadmap's own dispatch rather than a second queue — the ask queue, the supervisor and the notification panel already exist, and two of each would mean two accounts of who is working. One agent at a time per paper, because two editing the same file work from offsets the other is moving.",
+      "body": "Disagreeing with a design used to mean leaving the page: open the repo, find the file, write the change, or say it in an issue where it is no longer beside the sentence it is about. A highlight in the paper becomes a thread anchored to a byte range, and the answer arrives in the card that asked. The run goes through the host's own dispatch rather than a second queue — the ask queue, the supervisor and the notification panel already exist, and two of each would mean two accounts of who is working. One agent at a time per paper, because two editing the same file work from offsets the other is moving.",
       "refs": [
         "gh#71"
       ],
@@ -64,7 +64,7 @@
     },
     {
       "title": "A change to the paper can be read as a change, and undone where git is also watching",
-      "body": "The reading desk's edit log is the only undo the thesis has, because there is no git in that directory. A paper in the roadmap repo has two, and two undos that do not know about each other is how a revert quietly loses somebody's commit. So an agent's turn is shown the way it already is — what it changed, in the sentence it changed it in, reconstructed as the text read at that turn — while the durable record is the commit, and the log's job narrows to reading the past rather than owning it. An edit made outside the desk leaves a hole in the log, and the honest answer stays that it cannot be shown as it was.",
+      "body": "The reading desk's edit log is the only undo the thesis has, because there is no git in that directory. A paper in the host repo has two, and two undos that do not know about each other is how a revert quietly loses somebody's commit. So an agent's turn is shown the way it already is — what it changed, in the sentence it changed it in, reconstructed as the text read at that turn — while the durable record is the commit, and the log's job narrows to reading the past rather than owning it. An edit made outside the desk leaves a hole in the log, and the honest answer stays that it cannot be shown as it was.",
       "refs": [
         "gh#72"
       ],
@@ -86,7 +86,7 @@
     },
     {
       "title": "The paper asks whether you still hold what it says",
-      "body": "A design read once is a design half-held, and an architecture nobody can restate is not shared however well it was written. Both halves of this already exist and have never met: the roadmap keeps questions against a journey, and the reading desk anchors them to the passage that answers them, with the deciding clause quoted and checked against the text. Joining them means a question about a paragraph says so when that paragraph has been rewritten, rather than testing prose that is gone. The run that writes questions is given tools that cannot change the paper — an agent asked to examine a passage has no business rewriting it, and the way to be sure is not to hand it the tool.",
+      "body": "A design read once is a design half-held, and an architecture nobody can restate is not shared however well it was written. Both halves of this already exist and have never met: the host keeps questions against a journey, and the reading desk anchors them to the passage that answers them, with the deciding clause quoted and checked against the text. Joining them means a question about a paragraph says so when that paragraph has been rewritten, rather than testing prose that is gone. The run that writes questions is given tools that cannot change the paper — an agent asked to examine a passage has no business rewriting it, and the way to be sure is not to hand it the tool.",
       "refs": [
         "gh#74"
       ],
@@ -103,14 +103,14 @@
       ],
       "notes": [
         "server/services/build.ts is the reference",
-        "dist/roadmap.html is a snapshot and must keep working offline"
+        "dist/host.html is a snapshot and must keep working offline"
       ]
     }
   ],
   "stepsFrom": {
-    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "projector": "the paper reader in the host this app was extracted from (src/modules/paper/steps.ts)",
     "where": "data/papers/every-epic-aims-at-a-paper/main.tex",
-    "why": "This journey has a paper as well as the steps stored here. Where a roadmap is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
+    "why": "This journey has a paper as well as the steps stored here. Where a host is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
   },
   "exists": [
     "Source-mapped LaTeX parsing: every span on screen knows its byte range, so a highlight is an exact edit range (thesis-workbench, server/latex/parse.ts)",
@@ -118,10 +118,10 @@
     "A margin rail of marks — notices and queued requests — anchored to source rather than to rendered text, surviving edits around them",
     "Threads: a highlight spawns a headless run scoped to that one passage, and the answer arrives in the card that asked",
     "Agent history that can be read back as the text was at the turn that changed it",
-    "The roadmap's own dispatch, supervisor and ask queue — a second queue would be one too many",
-    "Quizzes and a vocabulary drawer on the roadmap page, and per-project tab grouping"
+    "The host's own dispatch, supervisor and ask queue — a second queue would be one too many",
+    "Quizzes and a vocabulary drawer on the host page, and per-project tab grouping"
   ],
-  "missing": "Nothing in the roadmap renders a document today, and the workbench cannot hold more than one project: its tables key work on a path, its root is a single environment variable, and its database is one file for one thesis. Both are assumptions this journey has to build, not seams it can use.",
+  "missing": "Nothing in the host renders a document today, and the workbench cannot hold more than one project: its tables key work on a path, its root is a single environment variable, and its database is one file for one thesis. Both are assumptions this journey has to build, not seams it can use.",
   "order": [
     {
       "when": "First",
@@ -131,7 +131,7 @@
     {
       "when": "Then",
       "what": "Sections name their work (3), and the steps come from the sections (4)",
-      "why": "The projection needs a section to already know what delivers it, or a projected step arrives with no refs. Step 4 is the one that changes how the roadmap is used, so it goes after the thing it depends on and before the things that assume it."
+      "why": "The projection needs a section to already know what delivers it, or a projected step arrives with no refs. Step 4 is the one that changes how the host is used, so it goes after the thing it depends on and before the things that assume it."
     },
     {
       "when": "Then",
@@ -146,15 +146,15 @@
   ],
   "open": [
     "Steps are hand-written today; making them a projection of the paper retires set_step for a papered epic, and something has to say what happens to the eight journeys already written by hand",
-    "The workbench's anchors are byte offsets into a file with no git in the directory — the roadmap's papers will be in a repo, so the edit log and git will both claim to be the undo",
-    "One agent at a time per paper is a design constraint of the workbench, and the roadmap runs several agents at once",
+    "The workbench's anchors are byte offsets into a file with no git in the directory — the host's papers will be in a repo, so the edit log and git will both claim to be the undo",
+    "One agent at a time per paper is a design constraint of the workbench, and the host runs several agents at once",
     "Nothing yet says what an architecture paper is: a chapter, a page, or a section per step"
   ],
   "quizzes": [],
   "vocabulary": [
     {
       "term": "paper",
-      "means": "The target architecture of one epic, written as LaTeX and kept in the roadmap repo beside the journey it belongs to. It says what the thing is meant to be when it is finished — not what is true today, which is read from the trackers, and not a design doc nobody opens again, because the steps are read out of it."
+      "means": "The target architecture of one epic, written as LaTeX and kept in the host repo beside the journey it belongs to. It says what the thing is meant to be when it is finished — not what is true today, which is read from the trackers, and not a design doc nobody opens again, because the steps are read out of it."
     },
     {
       "term": "projected step",
@@ -162,7 +162,7 @@
     },
     {
       "term": "the reading desk",
-      "means": "What the thesis workbench is, taken out of the thesis: a page that renders a document as it will read, with a margin rail beside it where every mark, question and agent answer sits level with the passage it concerns. It moves into the roadmap as a tab, not as a second application."
+      "means": "What the thesis workbench is, taken out of the thesis: a page that renders a document as it will read, with a margin rail beside it where every mark, question and agent answer sits level with the passage it concerns. It moves into the host as a tab, not as a second application."
     }
   ],
   "blockedBy": {
@@ -193,6 +193,6 @@
   "owners": {},
   "groups": [],
   "watch": [],
-  "repo": "jaakkorajalasol/roadmap",
+  "repo": "jaakkorajalasol/kehikko",
   "branches": null
 }

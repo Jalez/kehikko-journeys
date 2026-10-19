@@ -23,7 +23,7 @@ import { type Journey, journeySchema, makeDir, dataFile, held, isSlug } from '..
  *
  * These journeys carry no project. Fourteen files in `data/`, and not one of
  * them says which repository on this machine it belongs to — `project` is a
- * DISPLAY name when it is set at all ("Roadmap"), not a path, and a program
+ * DISPLAY name when it is set at all ("Host"), not a path, and a program
  * that resolved a display name to a folder would be guessing about somebody's
  * work with a plausible-looking string. There is exactly one honest way to
  * answer the question, and it is to ask. So: a person names the project, on a

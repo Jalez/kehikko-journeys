@@ -5,11 +5,11 @@
   "umbrella": "gh#35",
   "written": "2026-08-26",
   "tab": "Components",
-  "project": "Roadmap",
+  "project": "Host",
   "callout": "The seam is the whole design. A big-bang rewrite would throw away every render test and the recent work in these same three files, so the page converts one surface at a time and the two halves are made to coexist: a converted panel is an island React owns, and every vanilla painter asks whether a node is inside one before writing to it. That guard is what lets a panel stop being painted the moment it converts, with no edit to the painter, and it is why twenty conversions can be twenty small changes rather than one enormous one. The scaffolding has a defined end — when the last panel has moved, the islands collapse into a single root and the machinery that made them possible is deleted.",
   "steps": [],
   "stepsFrom": {
-    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "projector": "the paper reader in the host this app was extracted from (src/modules/paper/steps.ts)",
     "where": "data/papers/page-is-components/main.tex",
     "why": "The steps of this journey are the sections of its paper. Nothing is stored here because nothing was ever written here — they are projected out of LaTeX at read time by a program this app is not. This app cannot parse a paper and will not learn how, so it says so rather than showing an empty journey."
   },
@@ -73,6 +73,6 @@
   "owners": {},
   "groups": [],
   "watch": [],
-  "repo": "jaakkorajalasol/roadmap",
+  "repo": "jaakkorajalasol/kehikko",
   "branches": null
 }

@@ -130,9 +130,9 @@
     }
   ],
   "stepsFrom": {
-    "projector": "the paper reader in the roadmap this app was extracted from (src/modules/paper/steps.ts)",
+    "projector": "the paper reader in the host this app was extracted from (src/modules/paper/steps.ts)",
     "where": "data/papers/sections-one-tree/main.tex",
-    "why": "This journey has a paper as well as the steps stored here. Where a roadmap is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
+    "why": "This journey has a paper as well as the steps stored here. Where a host is showing it, the sections of that paper are what a reader sees, and they may differ from these. This app holds and draws the stored ones; it cannot read the paper, so it cannot tell you where the two disagree."
   },
   "exists": [
     "Stages A–C are landed: the custom_pages tree (migrations 0283/0284), seeding, the pure path resolver, the per-category splat, cross-category moves that re-root a subtree, and the drag-to-nest editor at /settings/pages.",
