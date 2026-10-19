@@ -75,9 +75,9 @@ function project(journeys: Record<string, unknown> = { neighbour, told }, epic?:
   mkdirSync(dir, { recursive: true })
   const file = join(dir, 'journeys.json')
   writeFileSync(file, `${JSON.stringify({ version: 1, journeys, beside: 'kept' }, null, 2)}\n`)
-  const epicFile = join(root, KEHIKOT_DIR, 'kehikko', 'epics', 'told.json')
+  const epicFile = join(root, KEHIKOT_DIR, 'host', 'epics', 'told.json')
   if (epic) {
-    mkdirSync(join(root, KEHIKOT_DIR, 'kehikko', 'epics'), { recursive: true })
+    mkdirSync(join(root, KEHIKOT_DIR, 'host', 'epics'), { recursive: true })
     writeFileSync(epicFile, `${JSON.stringify(epic, null, 2)}\n`)
   }
   const rpc = (message: Record<string, unknown>) => answer('POST', '/mcp', new URLSearchParams(), message, null)

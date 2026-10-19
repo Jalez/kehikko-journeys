@@ -15,7 +15,7 @@ hardcoded to know of any module.*
 It is not a Journeys thing and not a Paper thing.
 
 **The list of parts lives with the epic**, in the file the host already
-keeps for it (`<project>/.kehikot/kehikko/epics/<slug>.json`, as
+keeps for it (`<project>/.kehikot/host/epics/<slug>.json`, `.kehikot/kehikko/` before protocol 2.2.0, as
 `parts: [{ id, name }]`). The host is its only writer — it already owns the
 epic's slug, title and existence, and already writes that file. A person
 adds, renames, reorders and removes parts **in the host's parts picker**,
@@ -123,7 +123,7 @@ local `main` was read).
 
 | Place | Keyed how | An id the epic no longer has |
 |---|---|---|
-| Host: `projects.parts` in the frame database, and `"parts"` in `<project>/.kehikot/kehikko/kehikot.json` | per project (with the open epic) | Kept, ignored, and said: an amber "a picked part is gone" in the picker; one press forgets it. Any other pick drops it. |
+| Host: `projects.parts` in the frame database, and `"parts"` in `<project>/.kehikot/host/kehikot.json` | per project (with the open epic) | Kept, ignored, and said: an amber "a picked part is gone" in the picker; one press forgets it. Any other pick drops it. |
 | Claude: `<project>/.kehikot/claude/places.json` | `epic=…;parts=a+b;kehikko=n` | The entry stays in the file; the session can no longer be reached by a pick. |
 | Journeys: each step's `part` | per step | Cannot happen: the id IS the step's part. |
 | Paper, Learning, Notes, Slides, Citations, Checklist, References, Tests, Review, and the rest | — | None of them stores a part id. |

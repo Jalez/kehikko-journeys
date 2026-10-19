@@ -51,7 +51,7 @@ const hosted = {
 }
 
 /** A project, with the host's file for each epic given, in the folder a host keeps them in. */
-function project(epics: Record<string, unknown> = {}, folder = 'kehikko'): string {
+function project(epics: Record<string, unknown> = {}, folder = 'host'): string {
   const root = mkdtempSync(join(tmpdir(), 'journeys-begin-'))
   made.push(root)
   if (Object.keys(epics).length) mkdirSync(join(root, KEHIKOT_DIR, folder, 'epics'), { recursive: true })
@@ -65,7 +65,7 @@ function project(epics: Record<string, unknown> = {}, folder = 'kehikko'): strin
 }
 
 const journeysFile = (root: string) => join(root, KEHIKOT_DIR, MINE, 'journeys.json')
-const hostFile = (root: string, slug: string) => join(root, KEHIKOT_DIR, 'kehikko', 'epics', `${slug}.json`)
+const hostFile = (root: string, slug: string) => join(root, KEHIKOT_DIR, 'host', 'epics', `${slug}.json`)
 
 const rpc = (name: string, args: Record<string, unknown>): string => {
   const reply = answer('POST', '/mcp', new URLSearchParams(), { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }, null)
@@ -90,6 +90,22 @@ describe('from the MCP door, which has a project path and no host to ask', () =>
     expect(record.steps.map(stepPart)).toEqual(['the-agent-seam', 'retire-the-second-path', 'what-the-page-shows'])
     expect(record.groups[0]?.id).toBe('the-agent-seam')
     expect(record.hostOnly).toEqual({ since: '2026-09-01' })
+  })
+
+  test('a host before protocol 2.2.0 kept its file in .kehikot/kehikko/, and that is still read', () => {
+    const root = project({ 'the-posting-seam': hosted }, 'kehikko')
+    const said = rpc('create_journey', { project: root, slug: 'the-posting-seam' })
+    expect(said).toContain('3 steps, and everything else')
+    expect(said).toContain(join(root, KEHIKOT_DIR, 'kehikko', 'epics', 'the-posting-seam.json'))
+  })
+
+  test('with a file in both folders, the one in .kehikot/host/ is the one read', () => {
+    const root = project({ 'the-posting-seam': hosted })
+    mkdirSync(join(root, KEHIKOT_DIR, 'kehikko', 'epics'), { recursive: true })
+    writeFileSync(join(root, KEHIKOT_DIR, 'kehikko', 'epics', 'the-posting-seam.json'), '{ "slug": "the-posting-seam", "steps": [')
+    const said = rpc('create_journey', { project: root, slug: 'the-posting-seam' })
+    expect(said).toContain(hostFile(root, 'the-posting-seam'))
+    expect(said).toContain('3 steps, and everything else')
   })
 
   test('so a host reading the record finds exactly the steps it had been answering with', () => {
@@ -150,7 +166,7 @@ describe('from the MCP door, which has a project path and no host to ask', () =>
   test('a host file that is a link out of the project is not followed', () => {
     const elsewhere = project({ 'the-posting-seam': hosted })
     const root = project()
-    mkdirSync(join(root, KEHIKOT_DIR, 'kehikko', 'epics'), { recursive: true })
+    mkdirSync(join(root, KEHIKOT_DIR, 'host', 'epics'), { recursive: true })
     symlinkSync(hostFile(elsewhere, 'the-posting-seam'), hostFile(root, 'the-posting-seam'))
     expect(hostEpic(root, 'the-posting-seam').found).toBe('unreadable')
     expect(createJourney(root, 'the-posting-seam').ok).toBe(false)
