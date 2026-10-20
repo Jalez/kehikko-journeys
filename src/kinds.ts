@@ -21,6 +21,12 @@ export interface Step {
    * one once the store has read it; read with the protocol's `stepPart`.
    */
   part?: string
+  /** The objective (another step's id) this step is a prerequisite of. See `tree.ts`. */
+  under?: string
+  /** Ids of steps that must be done before this one. */
+  after?: string[]
+  /** The issue that delivers this step. */
+  issue?: string
 }
 
 /**
@@ -110,4 +116,14 @@ export interface Target {
   ref?: string
   step?: number
   slug?: string
+}
+
+/** The Factory's newest job for one issue, as `/api/factory` hands it over (see `factory.ts`). */
+export interface FactoryJob {
+  id: string
+  ref: string
+  stage: string
+  title?: string
+  column?: string
+  updatedAt?: string
 }

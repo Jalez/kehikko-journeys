@@ -45,8 +45,11 @@ export const PROJECT = '/Users/somebody/Projects/probe'
  */
 export const store = {
   journey: JOURNEY as typeof JOURNEY,
-  /** Every request, in order, as `METHOD /path?query`. */
+  /** Every request, in order, as `METHOD /path?query`. Not `/api/factory`: see `factoryAsked`. */
   asked: [] as string[],
+  /** Every `/api/factory` read, and what it answers: the Factory's job per issue. */
+  factoryAsked: [] as string[],
+  factory: {} as Record<string, { id: string; ref: string; stage: string }>,
   /** How many times one journey has been read. */
   reads: () => store.asked.filter((line) => line.startsWith('GET /api/journey?')).length,
   hold: (): (() => void) => {
@@ -85,6 +88,8 @@ export const store = {
     store.fail = null
     store.begun = []
     store.arranged = []
+    store.factoryAsked = []
+    store.factory = {}
     held = null
   },
 }
@@ -102,6 +107,12 @@ function viewed(): Record<string, unknown> {
 function stubStore() {
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input)
+    /* The Factory's stages are read beside the journey on their own clock (`readFactory`); they are
+       counted apart, so a case about what the journey asks is not about them. */
+    if (url.includes('/api/factory?')) {
+      store.factoryAsked.push(url)
+      return new Response(JSON.stringify({ ok: true, factory: Object.keys(store.factory).length > 0, jobs: store.factory }), { headers: { 'content-type': 'application/json' } })
+    }
     store.asked.push(`${init?.method ?? 'GET'} ${url}`)
     let refusal: string | null = null
     let said = 'Began probe from what the host holds for that epic: 2 steps.'

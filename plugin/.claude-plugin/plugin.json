@@ -1,0 +1,5 @@
+{
+  "name": "kehikot-journeys",
+  "version": "0.1.0",
+  "description": "The /journey skill of Kehikot's Journeys module, as kept here: a template the module fills with its origin. A person installs the filled text from Kehikot; this folder is for trying it with --plugin-dir."
+}

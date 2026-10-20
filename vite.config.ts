@@ -2,11 +2,29 @@ import { resolve } from 'node:path'
 
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { doors, serves } from 'kehikot-module-protocol/serve'
-import { defineConfig } from 'vite'
+import { doors, originFor, serves } from 'kehikot-module-protocol/serve'
+import { defineConfig, type Plugin } from 'vite'
 
-import { BUILD, MANIFEST, TICKET, answer } from './doors.ts'
+import { BUILD, MANIFEST, TICKET, answer, servingAt } from './doors.ts'
 import { ID, PREFERRED_PORT } from './manifest.ts'
+import { isSkillPath } from './skills.ts'
+
+/**
+ * The `/journey` skill names the origin this module is really on, not the one it preferred
+ * (`skills.ts`): once the server is listening, the port it bound is said to `servingAt`.
+ */
+function skillOrigin(): Plugin {
+  return {
+    name: 'journeys-skill-origin',
+    apply: 'serve',
+    configureServer(server) {
+      server.httpServer?.once('listening', () => {
+        const address = server.httpServer?.address()
+        if (address && typeof address === 'object') servingAt(originFor(address.port))
+      })
+    },
+  }
+}
 
 /**
  * Every door this app answers on is the protocol's `doors()`, served by the one process that
@@ -120,7 +138,15 @@ export default defineConfig({
   base: './',
   plugins: [
     serves({ id: ID, prefer: PREFERRED_PORT }),
-    doors({ manifest: MANIFEST, answer, build: BUILD, page: { title: 'Journeys', ticket: TICKET } }),
+    skillOrigin(),
+    doors({
+      manifest: MANIFEST,
+      answer,
+      build: BUILD,
+      page: { title: 'Journeys', ticket: TICKET },
+      /* The protocol's doors, and the skill's SKILL.md at `/kehikot/skills/journey.md`. */
+      ours: (path) => path === '/healthz' || path === '/mcp' || path.startsWith('/api/') || isSkillPath(path),
+    }),
     react(),
     tailwindcss(),
   ],

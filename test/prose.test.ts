@@ -115,7 +115,7 @@ describe('the tool, as a client is told about it', () => {
   test('it is listed, takes `project` and `slug`, and names every field `get_journey` returns that nothing else writes', () => {
     const one = tool('set_journey')
     expect(one.inputSchema.required).toEqual(['project', 'slug'])
-    expect(Object.keys(one.inputSchema.properties)).toEqual(['project', 'slug', 'title', 'lede', 'callout', 'missing', 'exists', 'open', 'headings'])
+    expect(Object.keys(one.inputSchema.properties)).toEqual(['project', 'slug', 'title', 'lede', 'callout', 'missing', 'goal', 'measure', 'appetite', 'rabbitHoles', 'noGos', 'exists', 'open', 'headings'])
   })
 
   test('it writes, it can remove, and saying the same thing twice is the same thing', () => {

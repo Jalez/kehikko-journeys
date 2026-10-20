@@ -3,10 +3,13 @@ import { createHash } from 'node:crypto'
 import { establishBuild, mintTicket, refuseTicket, sameTicket, type Reply } from 'kehikot-module-protocol/serve'
 
 import { tooLong } from './limits.ts'
-import { stepPart } from 'kehikot-module-protocol'
+import { cycleSaid, nextStep, treeOf } from './src/tree.ts'
+import { factoryStages } from './factory.ts'
 
 import { JOURNEYS_KEEP, listedBy, type Keeper } from './keeper.ts'
-import { ID, MANIFEST, VERSION } from './manifest.ts'
+import { manifestSchema, stepPart, type Manifest } from 'kehikot-module-protocol'
+import { ID, MANIFEST as DECLARED, VERSION } from './manifest.ts'
+import { serveFrom, skillAt, skillDeclarations } from './skills.ts'
 import { resolveProject } from './project.ts'
 import { fileOf, findingsSaid, idFor, nameOf, notAStep, stepOfPart, withPart, withStep, withStepMoved, withoutStep } from './parts.ts'
 import {
@@ -171,6 +174,20 @@ function position(value: unknown): number | undefined {
  * somebody later reading it as one.
  */
 export const TICKET = mintTicket()
+
+/** The manifest as served: the one in manifest.ts, with the skill this module offers (`skills.ts`). */
+export const MANIFEST: Manifest = manifestSchema.parse({ ...DECLARED, declares: { ...DECLARED.declares, skills: skillDeclarations() } })
+
+/**
+ * Say the origin this process really serves on, once it is listening (vite.config.ts): the skill's
+ * text is filled in for it and the version the manifest declares follows. In place, because the
+ * manifest `doors()` serves is this object, read on every request.
+ */
+export function servingAt(origin: string): void {
+  serveFrom(origin)
+  const skills = MANIFEST.declares?.skills
+  if (skills) skills.splice(0, skills.length, ...skillDeclarations())
+}
 
 /** What this process is built from and when it started; `doors()` says it wherever a build is said. */
 export const BUILD = establishBuild({ version: VERSION, dir: import.meta.dirname })
@@ -344,7 +361,7 @@ function setStep(
   slug: string,
   where: { position?: number; id?: string },
   step: { title: string; body: string; refs: string[]; notes: string[] },
-  given: { name?: string | null; part?: string } = {},
+  given: Given = {},
 ): { ok: false; error: string } | { ok: true; journey: Journey; where: number; id: string; said: string; keeper: Keeper } {
   if (!isSlug(slug)) return { ok: false, error: 'that is not a journey name' }
 
@@ -385,6 +402,22 @@ function setStep(
 
   const keeper = keeperIn(store, slug)
   const parsed = stepSchema.parse({ ...journey.steps[at], ...step })
+  /* Its place in the tree. An id that names no step is refused, never kept pointing at nothing. */
+  if (given.under !== undefined) {
+    if (given.under === null) delete parsed.under
+    else {
+      const known = journey.steps.some((one, i) => i !== at && stepPart(one) === given.under)
+      if (!known) return { ok: false, error: `“${given.under}” is not the id of another step of this journey, so nothing can be under it. The step was not written.` }
+      parsed.under = given.under
+    }
+  }
+  if (given.issue !== undefined) {
+    if (given.issue === null) delete parsed.issue
+    else {
+      parsed.issue = given.issue
+      if (!parsed.refs.includes(given.issue)) parsed.refs = [given.issue, ...parsed.refs]
+    }
+  }
   let record: Journey
   let said = ''
   if (keeper.by === 'host') {
@@ -432,6 +465,8 @@ function setStep(
     }
   }
 
+  const circle = cycleSaid(record.steps)
+  if (circle) return { ok: false, error: circle }
   const written = writeJourney(project, record)
   if (!written.ok) return { ok: false, error: written.error }
   const kept = written.journey.steps[at]
@@ -604,9 +639,9 @@ function settle(
  * ------------------------------------------------------------------ */
 
 /** The sentences of a journey that are one string each. */
-const PROSE = ['title', 'lede', 'callout', 'missing'] as const
+const PROSE = ['title', 'lede', 'callout', 'missing', 'goal', 'measure', 'appetite'] as const
 /** Its lists of sentences. */
-const LISTS = ['exists', 'open'] as const
+const LISTS = ['exists', 'open', 'rabbitHoles', 'noGos'] as const
 /** Everything `setProse` writes, in the order it is said back. */
 const PROSE_FIELDS = [...PROSE, ...LISTS, 'headings'] as const
 type ProseField = (typeof PROSE_FIELDS)[number]
@@ -623,8 +658,13 @@ interface ProseSaid {
   lede?: string
   callout?: string
   missing?: string
+  goal?: string
+  measure?: string
+  appetite?: string
   exists?: string[]
   open?: string[]
+  rabbitHoles?: string[]
+  noGos?: string[]
   headings?: HeadingSaid[]
 }
 
@@ -855,12 +895,25 @@ function nothingToReadIn(store: Held): string | null {
  * one clears it. `null` counts as empty, because that is what a page's JSON
  * sends. `part` is an id or nothing.
  */
-function given(bag: Record<string, unknown>): { name?: string | null; part?: string } {
-  const out: { name?: string | null; part?: string } = {}
+function given(bag: Record<string, unknown>): Given {
+  const out: Given = {}
   if (Object.hasOwn(bag, 'name') && bag.name !== undefined) out.name = str(bag.name, MAX_TITLE) || null
   const part = str(bag.part, MAX_PART)
   if (part) out.part = part
+  /* The tree (`src/tree.ts`): left out, it stays; "" clears it. */
+  if (Object.hasOwn(bag, 'under') && bag.under !== undefined) out.under = str(bag.under, MAX_PART) || null
+  if (Object.hasOwn(bag, 'issue') && bag.issue !== undefined) out.issue = str(bag.issue, MAX_REF) || null
   return out
+}
+
+/** What `set_step` takes beside the four things a step is: its part, and its place in the tree. */
+interface Given {
+  name?: string | null
+  part?: string
+  /** The id of the objective this step is a prerequisite of; null takes it out to the goal. */
+  under?: string | null
+  /** The issue that delivers this step; null forgets it. Also put in `refs`. */
+  issue?: string | null
 }
 
 /**
@@ -1122,7 +1175,9 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
     description:
       'The prose around a journey’s steps, which nothing else here writes: `title`, `lede`, `callout` (the note ' +
       'above the steps), `missing` (what is assumed but not built), the lists `exists` and `open`, and `headings` ' +
-      '— reference lists kept from an older shape, each { heading, refs }. Use it after `set_step`, `remove_step` ' +
+      '— reference lists kept from an older shape, each { heading, refs }. And the design of the journey: `goal` ' +
+      '(one sentence), `measure` (how we will know it is met), `appetite` (the time it is worth), and the lists ' +
+      '`rabbitHoles` and `noGos`. Use it after `set_step`, `remove_step` ' +
       'or `set_dependency` whenever what you changed makes a sentence here untrue: a step marked done under a ' +
       'callout that still says the work is open is a journey contradicting itself. Unlike `set_step` this is a ' +
       'patch: a field you leave out is not touched; a field you pass replaces what was stored, whole; "" or [] ' +
@@ -1142,6 +1197,11 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
         lede: { type: 'string', description: 'The sentence under the title. "" clears it.' },
         callout: { type: 'string', description: 'The note above the steps: where the whole journey stands. "" clears it.' },
         missing: { type: 'string', description: 'What is assumed but not built. "" clears it.' },
+        goal: { type: 'string', description: 'The goal, in one sentence: what is true for the user when this journey is done. "" clears it.' },
+        measure: { type: 'string', description: 'How we will know the goal is met. "" clears it.' },
+        appetite: { type: 'string', description: 'How much time this journey is worth, e.g. "two weeks". "" clears it.' },
+        rabbitHoles: { type: 'array', items: { type: 'string' }, description: 'Known traps to stay out of, one sentence each; the whole list. [] clears it.' },
+        noGos: { type: 'array', items: { type: 'string' }, description: 'What this journey will not do, one sentence each; the whole list. [] clears it.' },
         exists: { type: 'array', items: { type: 'string' }, description: 'What already exists, one sentence each; the whole list. [] clears it.' },
         open: { type: 'array', items: { type: 'string' }, description: 'What is still undecided, one sentence each; the whole list. [] clears it.' },
         headings: {
@@ -1198,7 +1258,10 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       'picked (short — "Methods"; without one it is the step’s title; "" clears it; left out, it stays), and ' +
       '`part` is not taken. What the step’s refs are is published for its part after every write, so other ' +
       'modules can narrow by them. A part’s chapter is not set here: it is kept by the module that keeps the ' +
-      'paper. The answer says the step’s position and the id of its part. Writing a step does not touch the ' +
+      'paper. A journey can be a TREE: `under` files this step under an objective (another step, which is not ' +
+      'done until every step under it is), and `set_dependency` with `step` says which steps must be done first; ' +
+      'a write that would make a step its own prerequisite is refused. `issue` records the issue that delivers ' +
+      'the step. Left out, both stay as they were. The answer says the step’s position and the id of its part. Writing a step does not touch the ' +
       'prose around the steps: if the journey’s `callout`, `lede`, `exists`, `open`, `missing` or `headings` ' +
       'now says something this step makes untrue — work described as open that this step records as done — ' +
       'correct it with `set_journey` in the same sitting.',
@@ -1215,6 +1278,8 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
         step: { type: 'string', description: 'The id of the step to overwrite, from `get_journey`. Instead of `position`.' },
         part: { type: 'string', description: 'Where the host keeps the list of parts: the id of the part this step is the step of, for a new step or one in no part.' },
         name: { type: 'string', description: 'Where this app keeps the list of parts: what the step’s part is called. Omit to leave it; "" for the title.' },
+        under: { type: 'string', description: 'The id of the step (an intermediate objective) this step is a prerequisite of. Omit to leave it; "" puts it directly under the goal.' },
+        issue: { type: 'string', description: 'The tracker issue that delivers this step, e.g. "#41" or "gh#41"; also added to `refs`. Omit to leave it; "" forgets it.' },
       },
       required: ['project', 'slug', 'title'],
     },
@@ -1326,18 +1391,23 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
   set_dependency: {
     description:
       'Record that something cannot start until other things land. Trackers almost never hold these links, so ' +
-      'this is where the real order of work lives. A blocker may be an issue, a change, or free text for a gate ' +
-      'outside every tracker. Pass an empty list to clear. If the journey’s prose names the same gate, keep it ' +
-      'true with `set_journey`.',
+      'this is where the real order of work lives. Two forms. Between STEPS: pass `step` (a step’s id, from ' +
+      '`get_journey`) and `after`, the ids of the steps that must be done before it; this is the edge of the ' +
+      'journey’s tree that `next_step` follows, and one that would make a step its own prerequisite is refused ' +
+      'with nothing written. Between REFS: pass `ref` and `blockedBy`; a blocker may be an issue, a change, or ' +
+      'free text for a gate outside every tracker. Pass an empty list to clear either. If the journey’s prose ' +
+      'names the same gate, keep it true with `set_journey`.',
     schema: {
       type: 'object',
       properties: {
         project: { type: 'string', description: 'Absolute path of the project folder' },
         slug: { type: 'string' },
+        step: { type: 'string', description: 'The id of the step that waits. With `after`, instead of `ref`.' },
+        after: { type: 'array', items: { type: 'string' }, description: 'The ids of the steps that must be done before `step`' },
         ref: { type: 'string', description: 'The blocked thing, e.g. "#2274"' },
         blockedBy: { type: 'array', items: { type: 'string' }, description: 'What must land first' },
       },
-      required: ['project', 'slug', 'ref', 'blockedBy'],
+      required: ['project', 'slug'],
     },
     annotations: { title: 'Set what blocks a reference', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run(args) {
@@ -1350,8 +1420,9 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       if (nothing) return nothing
       const journey = journeyIn(store, slug)
       if (!journey) return `no journey "${slug}" in ${named.project}`
+      if (Object.hasOwn(args, 'step')) return stepAfter(named.project, journey, str(args.step, MAX_PART), list(args.after, MAX_PART))
       const ref = str(args.ref, MAX_REF)
-      if (!ref) return 'which reference is blocked?'
+      if (!ref) return 'which reference is blocked? Pass `ref` and `blockedBy`, or `step` and `after` for an order between steps.'
       const gates = list(args.blockedBy, MAX_REF)
       if (gates.length) journey.blockedBy[ref] = gates
       else delete journey.blockedBy[ref]
@@ -1360,6 +1431,86 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       return (gates.length ? `${ref} now waits on ${gates.join(', ')}.` : `${ref} has no blockers.`) + settledSaid(written) + unpublishedSaid(written)
     },
   },
+
+  next_step: {
+    description:
+      'The step to take next on a journey: the first leaf of its tree (a step nothing is under), in the journey’s ' +
+      'order, that is not done and whose prerequisites are — the steps it is `after`, and those of every objective ' +
+      'it sits under. A step is done when its issue is: this server reads no tracker, so pass `closed`, the refs ' +
+      'you know are closed or merged (read them with the host’s `read_tracker`); without it no issue counts as ' +
+      'done and the answer says so. Refused when the prerequisites go round in a circle. Read-only.',
+    schema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Absolute path of the project folder' },
+        slug: { type: 'string', description: 'The journey’s slug, which is the epic’s' },
+        closed: { type: 'array', items: { type: 'string' }, description: 'Refs known to be closed or merged, e.g. ["#41", "gh#7"]' },
+      },
+      required: ['project', 'slug'],
+    },
+    annotations: { title: 'The next step', readOnlyHint: true, openWorldHint: false },
+    run(args) {
+      const named = projectArg(args.project)
+      if ('error' in named) return named.error
+      const slug = str(args.slug, MAX_SLUG)
+      if (!isSlug(slug)) return 'that is not a journey name'
+      const store = held(named.project)
+      const nothing = nothingToReadIn(store)
+      if (nothing) return nothing
+      const journey = journeyIn(store, slug)
+      if (!journey) return `no journey "${slug}" in ${named.project}`
+      const plan = planOf(journey)
+      if (plan.kind === 'elsewhere') return `${slug}'s steps are kept in ${plan.from.where}, which this app cannot read, so it cannot say which comes next.`
+      return nextSaid(journey, Object.hasOwn(args, 'closed') ? list(args.closed, MAX_REF) : null)
+    },
+  },
+}
+
+/**
+ * The next step, said for an agent: which, why it is free to start, and its issue. `closed` is null
+ * when the caller said nothing about the tracker, which is said rather than read as "nothing closed".
+ */
+export function nextSaid(journey: Journey, closed: string[] | null): string {
+  const shut = new Set(closed ?? [])
+  const next = nextStep(journey.steps, (issue) => shut.has(issue))
+  const caveat = closed === null ? ' No `closed` refs were passed, so no issue was counted as done.' : ''
+  if (!next.node) return `${next.why ?? 'There is no next step.'}${caveat}`
+  const nodes = new Map(treeOf(journey.steps).map((one) => [one.id, one]))
+  const node = next.node
+  const up = node.under ? nodes.get(node.under) : null
+  return (
+    `Next on ${journey.slug}: step ${node.position}, “${node.title}” (id ${node.id}).`
+    + (up ? ` It is under “${up.title}”.` : '')
+    + (node.issue ? ` Its issue is ${node.issue}.` : ' It has no issue yet.')
+    + (next.waitedOn.length ? ` It waited on ${andSaid(next.waitedOn.map((id) => `“${nodes.get(id)?.title ?? id}”`))}, all done.` : ' Nothing has to be done before it.')
+    + caveat
+  )
+}
+
+/**
+ * Say which steps must be done before `step`: the tree's edges (`after` on the step). Refused with
+ * nothing written for an id that is no step's, and for an edge that would close a circle.
+ */
+function stepAfter(project: string, journey: Journey, id: string, after: string[]): string {
+  if (!id) return 'which step waits? Pass its id, from `get_journey`.'
+  const at = journey.steps.findIndex((one) => stepPart(one) === id)
+  if (at < 0) return `${notAStep(journey, id)} Nothing was written.`
+  const known = new Set(journey.steps.map((one) => stepPart(one)).filter(Boolean))
+  const unknown = after.filter((one) => !known.has(one))
+  if (unknown.length) return `${andSaid(unknown.map((one) => `“${one}”`))} ${unknown.length === 1 ? 'is not the id of a step' : 'are not ids of steps'} of this journey. Nothing was written.`
+  if (after.includes(id)) return 'A step cannot wait on itself. Nothing was written.'
+  const steps = journey.steps.map((one, i) => {
+    if (i !== at) return one
+    const { after: _after, ...rest } = one as typeof one & { after?: unknown }
+    return after.length ? { ...rest, after: [...new Set(after)] } : rest
+  })
+  const circle = cycleSaid(steps)
+  if (circle) return circle
+  const written = writeJourney(project, { ...journey, steps })
+  if (!written.ok) return written.error
+  const title = journey.steps[at]!.title
+  const names = after.map((one) => `“${journey.steps.find((s) => stepPart(s) === one)?.title ?? one}”`)
+  return (after.length ? `“${title}” now waits on ${andSaid(names)}.` : `“${title}” waits on no other step.`) + settledSaid(written) + unpublishedSaid(written)
 }
 
 /**
@@ -1431,7 +1582,10 @@ function mcp(rpc: Rpc): Reply {
         'those means "not here", never "none". A step is the step of one part of the epic — what a person picks ' +
         'in a host’s bar to narrow every module. The list of parts is the epic’s: a current host keeps it and ' +
         'edits it at its own door, and `set_step` here files a step under a part’s id; for an older host this ' +
-        'app still keeps the list, one part to a step. `get_journey` says which, and lists the ids.',
+        'app still keeps the list, one part to a step. `get_journey` says which, and lists the ids. A journey ' +
+        'can be a tree: `under` on `set_step` files a step under an objective, `set_dependency` with `step` and ' +
+        '`after` orders steps, and `next_step` names the first step free to start. The person designs one with ' +
+        'the /journey skill this module offers.',
     })
   }
   /* A notification carries no id and is answered with nothing. */
@@ -1528,6 +1682,15 @@ export async function answer(
   }
   if (refusal !== null) return refused(refusal)
 
+  /* Where the Factory has each of these issues (`factory.ts`). Async, so here rather than in
+     `answerAt`; a read, so ungated like the other reads. */
+  if (path === '/api/factory' && method === 'GET') {
+    const project = str(asked.get('project'), MAX_PROJECT)
+    if (!project) return bad('which project?')
+    const refs = (asked.get('refs') ?? '').split(',').map((one) => one.trim().slice(0, MAX_REF)).filter(Boolean)
+    return ok({ ok: true, ...(await factoryStages(project, refs)) })
+  }
+
   const reply = answerAt(method, path, asked, sent, ticket)
   if (!reply || notes.length === 0) return reply
   const said = reply.body as Record<string, unknown> | null
@@ -1548,6 +1711,14 @@ export function answerAt(
   ticket: string | null,
 ): Reply | null {
   if (path === '/healthz') return ok({ ok: true, id: ID, version: VERSION })
+
+  /* The skill this module offers (protocol 2.5.0): its SKILL.md, as text. Public: it is what a host
+     shows a person before they install it, and holds nothing of anybody's. */
+  const skill = skillAt(path)
+  if (skill) {
+    if (method !== 'GET') return bad('this door takes GET', 405)
+    return { status: 200, body: null, raw: { bytes: skill.text, type: 'text/markdown; charset=utf-8' } }
+  }
 
   if (path === '/mcp') {
     if (method !== 'POST') return bad('the MCP door takes POST', 405)
@@ -1744,4 +1915,3 @@ export function answerAt(
   return null
 }
 
-export { MANIFEST }
