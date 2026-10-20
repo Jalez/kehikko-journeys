@@ -495,6 +495,16 @@ export const journeySchema = journeyRecordSchema.extend({
   callout: z.string().default(''),
   /** The red callout: what is assumed but not built. */
   missing: z.string().default(''),
+  /**
+   * The design `/journey` writes (see `plugin/skills/journey/SKILL.md`): the goal in one sentence,
+   * how we will know it is met, the appetite (the time it is worth), and what is out of bounds —
+   * rabbit holes to stay out of and no-gos. Optional; written with `set_journey`.
+   */
+  goal: z.string().optional(),
+  measure: z.string().optional(),
+  appetite: z.string().optional(),
+  rabbitHoles: z.array(z.string()).optional(),
+  noGos: z.array(z.string()).optional(),
   order: z
     .array(z.object({ when: z.string().min(1), what: z.string().min(1), why: z.string().default('') }).passthrough())
     .default([]),

@@ -16,6 +16,57 @@ import { Card } from './card.tsx'
 import { Editor } from './editor.tsx'
 import { Prose } from './prose.tsx'
 import { aroundOf, useReading } from './reading.tsx'
+import { nextOf, statusOf, statusSaid, treeOf } from '../live/status.ts'
+
+/**
+ * Where a step sits in the journey's tree and where its issue stands: "Next", what it is under and
+ * after, the board column (or open/closed), and the Factory's stage. Text, each with a shape before
+ * it, so nothing is told by colour alone. Nothing is drawn for a journey that is a plain list with
+ * no issues: there is nothing to say.
+ */
+export function StepPlace({ index }: { index: number }) {
+  const reading = useReading()
+  const journey = reading.journey
+  if (!journey) return null
+  const nodes = treeOf(journey.steps)
+  const node = nodes[index]
+  if (!node) return null
+  const around = aroundOf(reading)
+  const next = nextOf(journey, reading.live, around)
+  const isNext = next?.node?.id === node.id
+  const status = statusOf(reading.live, node, reading.factory ?? {}, around)
+  const titleOf = (id: string) => nodes.find((one) => one.id === id)?.title ?? id
+  const bits: { key: string; mark: string; text: string; title?: string }[] = []
+  if (isNext) bits.push({ key: 'next', mark: '▶', text: 'Next', title: 'The first step not done whose prerequisites are all done.' })
+  if (node.under) bits.push({ key: 'under', mark: '↑', text: `for “${titleOf(node.under)}”` })
+  if (!node.leaf) bits.push({ key: 'objective', mark: '◇', text: `objective of ${node.children.length} ${node.children.length === 1 ? 'step' : 'steps'}` })
+  if (node.after.length) bits.push({ key: 'after', mark: '⧖', text: `after ${node.after.map((id) => `“${titleOf(id)}”`).join(', ')}` })
+  if (status.issue) {
+    bits.push({
+      key: 'column',
+      mark: status.done ? '✓' : '○',
+      text: status.column ? `${status.issue} · ${status.column.name}` : `${status.issue} · ${status.state}`,
+      title: status.column ? `Column “${status.column.name}” on the board “${status.column.board}”.` : 'The tracker’s state; the issue is on no board the host read.',
+    })
+  }
+  if (status.stage) bits.push({ key: 'stage', mark: '⚙', text: `Factory: ${status.stage}`, title: 'Where the Factory module’s job for this issue is.' })
+  if (!bits.length) return null
+  return (
+    <p
+      data-place={node.id}
+      data-next={isNext || undefined}
+      aria-label={`${isNext ? 'Next. ' : ''}${statusSaid(status)}`}
+      className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground @min-[26rem]/container:ml-[2.1rem]"
+    >
+      {bits.map((bit) => (
+        <span key={bit.key} data-bit={bit.key} title={bit.title} className={bit.key === 'next' ? 'font-semibold text-foreground' : undefined}>
+          <span aria-hidden="true">{bit.mark} </span>
+          {bit.text}
+        </span>
+      ))}
+    </p>
+  )
+}
 
 /**
  * A card and the changes the tracker hangs under it, as one fold.
@@ -243,6 +294,8 @@ export function StepBlock({
           {editing ? 'close' : 'edit'}
         </Button>
       </div>
+
+      <StepPlace index={index} />
 
       {editing ? (
         <Editor

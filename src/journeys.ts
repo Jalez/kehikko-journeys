@@ -27,6 +27,8 @@ import { cardsUnder, facetsOfRef, readingOf, refsOf, unreadLinks, type Around } 
 import { shownSteps, stepInFocus } from './focus.ts'
 import { bounded, firstShown, samePick, togglePick } from './refs.ts'
 import { get, post, standIn } from './store/api.ts'
+import { treeOf } from './tree.ts'
+import type { FactoryJob } from './kinds.ts'
 
 /**
  * The browser half of the app: everything it holds, and everything it decides.
@@ -121,6 +123,11 @@ export interface State {
   epic: string | null
   /** The host's shared tracker reading for this journey's refs, or null. */
   live: Live | null
+  /**
+   * Where the Factory module has each step's issue, by issue: its newest job. Empty with no Factory,
+   * or none for these issues. Read through this app's server (`/api/factory`, `factory.ts`).
+   */
+  factory: Record<string, FactoryJob>
   /**
    * Whether the trackers are being read again right now: by a press on this
    * container, or by anybody in this project, as `context.tracker.refreshing`
@@ -241,6 +248,7 @@ let state: State = {
   journey: null,
   epic: null,
   live: null,
+  factory: {},
   busy: false,
   withheld: null,
   marks: [],
@@ -1393,6 +1401,7 @@ async function reload(): Promise<void> {
  */
 async function fill(): Promise<void> {
   const being = state.journey
+  void readFactory()
   if (!greeted() || !being) return
   /*
    * An answer to a question nobody is waiting on any more is dropped, and
@@ -1446,6 +1455,31 @@ async function fill(): Promise<void> {
     announce()
   }
 }
+
+/**
+ * Where the Factory has this journey's step issues (`factory.ts` on the server). Read with every
+ * `fill`, and every half minute while a journey is open, since a job moves on its own clock and
+ * nothing tells this page. No Factory: an empty map, and the steps show nothing for it.
+ */
+async function readFactory(): Promise<void> {
+  const being = state.journey
+  if (!being) return
+  const issues = [...new Set(treeOf(being.steps).map((node) => node.issue).filter((one): one is string => !!one))]
+  if (!issues.length) {
+    if (Object.keys(state.factory).length) set({ factory: {} })
+    return
+  }
+  try {
+    const out = await get<{ ok: boolean; jobs?: Record<string, FactoryJob> }>('/api/factory', { refs: issues.join(',') })
+    if (state.journey !== being) return
+    const jobs = out.ok && out.jobs ? out.jobs : {}
+    if (JSON.stringify(jobs) !== JSON.stringify(state.factory)) set({ factory: jobs })
+  } catch {
+    /* No answer is no job. */
+  }
+}
+
+if (typeof window !== 'undefined') setInterval(() => void readFactory(), 30_000)
 
 /** Which `fill` is the newest. See the comment inside it. */
 let asking = 0
