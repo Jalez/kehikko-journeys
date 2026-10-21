@@ -21,6 +21,7 @@ import './index.css'
 import 'kehikot-module-protocol/client'
 import { App } from './app.tsx'
 import { start } from './journeys.ts'
+import { Boundary } from './view/boundary.tsx'
 
 /**
  * The conversation, then React.
@@ -39,7 +40,10 @@ const root = document.getElementById('root')
 if (root) {
   createRoot(root).render(
     <StrictMode>
-      <App />
+      {/* Nothing that throws while drawing may leave an empty dark frame behind (#39). */}
+      <Boundary>
+        <App />
+      </Boundary>
     </StrictMode>,
   )
 }

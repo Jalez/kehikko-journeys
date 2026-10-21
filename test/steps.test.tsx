@@ -122,7 +122,7 @@ describe('the page has no box about parts, and nothing standing above the journe
     context({ tracker: { at: null, refreshing: true } })
     await settle()
     expect(line()).toBe(BUSY_SAID)
-    expect(BUSY_SAID).toContain('being read again')
+    expect(BUSY_SAID).toContain('Reading the tracker…')
     context({ tracker: { at: '2026-10-12T10:00:00.000Z', refreshing: false } })
     await settle()
     expect(line()).toBe('')

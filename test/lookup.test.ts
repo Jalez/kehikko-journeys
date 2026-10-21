@@ -209,7 +209,7 @@ describe('a reference with no reading, by why there is none', () => {
         { ref: 'gh#4', reason: 'failed' },
       ],
     )
-    expect(railOf(live, 'gh#1')).toMatchObject({ unseen: true, word: 'being read' })
+    expect(railOf(live, 'gh#1')).toMatchObject({ unseen: true, word: 'not read yet' })
     expect(railOf(live, 'gh#2').word).toBe('not found')
     expect(railOf(live, 'gh#3').word).toBe('no tracker for it')
     expect(railOf(live, 'gh#4').word).toBe('read failed')

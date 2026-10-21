@@ -135,6 +135,36 @@ export function readingOf(answers: readonly TrackerReading[]): Live {
 }
 
 /**
+ * A new reading, with what the reading before knew kept where the new one only
+ * says `pending`.
+ *
+ * While the host reads the trackers again it answers `tracker.get` at once, and
+ * every ref it has not got to yet comes back `pending`. Drawn as it arrived,
+ * that took the state off every card in the middle of each read and put it
+ * back at the end (#39). A row the page already had is still the best thing
+ * known about that ref, so it stays until a newer row replaces it. A ref the
+ * new reading says is gone (`not-found`, `no-tracker`, `failed`) is not held
+ * over: that is an answer. Pure; with no reading before, the new one as it came.
+ */
+export function heldOver(before: Live | null, next: Live): Live {
+  if (!before) return next
+  const rows = new Map(next.rows)
+  const missing = new Map(next.missing)
+  for (const [ref, reason] of next.missing) {
+    const had = before.rows.get(ref)
+    if (reason !== 'pending' || !had) continue
+    rows.set(ref, had)
+    missing.delete(ref)
+  }
+  return {
+    at: next.at ?? before.at,
+    rows,
+    missing,
+    sources: next.sources.length ? next.sources : before.sources,
+  }
+}
+
+/**
  * The cards a step draws, in the order it draws them.
  *
  * An issue first, then the changes the tracker itself attaches to it, then any
@@ -249,7 +279,7 @@ export function absenceOf(live: Live | null, around: Around = {}, ref?: string):
     switch (reason) {
       case 'pending':
         return {
-          word: 'being read',
+          word: 'not read yet',
           why: 'The host has not read this reference yet and has started to. It is drawn here when the read lands.',
         }
       case 'not-found':

@@ -29,6 +29,7 @@ import { NO_PROJECT_SAID, NoJourneys, Trouble, UNHOSTED_SAID } from './view/nowh
 import { Picker } from './view/picker.tsx'
 import { Prose } from './view/prose.tsx'
 import { ReadingProvider } from './view/reading.tsx'
+import { Boundary } from './view/boundary.tsx'
 import { GatesList } from './view/gates.tsx'
 import { StepBlock } from './view/step.tsx'
 
@@ -167,7 +168,9 @@ export function App() {
         )}
         {/* "All epics" in the host: every journey of the project, by epic, read-only. */}
         {state.framed && state.scope === 'project' && !state.trouble && !state.nowhere && state.index.length > 0 && (
-          <Everything journeys={state.everything} />
+          <Boundary size="part" name="the list of every journey" reset={state.everything}>
+            <Everything journeys={state.everything} />
+          </Boundary>
         )}
         {state.journey && state.scope !== 'project' && (
           <Journey
@@ -180,6 +183,7 @@ export function App() {
             parts={state.parts}
             projectPath={state.projectPath}
             framed={state.framed}
+            reading={state.busy}
           />
         )}
         {/* The one line this app uses to answer the reader. Polite rather than
@@ -204,8 +208,12 @@ export function App() {
             ))}
           </section>
         )}
-        <p aria-live="polite" className="mt-4 min-h-[1.4em] text-[0.82rem] text-muted-foreground">
-          {state.said || (state.busy && state.journey ? BUSY_SAID : '')}
+        <p
+          aria-live="polite"
+          data-reading={!state.said && state.busy && state.journey ? '' : undefined}
+          className="mt-4 min-h-[1.4em] text-[0.82rem] text-muted-foreground"
+        >
+          {state.said || (state.journey ? (state.busy ? BUSY_SAID : state.readFailed ? failedSaid(state.readFailed) : '') : '')}
         </p>
         </div>
       </div>
@@ -216,9 +224,15 @@ export function App() {
 /**
  * What the line under the page says while the trackers are being read again and nothing else is
  * being answered: the states on screen are the reading before, and a reader comparing them with
- * the tracker should know a newer one is on its way.
+ * the tracker should know a newer one is on its way. The journey itself stays exactly where it is
+ * through a read — nothing is taken off the screen to make room for the next reading (#39).
  */
-export const BUSY_SAID = 'The trackers are being read again; the states shown are the reading before.'
+export const BUSY_SAID = 'Reading the tracker… the states shown are from the reading before.'
+
+/** What the same line says when the newest read failed and an older reading is still drawn. */
+export function failedSaid(why: string): string {
+  return `The last read of the tracker did not land (${why}); the states shown are from the reading before.`
+}
 
 /** A held draft's words for reading: a step's four fields on their own lines, anything else as it is. */
 function wordsOf(text: string): string {
@@ -365,8 +379,11 @@ function Journey({
   parts,
   projectPath,
   framed,
+  reading,
 }: {
   journey: JourneyView
+  /** The trackers are being read again: said quietly beside the heading, and nothing else changes. */
+  reading: boolean
   live: Live | null
   editing: number
   adding: boolean
@@ -408,12 +425,22 @@ function Journey({
         </div>
       )}
 
-      <Rubric>The journey</Rubric>
+      <Rubric>
+        The journey
+        {/* Where the reader is looking, in the heading's own muted register: a read is running and
+            the states below are the reading before. The full sentence is the line under the page. */}
+        {reading && (
+          <span data-reading-note title={BUSY_SAID} className="ml-2 font-normal tracking-normal normal-case">
+            · reading the tracker…
+          </span>
+        )}
+      </Rubric>
       {framed && journey.plan === 'stored' && shown.length > 0 && (
         <Picking shown={shown} live={live} selection={selection} />
       )}
       <Plan
         journey={journey}
+        live={live}
         shown={shown}
         editing={editing}
         adding={adding}
@@ -427,7 +454,9 @@ function Journey({
       {(journey.gates ?? []).length > 0 && (
         <>
           <Rubric>Gates</Rubric>
-          <GatesList />
+          <Boundary size="part" name="the gates" reset={[journey, live]}>
+            <GatesList />
+          </Boundary>
         </>
       )}
     </article>
@@ -520,6 +549,7 @@ function Picking({
  */
 function Plan({
   journey,
+  live,
   shown,
   editing,
   adding,
@@ -530,6 +560,8 @@ function Plan({
   framed,
 }: {
   journey: JourneyView
+  /** The tracker reading the steps are drawn against: a step that could not be drawn tries again with a new one. */
+  live: Live | null
   /** The steps to draw, each with its own position in the journey. See `focus.ts`. */
   shown: readonly Shown[]
   editing: number
@@ -592,15 +624,18 @@ function Plan({
       {/* By the step's own position, shown or not: narrowing must not
           renumber a step, re-key its editor or move what `kehikot.goto` calls
           step seven. */}
+      {/* Each step in a boundary of its own: a step that cannot be drawn says so
+          in its place and costs nothing else on the page (#39). */}
       {shown.map(({ step, index }) => (
-        <StepBlock
-          key={index}
-          step={step}
-          index={index}
-          editing={editing === index}
-          selection={selection}
-          framed={framed}
-        />
+        <Boundary key={index} size="part" name={`step ${index + 1}`} reset={[step, live]}>
+          <StepBlock
+            step={step}
+            index={index}
+            editing={editing === index}
+            selection={selection}
+            framed={framed}
+          />
+        </Boundary>
       ))}
       {/* Where the steps would be, and only when the picked parts left none:
           an empty journey with no reason reads as broken. */}

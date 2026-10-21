@@ -69,7 +69,7 @@ describe('a reference nobody has read', () => {
 
   test('says which absence it is when the host says why there is no row', () => {
     const pending = draw(reading([], [{ ref: 'gh#9', reason: 'pending' }]), 'gh#9').container.textContent
-    expect(pending).toContain('being read')
+    expect(pending).toContain('not read yet')
   })
 
   test('never reads as open and never as closed', () => {
