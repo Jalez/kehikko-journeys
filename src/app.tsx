@@ -29,6 +29,7 @@ import { NO_PROJECT_SAID, NoJourneys, Trouble, UNHOSTED_SAID } from './view/nowh
 import { Picker } from './view/picker.tsx'
 import { Prose } from './view/prose.tsx'
 import { ReadingProvider } from './view/reading.tsx'
+import { GatesList } from './view/gates.tsx'
 import { StepBlock } from './view/step.tsx'
 
 /**
@@ -422,6 +423,13 @@ function Journey({
         selection={selection}
         framed={framed}
       />
+      {/* Every gate, including one that holds no step yet: a blocker recorded is a blocker shown. */}
+      {(journey.gates ?? []).length > 0 && (
+        <>
+          <Rubric>Gates</Rubric>
+          <GatesList />
+        </>
+      )}
     </article>
   )
 }

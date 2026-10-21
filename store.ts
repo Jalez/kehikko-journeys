@@ -20,6 +20,7 @@ import { writeHoldings } from 'kehikot-module-protocol/serve'
 import { JOURNEYS_KEEP, keeperFrom, type Keeper } from './keeper.ts'
 import { ID } from './manifest.ts'
 import { mirrored, simplified, type Fate, type Finding } from './parts.ts'
+import { gated } from './src/gates.ts'
 
 /**
  * The journeys, on disk, inside the project they are about.
@@ -510,8 +511,30 @@ export const journeySchema = journeyRecordSchema.extend({
     .default([]),
   quizzes: z.array(quizSchema).default([]),
   vocabulary: z.array(z.object({ term: z.string().min(1), means: z.string().min(1) }).passthrough()).default([]),
-  /** ref -> what must land first. Values may be gates outside every tracker. */
+  /**
+   * ref -> what must land first, between refs. An older record also keyed it by step titles and
+   * filled it with sentences; those are read as `gates` (`gated` in `src/gates.ts`).
+   */
   blockedBy: z.record(z.string(), z.array(ref)).default({}),
+  /**
+   * What stands in the way that is not a step: issues, work with no issue, decisions, access
+   * somebody outside must grant, refs another epic owns. A step names the ones that hold it in its
+   * own `blockedBy`. Held loosely here, like everything a reader carries — `gatesOf` reads it, and
+   * the doors hold what they write to the strict shape. Absent on a record that has none, so a
+   * journey nobody gated is written back without the key.
+   */
+  gates: z
+    .array(
+      z
+        .object({
+          id: z.string().min(1),
+          kind: z.string().min(1),
+          title: z.string().min(1),
+          state: z.string().default('open'),
+        })
+        .passthrough(),
+    )
+    .optional(),
   /** Decision issues no commit will close, answered by these changes instead. */
   settledBy: z.record(z.string(), z.array(ref)).default({}),
   /** Refs that hold other work rather than being work: umbrellas, parents. */
@@ -756,13 +779,15 @@ function read(projectPath: string | null | undefined): { held: Held; raw: Record
          about the parts and are not read: the steps are the steps, each in
          the part it names. */
       if (keeper.by === 'host') {
-        journeys[slug] = journey
+        journeys[slug] = gated(journey).record
         continue
       }
       /* The older shape of parts is read as the simple one, here and so for
-         every reader, and not written: see `Unsettled`. */
+         every reader, and not written: see `Unsettled`. An older `blockedBy`
+         keyed by steps and sentences is read as gates the same way: here,
+         for every reader, and stored by the next write of that journey. */
       const simple = simplified(journey)
-      journeys[slug] = simple.record
+      journeys[slug] = gated(simple.record).record
       if (simple.changed) unsettled[slug] = { findings: simple.findings, fates: simple.fates, gone: simple.gone }
     }
     /* `documentSchema` has just accepted it, so it is an object. */
@@ -886,7 +911,9 @@ export type Written =
  * path is where "cannot" is worth one more line.
  */
 export function writeJourney(projectPath: string | null | undefined, journey: Journey): Written {
-  const given = journeySchema.parse(journey)
+  /* Gated on the way in as well as on the read: an older writer's `blockedBy` entry, keyed by a
+     step's title, is a gate from the moment it is written and not from the next read. */
+  const given = gated(journeySchema.parse(journey)).record
   /* Asked at the write, of the disk, and not taken from the caller: it is the
      one thing that decides whether `groups` is this app's to write. */
   const keeper = keeperOf(projectPath, given.slug)
@@ -1372,6 +1399,7 @@ export function refsOf(journey: Journey): string[] {
   for (const g of journey.groups) g.refs.forEach(add)
   for (const g of journey.headings ?? []) g.refs.forEach(add)
   for (const list of Object.values(journey.blockedBy)) list.forEach(add)
+  for (const gate of journey.gates ?? []) add(typeof gate.ref === 'string' ? gate.ref : undefined)
   for (const list of Object.values(journey.settledBy)) list.forEach(add)
   journey.containers.forEach(add)
   journey.watch.forEach(add)

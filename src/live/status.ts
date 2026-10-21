@@ -1,5 +1,6 @@
 import type { TrackerColumn } from 'kehikot-module-protocol'
 
+import { gatesOf } from '../gates.ts'
 import type { FactoryJob, JourneyView, Live } from '../kinds.ts'
 import { nextStep, treeOf, type Next, type TreeNode } from '../tree.ts'
 import { isSettled, stateOf, toneOf, type Around } from './lookup.ts'
@@ -49,10 +50,10 @@ export function statusOf(
   }
 }
 
-/** The next step of the open journey, by this reading. */
+/** The next step of the open journey, by this reading: never one an open gate holds. */
 export function nextOf(journey: JourneyView | null, live: Live | null, around: Around = {}): Next | null {
   if (!journey || journey.plan !== 'stored') return null
-  return nextStep(journey.steps, (issue) => issueDone(live, issue, around))
+  return nextStep(journey.steps, (issue) => issueDone(live, issue, around), gatesOf(journey))
 }
 
 /** One line for a status, as a screen reader and a tooltip say it. */

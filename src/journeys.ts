@@ -1158,6 +1158,45 @@ async function movingStep(index: number, by: -1 | 1): Promise<void> {
   })
 }
 
+/* ------------------------------------------------------------------ *
+ * Gates, from the page
+ *
+ * A gate is marked done, or reopened, with one press; a note chip on a step is
+ * made a gate with one press. Each is one write to this app's own store, through
+ * the same writer the MCP door uses (`setGate`, `noteToGate` in `doors.ts`), and
+ * the page takes the journey the store answers with.
+ * ------------------------------------------------------------------ */
+
+/** Who a press on this page is, in the record: there is no name for the reader here, so it says where. */
+export const ON_THE_PAGE = 'a person, on the Journeys page'
+
+/** Mark one gate done (recorded as `ON_THE_PAGE`, now) or open again. */
+export function setGateState(id: string, to: 'open' | 'done'): Promise<void> {
+  return whileWriting(() => writingGate('/api/gate', { gate: id, state: to, ...(to === 'done' ? { by: ON_THE_PAGE } : {}) }))
+}
+
+/** The note chip `note` on the step at a zero-based position, made a work gate that holds that step. */
+export function makeGateOfNote(index: number, note: string): Promise<void> {
+  const step = state.journey?.steps[index]
+  if (!step) return Promise.resolve()
+  const id = stepPart(step)
+  return whileWriting(() => writingGate('/api/gate/from-note', { ...(id ? { step: id } : { position: index + 1 }), note }))
+}
+
+async function writingGate(path: string, body: Record<string, unknown>): Promise<void> {
+  const being = state.journey
+  if (!being) return
+  const out = await post<Wrote>(path, { slug: being.slug, ...body })
+  if (!out.ok || !out.journey) {
+    say(out.error ?? 'that was not kept')
+    return
+  }
+  report(being.slug)
+  if (state.journey !== being) return
+  set({ journey: out.journey, said: out.said ?? 'kept' })
+  void fill()
+}
+
 /**
  * Begin a journey for the epic the canvas is standing on, which this project
  * has no record of.

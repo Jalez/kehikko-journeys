@@ -1,5 +1,7 @@
 import type { TrackerMissing, TrackerRow, TrackerSource } from 'kehikot-module-protocol'
 
+import type { Gate, RefRole } from './gates.ts'
+
 /**
  * The shapes this app's own server answers with.
  *
@@ -27,6 +29,10 @@ export interface Step {
   after?: string[]
   /** The issue that delivers this step. */
   issue?: string
+  /** Ids of the journey's gates that hold this step. See `gates.ts`. */
+  blockedBy?: string[]
+  /** What a ref is to this step, where it does not deliver it: prior art, or related. */
+  roles?: Record<string, Exclude<RefRole, 'delivers'>>
 }
 
 /**
@@ -72,6 +78,8 @@ export interface JourneyView {
   listed?: { id: string; name: string }[] | null
   stepsFrom?: StepsFrom
   blockedBy: Record<string, string[]>
+  /** What stands in the way that is not a step: see `gates.ts`. Absent on a journey with none. */
+  gates?: Gate[]
   /** Decision issues no commit will close, answered by these changes instead. Read as `done` once they merge. */
   settledBy?: Record<string, string[]>
   plan: 'stored' | 'elsewhere' | 'none'

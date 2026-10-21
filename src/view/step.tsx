@@ -9,11 +9,13 @@ import { cn } from '@/lib/utils.ts'
 
 import { cardsUnder, facetsOfRef, stateOf, standing, toneOf, type Standing, type Tone } from '../live/lookup.ts'
 import { named } from '../../parts.ts'
-import { inPart, nameOfPart, pick, setEditing, setFolds, targetOf, toggleFold } from '../journeys.ts'
+import { delivering } from '../gates.ts'
+import { inPart, makeGateOfNote, nameOfPart, pick, setEditing, setFolds, targetOf, toggleFold } from '../journeys.ts'
 import type { Live, Step } from '../kinds.ts'
 import { pickedState } from '../refs.ts'
 import { Card } from './card.tsx'
 import { Editor } from './editor.tsx'
+import { OtherRefs, StepGates } from './gates.tsx'
 import { Prose } from './prose.tsx'
 import { aroundOf, useReading } from './reading.tsx'
 import { nextOf, statusOf, statusSaid, treeOf } from '../live/status.ts'
@@ -177,7 +179,9 @@ export function StepBlock({
   const reading = useReading()
   const { live } = reading
   const around = aroundOf(reading)
-  const refs = step.refs ?? []
+  /* Only the refs that deliver the step make it done and stand under it as cards; prior art and
+     related refs are said on a line of their own (`OtherRefs`). */
+  const refs = delivering(step)
   const notes = step.notes ?? []
   const journey = reading.journey
   /* Who keeps the epic's list of parts: the host (`listed`), or this app, in the record's `groups`. */
@@ -296,6 +300,7 @@ export function StepBlock({
       </div>
 
       <StepPlace index={index} />
+      <StepGates step={step} />
 
       {editing ? (
         <Editor
@@ -339,12 +344,27 @@ export function StepBlock({
         </p>
       )}
 
+      <OtherRefs step={step} />
+
+      {/* A note is a label: it holds nothing up. One press makes it a gate — work with no issue
+          yet, holding this step — and takes it off the notes, so the words are in one place. */}
       {notes.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1 @min-[26rem]/container:ml-[2.1rem]">
           {notes.map((note) => (
-            <Badge key={note} variant="outline">
-              {note}
-            </Badge>
+            <span key={note} data-note={note} className="inline-flex flex-wrap items-center gap-0.5">
+              <Badge variant="outline">{note}</Badge>
+              <Button
+                type="button"
+                variant="ghost"
+                size="container"
+                className="h-5 px-1.5 text-xs text-muted-foreground"
+                title="Make this note a gate: work with no issue yet, which holds this step until it is marked done."
+                aria-label={`Make “${note}” a gate on step ${index + 1}`}
+                onClick={() => void makeGateOfNote(index, note)}
+              >
+                make this a gate
+              </Button>
+            </span>
           ))}
         </div>
       )}
