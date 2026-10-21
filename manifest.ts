@@ -308,6 +308,12 @@ export const MANIFEST: Manifest = manifestSchema.parse({
       'parts:set',
     ],
     storage: true,
+    /*
+     * "All epics" (protocol 2.9.0): with `context.scope: 'project'` the page lists every journey of
+     * the project, grouped by epic, read-only — a step is edited with its epic open, because a
+     * step's part and its tracker states belong to one epic. See `src/view/everything.tsx`.
+     */
+    scopes: ['epic', 'project'],
   },
   health: '/healthz',
 })

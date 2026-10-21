@@ -24,6 +24,7 @@ import type { JourneyView, Live } from './kinds.ts'
 import { cardsUnder } from './live/lookup.ts'
 import { pickedState } from './refs.ts'
 import { Editor } from './view/editor.tsx'
+import { Everything } from './view/everything.tsx'
 import { NO_PROJECT_SAID, NoJourneys, Trouble, UNHOSTED_SAID } from './view/nowhere.tsx'
 import { Picker } from './view/picker.tsx'
 import { Prose } from './view/prose.tsx'
@@ -163,7 +164,11 @@ export function App() {
         {state.framed && !state.journey && !state.trouble && !state.nowhere && state.unwritten === state.epic && state.epic && (
           <Begin epic={state.epic} busy={state.beginning} />
         )}
-        {state.journey && (
+        {/* "All epics" in the host: every journey of the project, by epic, read-only. */}
+        {state.framed && state.scope === 'project' && !state.trouble && !state.nowhere && state.index.length > 0 && (
+          <Everything journeys={state.everything} />
+        )}
+        {state.journey && state.scope !== 'project' && (
           <Journey
             journey={state.journey}
             live={state.live}
@@ -227,12 +232,13 @@ function wordsOf(text: string): string {
 
 /** Which cover the page is under, if any. Pure, so every standing can be asserted without a host. */
 export function coverOf(
-  state: Pick<ReturnType<typeof getSnapshot>, 'where' | 'projectPath' | 'epic' | 'trouble'>,
+  state: Pick<ReturnType<typeof getSnapshot>, 'where' | 'projectPath' | 'epic' | 'trouble'> & { scope?: 'epic' | 'project' },
   server: ReturnType<typeof useServerStanding>,
 ): CoverState | null {
   if (server === 'stale') return 'stale'
   const asked = coverFor({ where: state.where, projectPath: state.projectPath, epic: state.epic }, { project: true, epic: true })
-  const notReady = asked === 'no-epic' && state.trouble ? null : asked
+  /* "All epics" has no epic and is not "no epic": every journey is listed underneath. */
+  const notReady = asked === 'no-epic' && (state.trouble || state.scope === 'project') ? null : asked
   return notReady ?? (server === 'down' ? 'down' : null)
 }
 

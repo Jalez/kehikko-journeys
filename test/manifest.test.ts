@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { PROTOCOL, manifestSchema, speaks } from 'kehikot-module-protocol'
+import { PROTOCOL, manifestSchema, showsProject, speaks } from 'kehikot-module-protocol'
 
 import { ID, MANIFEST } from '../manifest.ts'
 
@@ -34,6 +34,11 @@ describe('the manifest a host reads', () => {
 
   test('is scoped to an epic, which is what protocol 2 calls a journey', () => {
     expect(MANIFEST.modes.map((mode) => mode.scope)).toEqual(['epic'])
+  })
+
+  test('can show a whole project: "All epics" lists every journey, by epic (protocol 2.9.0)', () => {
+    expect(MANIFEST.declares.scopes).toEqual(['epic', 'project'])
+    expect(showsProject(MANIFEST)).toBe(true)
   })
 
   /**
