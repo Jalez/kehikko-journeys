@@ -1,5 +1,6 @@
 import { stepPart } from 'kehikot-module-protocol'
 
+import { delivering, gateDone, stepGates, type Gate } from './gates.ts'
 import { isTracked } from './refs.ts'
 
 /**
@@ -15,7 +16,10 @@ import { isTracked } from './refs.ts'
  *  - `after` — the ids of steps that have to be done before this one can start ("can't do X before
  *    Y"). An `after` on an objective holds every step under it too.
  *  - `issue` — the tracker issue that delivers this step, also in its `refs`. Absent: the first
- *    tracked ref, if any.
+ *    tracked ref that delivers it (`roles`, `gates.ts`), if any.
+ *  - `blockedBy` — the ids of the journey's gates (`gates.ts`) that hold this step: a decision, an
+ *    access somebody must grant, work with no issue. A `blockedBy` on an objective holds every step
+ *    under it too, like `after`.
  *
  * A step's id is the id of its part (`stepPart`). Prerequisites must form a DAG: a step cannot be,
  * directly or through others, a prerequisite of itself. `cycleIn` finds one; the writers refuse it.
@@ -28,6 +32,8 @@ export interface TreeStep {
   under?: unknown
   after?: unknown
   issue?: unknown
+  blockedBy?: unknown
+  roles?: unknown
 }
 
 export interface TreeNode {
@@ -46,6 +52,8 @@ export interface TreeNode {
   leaf: boolean
   /** The tracker issue that delivers it, or null. */
   issue: string | null
+  /** The gate ids it is `blockedBy`, as written (`nextStep` drops ids no gate has). */
+  gates: string[]
 }
 
 const ids = (value: unknown): string[] =>
@@ -56,10 +64,10 @@ export function nodeId(step: TreeStep, position: number): string {
   return stepPart(step) ?? `#${position}`
 }
 
-/** The issue a step is delivered by: `issue`, or its first tracked ref. */
+/** The issue a step is delivered by: `issue`, or its first tracked ref that delivers it (not prior art, not related). */
 export function issueOf(step: TreeStep): string | null {
   if (typeof step.issue === 'string' && step.issue) return step.issue
-  return (step.refs ?? []).find((ref) => isTracked(ref)) ?? null
+  return delivering(step).find((ref) => isTracked(ref)) ?? null
 }
 
 /** Every step as a node of the tree, in the journey's order. Unknown ids in `under`/`after` are dropped. */
@@ -77,6 +85,7 @@ export function treeOf(steps: readonly TreeStep[]): TreeNode[] {
       children: [],
       leaf: true,
       issue: issueOf(step),
+      gates: stepGates(step),
     }
   })
   const byId = new Map(out.map((one) => [one.id, one]))
@@ -167,17 +176,29 @@ export interface Next {
   why: string | null
   /** For the step chosen: the steps it waited on, all done. */
   waitedOn: string[]
+  /** Steps before it (in the journey's order) that are free but for an open gate, with those gates. */
+  gated: { node: TreeNode; gates: Gate[] }[]
+}
+
+/** The gates that hold a node: its own `blockedBy`, and those of every objective it sits under. Ids no gate has are dropped. */
+export function gatesHolding(nodes: readonly TreeNode[], node: TreeNode, gates: readonly Gate[]): Gate[] {
+  const byId = new Map(nodes.map((one) => [one.id, one]))
+  const ids = [...node.gates]
+  for (let up = node.under; up; up = byId.get(up)?.under ?? null) ids.push(...(byId.get(up)?.gates ?? []))
+  return [...new Set(ids)].flatMap((id) => gates.filter((gate) => gate.id === id))
 }
 
 /**
  * The next step: the first leaf, in the journey's order, that is not done and whose prerequisites
- * are — its own `after`, and the `after` of every objective it sits under. Refuses a journey whose
+ * are — its own `after`, and the `after` of every objective it sits under — and that no open gate
+ * holds (`blockedBy`, its own and its objectives'). A gate is open until it is marked done, or, for
+ * one that is a tracked ref, until `issueDone` says its ref is. Refuses a journey whose
  * prerequisites go round in a circle rather than choosing from it.
  */
-export function nextStep(steps: readonly TreeStep[], issueDone: (issue: string) => boolean): Next {
-  if (!steps.length) return { node: null, why: 'This journey has no steps yet.', waitedOn: [] }
+export function nextStep(steps: readonly TreeStep[], issueDone: (issue: string) => boolean, gates: readonly Gate[] = []): Next {
+  if (!steps.length) return { node: null, why: 'This journey has no steps yet.', waitedOn: [], gated: [] }
   const cycle = cycleSaid(steps)
-  if (cycle) return { node: null, why: cycle, waitedOn: [] }
+  if (cycle) return { node: null, why: cycle, waitedOn: [], gated: [] }
   const nodes = treeOf(steps)
   const byId = new Map(nodes.map((one) => [one.id, one]))
   const done = doneOf(steps, issueDone)
@@ -187,10 +208,24 @@ export function nextStep(steps: readonly TreeStep[], issueDone: (issue: string) 
     return out
   }
   const open = nodes.filter((node) => node.leaf && !done.get(node.id))
-  if (!open.length) return { node: null, why: 'Every step of this journey is done.', waitedOn: [] }
+  if (!open.length) return { node: null, why: 'Every step of this journey is done.', waitedOn: [], gated: [] }
+  const gated: Next['gated'] = []
   for (const node of open) {
     const waits = held(node)
-    if (waits.every((id) => done.get(id))) return { node, why: null, waitedOn: waits }
+    if (!waits.every((id) => done.get(id))) continue
+    const shut = gatesHolding(nodes, node, gates).filter((gate) => !gateDone(gate, issueDone))
+    if (shut.length) {
+      gated.push({ node, gates: shut })
+      continue
+    }
+    return { node, why: null, waitedOn: waits, gated }
   }
-  return { node: null, why: 'Every step not yet done waits on another that is not done either.', waitedOn: [] }
+  return {
+    node: null,
+    why: gated.length
+      ? 'Every step not yet done waits on another that is not done, or on a gate that is still open.'
+      : 'Every step not yet done waits on another that is not done either.',
+    waitedOn: [],
+    gated,
+  }
 }

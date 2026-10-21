@@ -38,9 +38,11 @@ A leaf that fails any of these is not a leaf yet: break it down again.
 
 **Order.** For each pair where "we can't do X before Y", record Y as a prerequisite of X. The edges must form a DAG; if they loop, an objective is drawn wrong, so redraw it.
 
+**Gates.** Some obstacles are not steps anyone on the team can take: a decision someone has to make, access someone outside the team has to grant, work nobody has filed an issue for yet, or a ref another epic owns. Each is a gate: give it a kind (`decision`, `access`, `work`, `ref-elsewhere`, or `issue` for a tracker issue in this epic), a short title, its owner (a person or role) where you know one, and the steps it holds. A gate stays open until someone marks it done, so a step it holds is never next. Record every real gate: a journey with its gates left out reads as unblocked when it is waiting.
+
 **Mikado, for leaves that change existing code.** When you look at the code for a leaf and find it cannot be done until something else is changed first, that something becomes a new prerequisite node under it. Keep going until the leaves you are left with can each be done on their own.
 
-Show the person the tree as an indented outline: the goal at the top, objectives under it, leaves under those, each leaf with its "after" list. Mark the first leaf that could start now.
+Show the person the tree as an indented outline: the goal at the top, objectives under it, leaves under those, each leaf with its "after" list and the gates that hold it (kind, title, owner). Mark the first leaf that could start now.
 
 ## 3. Ask, only when the answer changes the tree
 
@@ -76,7 +78,8 @@ Show the final tree and ask: "Shall I write this journey into Kehikot?" Write no
 2. **The parts.** Where the host keeps the epic's parts (`get_journey` says so), add one part per node with the host's `set_parts` (`add: {name}`), in tree order: each objective, then its leaves. Use short names. Note each id from the answer.
 3. **The steps.** One `set_step` per node, objectives before the steps under them. Give each one its `part` (where the host keeps parts) and its `under`: the objective's step id, or leave it out for a node directly under the goal. Phrase `title` as what becomes true for the user. Keep `body` short: why it matters and how we'll know it's done.
 4. **The order.** For each node with prerequisites, call `set_dependency` with `step` and `after` (the ids of the steps it waits on). Journeys refuses an edge that would close a loop; if it does, the tree is wrong, so tell the person.
-5. Read the journey back with `get_journey`, check it against the tree, and call `next_step` to say which step comes first.
+5. **The gates.** One `set_gate` per gate: `kind`, `title`, `owner`, a `note` where it helps, `ref` for an `issue` or `ref-elsewhere` gate (and `epic` for the epic that owns a `ref-elsewhere` one), and `blocks` = the ids of the steps it holds. A ref that a step names as prior art or as related work, rather than work that delivers the step, gets `roles` on `set_step` (`{"#1850": "prior-art"}`) so it never reads as delivering. A note chip that names unfiled work becomes a `work` gate: write the step again without that note.
+6. Read the journey back with `get_journey`, check it against the tree, and call `next_step` to say which step comes first.
 
 ## 6. Issues, on a second yes
 
@@ -86,8 +89,9 @@ Ask separately: "Shall I file an issue for each leaf, with the 'blocked by' link
 - File one issue per leaf, prerequisites first: the step's title, its body, and a line naming the journey and its goal. Use `gh issue create --repo OWNER/REPO --title ... --body ...` (or `glab issue create`).
 - Link the order. GitHub: `gh api -X POST repos/OWNER/REPO/issues/N/dependencies/blocked_by -F issue_id=<the blocking issue's numeric id, from gh api repos/OWNER/REPO/issues/M --jq .id>`; if that is refused, add "Blocked by #M" to the issue's body. GitLab: `glab api -X POST projects/:id/issues/N/links -f target_project_id=<id> -f target_issue_iid=M -f link_type=is_blocked_by`.
 - Record each issue on its step with `set_step` (`step` = its id, the same title, body and refs, and `issue` = the new ref, e.g. `gh#41` or `#41`). Then `set_dependency` with `ref` = the issue and `blockedBy` = its blockers' issues, so the order is visible on the issues too.
+- A `work` gate you filed an issue for becomes an `issue` gate: `set_gate` with `gate` = its id, `kind: "issue"` and `ref` = the new issue.
 - Say what was filed, as a list of refs with titles, and which step is next.
 
 ## When you are done
 
-End with three lines: the goal, the next step (from `next_step`), and anything still open that only the person can decide. Never start the work yourself; the person takes a step when they choose, for example with /factory.
+End with three lines: the goal, the next step (from `next_step`), and the open gates that only a person can settle, each with its owner. Never start the work yourself; the person takes a step when they choose, for example with /factory.

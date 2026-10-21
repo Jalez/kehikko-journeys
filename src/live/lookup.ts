@@ -8,6 +8,7 @@ import {
 import { dispositionOf, facetsOf, type DispositionSource, type Facet } from 'kehikot-module-protocol/facets'
 
 import type { JourneyView, Live } from '../kinds.ts'
+import { gatesOf } from '../gates.ts'
 import { REF_IN_PROSE } from '../refs.ts'
 
 /**
@@ -66,7 +67,7 @@ export function carriedBy(live: Live | null, ref: string): string[] {
  * The host does not read `journeys.json` — the journeys are this app's — so
  * `tracker.get({ epic })` would answer about Kehikot's epic and not about
  * this page. The refs go over by name instead: what the steps carry, what
- * `settledBy` and `blockedBy` name, and every ref written into the prose, so
+ * `settledBy` and `blockedBy` name, the refs of its gates, and every ref written into the prose, so
  * that a ref mentioned in a sentence gets the tracker's own link like a card
  * does. A `local#…` gate, or anything else `readTrackerRef` cannot read, is
  * left out: no tracker answers it, and asking would only earn `no-tracker`.
@@ -86,6 +87,7 @@ export function refsOf(journey: JourneyView | null): string[] {
   }
   for (const [ref, answers] of Object.entries(journey.settledBy ?? {})) named.push(ref, ...answers)
   for (const [ref, gates] of Object.entries(journey.blockedBy ?? {})) named.push(ref, ...gates)
+  for (const gate of gatesOf(journey)) if (gate.ref) named.push(gate.ref)
   return [...new Set(named)].filter((ref) => readTrackerRef(ref) !== null)
 }
 
