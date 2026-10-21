@@ -18,6 +18,7 @@ import {
   type TrackerReading,
 } from 'kehikot-module-protocol'
 import { HostRefused, held as heldStore, hostStore, probeServer, type Draft, type HostStanding, type Where } from 'kehikot-module-protocol/client'
+import { scopeOf } from 'kehikot-module-protocol'
 import { HIDE_GROUP, countFacets, hiddenIn, offer, type Facet } from 'kehikot-module-protocol/facets'
 
 import { ID } from '../manifest.ts'
@@ -241,6 +242,18 @@ export interface State {
   trouble: string | null
   /** The file the journeys came from, for somebody wondering where they went. */
   from: string | null
+  /**
+   * Whether the host is on one epic (`epic`) or on "All epics" (`project`, protocol 2.9.0). With
+   * `project`, `epic` is null and that is NOT "no epic": the page lists every journey of the
+   * project, by epic, read-only (`everything`).
+   */
+  scope: 'epic' | 'project'
+  /**
+   * Every journey of the project, whole, while the host is on "All epics"; null otherwise and
+   * while they are being read. Read-only: editing a step asks the host about ONE epic's parts
+   * (`parts.set`) and reads ONE journey's tracker states, so a step is edited with its epic open.
+   */
+  everything: JourneyView[] | null
 }
 
 let state: State = {
@@ -274,6 +287,8 @@ let state: State = {
   nowhere: true,
   trouble: null,
   from: null,
+  scope: 'epic',
+  everything: null,
 }
 
 const listeners = new Set<() => void>()
@@ -2008,6 +2023,7 @@ const greeted = (): boolean => host.connection()?.greeted() ?? false
 export async function retry(): Promise<void> {
   if ((await probeServer()) !== 'up') return
   if (typeof standingIn === 'string') await standIn(standingIn)
+  if (state.scope === 'project') return readEverything()
   await readIndex()
   if (!state.journey && standingOn) await open(standingOn)
 }
@@ -2068,6 +2084,34 @@ let asked: string[] | null = null
  * re-fetch anything.
  */
 let standingIn: string | null | undefined = undefined
+
+/** Which scope the last context named; `undefined` before any. See `State.scope`. */
+let scopedAs: 'epic' | 'project' | undefined = undefined
+
+/** The newest read of every journey, so an older one that finishes last is dropped. */
+let readingAll = 0
+
+/**
+ * Every journey of the project, for "All epics": the index read again, then each journey read
+ * whole, in the index's order. Only while the host is still on "All epics" in the same project
+ * when the answers come back.
+ */
+async function readEverything(): Promise<void> {
+  const mine = ++readingAll
+  const within = standingIn
+  const current = () => mine === readingAll && standingIn === within && state.scope === 'project'
+  await readIndex()
+  if (!current()) return
+  const read = await Promise.all(
+    state.index.map((brief) =>
+      get<{ ok: boolean; journey?: JourneyView }>('/api/journey', { slug: brief.slug })
+        .then((out) => (out.ok && out.journey ? out.journey : null))
+        .catch(() => null),
+    ),
+  )
+  if (!current()) return
+  set({ everything: read.filter((one): one is JourneyView => one !== null) })
+}
 
 /**
  * What the host says this canvas is looking at.
@@ -2174,7 +2218,14 @@ function context({ epic: named, projectPath: project, projectId: id, selection: 
   const list = parts.map((part) => `${part.id}\u0000${part.heading}`).join('\u0001')
   const relisted = listedAs !== undefined && list !== listedAs
   listedAs = list
+  /* "All epics" (protocol 2.9.0): every journey, by epic. Absent from an older host: one epic. */
+  const scope = scopeOf(next)
+  const rescoped = scopedAs !== scope
+  scopedAs = scope
   set({
+    scope,
+    /* Leaving "All epics" drops its list; arriving starts it empty until it is read. */
+    ...(rescoped ? { everything: null } : {}),
     framed: true,
     where: 'hosted',
     projectPath: project,
@@ -2225,7 +2276,8 @@ function context({ epic: named, projectPath: project, projectId: id, selection: 
              because the alternative is an editor that saves into a refusal. */
           say(issued.error ?? 'this app could not take out a write ticket for this project')
         }
-        if (slug) {
+        if (scope === 'project') await readEverything()
+        else if (slug) {
           await open(slug)
           if (repicked) showSelection()
         }
@@ -2243,6 +2295,8 @@ function context({ epic: named, projectPath: project, projectId: id, selection: 
        as a flicker. */
     if (moved) set({ journey: null, live: null, withheld: null })
     announce()
+    /* "All epics": read every journey when arriving, and again when any of them changed. */
+    if (scope === 'project' && (rescoped || rewritten || state.everything === null)) void readEverything()
     return
   }
 
