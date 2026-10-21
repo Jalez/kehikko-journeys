@@ -24,7 +24,7 @@ import { HIDE_GROUP, countFacets, hiddenIn, offer, type Facet } from 'kehikot-mo
 import { ID } from '../manifest.ts'
 import { GET_EPIC, GET_TRACKER, PARTS_REF, REFRESH_TRACKER, REPORT_CHANGE, SET_PARTS } from '../wire/methods.ts'
 import type { Brief, JourneyView, Live, Target } from './kinds.ts'
-import { cardsUnder, facetsOfRef, readingOf, refsOf, unreadLinks, type Around } from './live/lookup.ts'
+import { cardsUnder, facetsOfRef, heldOver, readingOf, refsOf, unreadLinks, type Around } from './live/lookup.ts'
 import { shownSteps, stepInFocus } from './focus.ts'
 import { bounded, firstShown, samePick, togglePick } from './refs.ts'
 import { get, post, standIn } from './store/api.ts'
@@ -142,6 +142,13 @@ export interface State {
    * the journey says it — it is said where the state would have been.
    */
   withheld: string | null
+  /**
+   * Why the newest read of the trackers did not land, while an older reading
+   * is still on screen: the states drawn are that reading's, and the line
+   * under the page says so. Null once a read lands. A failed re-read never
+   * takes a reading off the screen (issue #39).
+   */
+  readFailed: string | null
   /** People's marks on why references closed: `context.dispositions`, whole. */
   marks: Disposition[]
   /** This container's filter choice, as the host holds it. */
@@ -264,6 +271,7 @@ let state: State = {
   factory: {},
   busy: false,
   withheld: null,
+  readFailed: null,
   marks: [],
   filters: {},
   hidden: [],
@@ -1479,23 +1487,27 @@ async function fill(): Promise<void> {
   if (!refs.length) {
     /* Nothing a tracker could answer, which is an answer: an empty reading,
        not a missing one. `tracker.get` takes at least one ref. */
-    set({ live: readingOf([]), withheld: null })
+    set({ live: readingOf([]), withheld: null, readFailed: null })
     announce()
     return
   }
+  /* The reading this journey already has on screen, if any. While the host is
+     reading again it answers `pending` for what it has not got to yet; those
+     refs keep their last row rather than going blank (`heldOver`). */
+  const before = state.live
   try {
     const first = await ask(refs)
     if (!current()) return
-    const live = readingOf(first)
+    const live = heldOver(before, readingOf(first))
     /* Drawn at once: the issues need not wait for the changes under them. */
-    set({ live, withheld: null })
+    set({ live, withheld: null, readFailed: null })
     announce()
     const links = unreadLinks(live)
     if (!links.length) return
     try {
       const more = await ask(links)
       if (!current()) return
-      set({ live: readingOf([...first, ...more]) })
+      set({ live: heldOver(before, readingOf([...first, ...more])) })
       announce()
     } catch {
       /* The issues are drawn and stay drawn; the changes under them are marked
@@ -1504,8 +1516,16 @@ async function fill(): Promise<void> {
     }
   } catch (e) {
     if (!current()) return
-    /* Said beside each reference, by its own badge, and nowhere above the journey. */
-    set({ live: null, withheld: e instanceof HostRefused ? e.refusal.error : (e as Error).message })
+    const why = e instanceof HostRefused ? e.refusal.error : (e as Error).message
+    /* A reading already on screen stays there: a read that failed while the
+       host was reading again is not news that the issues have no state. The
+       line under the page says the states are the reading before. */
+    if (before) {
+      set({ readFailed: why })
+      return
+    }
+    /* No reading yet: said beside each reference, by its own badge, and nowhere above the journey. */
+    set({ live: null, withheld: why })
     announce()
   }
 }
@@ -2301,7 +2321,7 @@ function context({ epic: named, projectPath: project, projectId: id, selection: 
        from the new one. A journey left on screen while its replacement is in
        flight is the previous project's material under the current project's
        name, which is a worse half-second than an empty container. */
-    set({ index: [], journey: null, live: null, withheld: null, said: '' })
+    set({ index: [], journey: null, live: null, withheld: null, readFailed: null, said: '' })
     announce()
     void standIn(project)
       .then(async (issued) => {
@@ -2332,7 +2352,7 @@ function context({ epic: named, projectPath: project, projectId: id, selection: 
        about something else — a theme, a selection in a canvas with no epic —
        and redrawing an empty container on each of those is work nobody sees except
        as a flicker. */
-    if (moved) set({ journey: null, live: null, withheld: null })
+    if (moved) set({ journey: null, live: null, withheld: null, readFailed: null })
     announce()
     /* "All epics": read every journey when arriving, and again when any of them changed. */
     if (scope === 'project' && (rescoped || rewritten || state.everything === null)) void readEverything()
@@ -2343,7 +2363,7 @@ function context({ epic: named, projectPath: project, projectId: id, selection: 
     /* The journey goes with the epic, as it does with the project: until the
        new one arrives the previous one would be drawn under the new epic's name
        with its tracker states blank. */
-    set({ journey: null, live: null, withheld: null })
+    set({ journey: null, live: null, withheld: null, readFailed: null })
     /* The selection is applied AFTER the journey is on screen, not beside the
        request for it. A walk into a document that has not been fetched finds
        nothing, and `goTo` would honestly report so; the reader would see the
