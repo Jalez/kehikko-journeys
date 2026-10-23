@@ -4,6 +4,7 @@ import {
   TRACKER_REFRESH_WITHIN_MS,
   contentStamp,
   filterChoiceSchema,
+  navigationResult,
   partsSetResult,
   readTrackerRef,
   trackerReadingResult,
@@ -1792,6 +1793,36 @@ export async function markDisposition(
       error instanceof HostRefused
         ? `The host would not keep that mark (${error.refusal.error}). Nothing has changed.`
         : 'This app failed while asking the host to keep that mark. Nothing has changed.',
+    )
+  }
+}
+
+/**
+ * Open another epic's journey: the link on a ref that is also in that epic.
+ *
+ * Framed, the host owns which epic is open, so this asks it to move (`view.goto`, \`view:navigate\`)
+ * and says in words what became of the ask. Standalone there is no host and the page owns its own
+ * view, so it opens that journey itself.
+ */
+export async function goToJourney(epic: string): Promise<void> {
+  if (!greeted()) {
+    await open(epic)
+    return
+  }
+  try {
+    const answer = navigationResult.safeParse(await host.request('view.goto', { epic }))
+    if (answer.success && answer.data.outcome !== 'moved') {
+      say(
+        answer.data.outcome === 'declined'
+          ? `The host would not open ${epic} just now${answer.data.why ? ` (${answer.data.why})` : ''}.`
+          : `The host has no epic ${epic}.`,
+      )
+    } else say('')
+  } catch (error) {
+    say(
+      error instanceof HostRefused
+        ? `The host would not open ${epic} (${error.refusal.error}).`
+        : `This app failed while asking the host to open ${epic}.`,
     )
   }
 }

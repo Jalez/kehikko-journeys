@@ -1400,6 +1400,7 @@ export function refsOf(journey: Journey): string[] {
   for (const g of journey.headings ?? []) g.refs.forEach(add)
   for (const list of Object.values(journey.blockedBy)) list.forEach(add)
   for (const gate of journey.gates ?? []) add(typeof gate.ref === 'string' ? gate.ref : undefined)
+  for (const gate of journey.gates ?? []) if (Array.isArray(gate.waitsOn)) gate.waitsOn.forEach((one) => add(typeof one === 'string' ? one : undefined))
   for (const list of Object.values(journey.settledBy)) list.forEach(add)
   journey.containers.forEach(add)
   journey.watch.forEach(add)

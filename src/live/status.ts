@@ -53,7 +53,7 @@ export function statusOf(
 /** The next step of the open journey, by this reading: never one an open gate holds. */
 export function nextOf(journey: JourneyView | null, live: Live | null, around: Around = {}): Next | null {
   if (!journey || journey.plan !== 'stored') return null
-  return nextStep(journey.steps, (issue) => issueDone(live, issue, around), gatesOf(journey))
+  return nextStep(journey.steps, (issue) => issueDone(live, issue, around), gatesOf(journey), journey.blockedBy)
 }
 
 /** One line for a status, as a screen reader and a tooltip say it. */

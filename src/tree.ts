@@ -1,6 +1,6 @@
 import { stepPart } from 'kehikot-module-protocol'
 
-import { delivering, gateDone, stepGates, type Gate } from './gates.ts'
+import { delivering, gateDone, stepGates, stepRefGates, type Gate } from './gates.ts'
 import { isTracked } from './refs.ts'
 
 /**
@@ -181,10 +181,18 @@ export interface Next {
 }
 
 /** The gates that hold a node: its own `blockedBy`, and those of every objective it sits under. Ids no gate has are dropped. */
-export function gatesHolding(nodes: readonly TreeNode[], node: TreeNode, gates: readonly Gate[]): Gate[] {
+export function gatesHolding(
+  nodes: readonly TreeNode[],
+  node: TreeNode,
+  gates: readonly Gate[],
+  viaRefs: (node: TreeNode) => string[] = () => [],
+): Gate[] {
   const byId = new Map(nodes.map((one) => [one.id, one]))
-  const ids = [...node.gates]
-  for (let up = node.under; up; up = byId.get(up)?.under ?? null) ids.push(...(byId.get(up)?.gates ?? []))
+  const ids = [...node.gates, ...viaRefs(node)]
+  for (let up = node.under; up; up = byId.get(up)?.under ?? null) {
+    const above = byId.get(up)
+    if (above) ids.push(...above.gates, ...viaRefs(above))
+  }
   return [...new Set(ids)].flatMap((id) => gates.filter((gate) => gate.id === id))
 }
 
@@ -192,10 +200,17 @@ export function gatesHolding(nodes: readonly TreeNode[], node: TreeNode, gates: 
  * The next step: the first leaf, in the journey's order, that is not done and whose prerequisites
  * are — its own `after`, and the `after` of every objective it sits under — and that no open gate
  * holds (`blockedBy`, its own and its objectives'). A gate is open until it is marked done, or, for
- * one that is a tracked ref, until `issueDone` says its ref is. Refuses a journey whose
+ * one that is a tracked ref, until `issueDone` says its ref is. A gate also holds a step through a
+ * ref that delivers it: `blockedBy` (the journey's ref -> what must land first) may list gate ids.
+ * Refuses a journey whose
  * prerequisites go round in a circle rather than choosing from it.
  */
-export function nextStep(steps: readonly TreeStep[], issueDone: (issue: string) => boolean, gates: readonly Gate[] = []): Next {
+export function nextStep(
+  steps: readonly TreeStep[],
+  issueDone: (issue: string) => boolean,
+  gates: readonly Gate[] = [],
+  blockedBy: Record<string, readonly string[]> | null = null,
+): Next {
   if (!steps.length) return { node: null, why: 'This journey has no steps yet.', waitedOn: [], gated: [] }
   const cycle = cycleSaid(steps)
   if (cycle) return { node: null, why: cycle, waitedOn: [], gated: [] }
@@ -207,13 +222,14 @@ export function nextStep(steps: readonly TreeStep[], issueDone: (issue: string) 
     for (let up = node.under; up; up = byId.get(up)?.under ?? null) out.push(...(byId.get(up)?.after ?? []))
     return out
   }
+  const viaRefs = (node: TreeNode): string[] => stepRefGates(steps[node.position - 1] ?? {}, blockedBy)
   const open = nodes.filter((node) => node.leaf && !done.get(node.id))
   if (!open.length) return { node: null, why: 'Every step of this journey is done.', waitedOn: [], gated: [] }
   const gated: Next['gated'] = []
   for (const node of open) {
     const waits = held(node)
     if (!waits.every((id) => done.get(id))) continue
-    const shut = gatesHolding(nodes, node, gates).filter((gate) => !gateDone(gate, issueDone))
+    const shut = gatesHolding(nodes, node, gates, viaRefs).filter((gate) => !gateDone(gate, issueDone))
     if (shut.length) {
       gated.push({ node, gates: shut })
       continue

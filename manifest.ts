@@ -126,12 +126,11 @@ export const PREFERRED_PORT = 7840
  * - **`stage:report` — not declared.** Saying where work has got to belongs to
  *   whoever is doing it. This app draws a rail; it does not report onto one.
  *   See the note in `page/journeys.ts` about what the rail can and cannot know.
- * - **`view:navigate` — not declared, and this one is a judgement rather than a
- *   principle.** Protocol 2 gives a module a way to ask the host to move, and
- *   this app is the panel a reader is already standing in: what it wants is to
- *   be walked TO, which is `kehikot.goto` arriving and needs no declaration.
- *   The day the picker on this page should switch the HOST's open epic rather
- *   than only this page's own view, this is the line that changes.
+ * - **`view:navigate` — declared, for one press.** A ref that is also in another
+ *   epic's journey says so, with a link that opens that journey; framed, that
+ *   asks the host to move (`view.goto`, an epic and nothing else), standalone it
+ *   opens the journey here. Being walked TO (`kehikot.goto` arriving) still needs
+ *   no declaration; this is only the asking.
  * - **Tracker access — not declared, and there is no capability for it.** This
  *   app never speaks to GitHub or GitLab, holds no credential, and has no code
  *   path that could.
@@ -311,6 +310,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
       'content:report',
       'epics:read',
       'parts:set',
+      'view:navigate',
     ],
     storage: true,
     /*

@@ -4,6 +4,8 @@ import { establishBuild, mintTicket, refuseTicket, sameTicket, type Reply } from
 
 import { tooLong } from './limits.ts'
 import { cycleSaid, nextStep, treeOf } from './src/tree.ts'
+import { isTracked } from './src/refs.ts'
+import { alsoSaid, sharedRefs, type Also } from './src/shared.ts'
 import {
   GATE_ID,
   GATE_KINDS,
@@ -274,7 +276,7 @@ export function writeTicketFor(projectPath: string | null | undefined): string |
  * disagree, and this particular one disagreeing is the exact bug this app was
  * built in response to. The browser draws the answer; it does not reach one.
  */
-function view(journey: Journey, keeper: Keeper, unsettled = false) {
+function view(journey: Journey, keeper: Keeper, unsettled = false, project?: string | null) {
   /* `unsettled` is whether the record ON DISK is still in the older shape of
      parts: what is handed over is already the simple reading of it, and the
      page needs the one bit to know that a host reading the file sees the older
@@ -284,11 +286,33 @@ function view(journey: Journey, keeper: Keeper, unsettled = false) {
      the host's list, or null because this app keeps it (`keeper.ts`). Where
      the host does, `groups` is not handed over at all — it says nothing about
      the parts any more, and what is not sent cannot be read. */
+  const also = alsoIn(journey, project)
   if (keeper.by === 'host') {
     const { groups: _groups, ...rest } = journey
-    return { ...rest, plan: planOf(journey).kind, unsettled: false, listed: keeper.list }
+    return { ...rest, ...also, plan: planOf(journey).kind, unsettled: false, listed: keeper.list }
   }
-  return { ...journey, plan: planOf(journey).kind, unsettled, listed: null }
+  return { ...journey, ...also, plan: planOf(journey).kind, unsettled, listed: null }
+}
+
+/**
+ * Where the project's OTHER journeys name the refs this one does (`src/shared.ts`), read from the
+ * same folder this journey is kept in. Absent when none does, so a journey nobody shares reads as
+ * it always did. Read fresh each time and never stored: it is a fact about two files, and a copy of
+ * it in either would be wrong the moment the other changed.
+ */
+function alsoIn(journey: Journey, project: string | null | undefined): { alsoIn?: Record<string, Also[]> } {
+  if (project === undefined) return {}
+  const others = listJourneys(held(project))
+  const found = sharedRefs(journey.slug, [...refsOf(journey), ...(journey.gates ?? []).flatMap((gate) => (Array.isArray(gate.waitsOn) ? (gate.waitsOn as string[]) : []))], others)
+  return Object.keys(found).length ? { alsoIn: found } : {}
+}
+
+/** The refs this journey shares with others, in lines an agent can read, above the JSON. Empty when none. */
+function alsoSaidFor(journey: Journey, project: string | null): string {
+  const found = alsoIn(journey, project).alsoIn
+  if (!found) return ''
+  const lines = Object.entries(found).map(([ref, where]) => `  ${ref}\talso in ${where.map(alsoSaid).join('; ')}`)
+  return `ALSO IN: refs this journey shares with other journeys of the project (read-only; \`alsoIn\` in the JSON below has the epic, step and gate ids):\n${lines.join('\n')}\n\n`
 }
 
 /** What a write could not publish, as a sentence after the one that says what was written; empty when it did. */
@@ -705,7 +729,10 @@ interface GateGiven {
   epic?: string | null
   state?: string
   by?: string
+  /** The steps (by id) and refs the gate holds; the whole list. */
   blocks?: string[]
+  /** The refs the gate itself waits on; the whole list. */
+  waitsOn?: string[]
 }
 
 /** A gate as a caller sent it, out of a bag of arguments: the same for the page and an agent. */
@@ -727,7 +754,8 @@ function gateGiven(bag: Record<string, unknown>): GateGiven {
   if (state) out.state = state
   const by = str(bag.by, MAX_OWNER)
   if (by) out.by = by
-  if (Object.hasOwn(bag, 'blocks') && bag.blocks !== undefined) out.blocks = list(bag.blocks, MAX_PART)
+  if (Object.hasOwn(bag, 'blocks') && bag.blocks !== undefined) out.blocks = list(bag.blocks, MAX_REF)
+  if (Object.hasOwn(bag, 'waitsOn') && bag.waitsOn !== undefined) out.waitsOn = list(bag.waitsOn, MAX_REF)
   return out
 }
 
@@ -821,13 +849,19 @@ function setGate(project: string | null, slug: string, asked: GateGiven, now: Da
     }
   }
 
-  if (asked.blocks !== undefined) {
+  /* `blocks` names steps (by id) and tracker refs: a ref is held by writing the gate into the journey's `blockedBy` for it. */
+  const blockedSteps = asked.blocks?.filter((one) => !isTracked(one))
+  const blockedRefs = asked.blocks?.filter((one) => isTracked(one))
+  if (blockedSteps) {
     const known = new Set(journey.steps.map((step) => stepPart(step)).filter(Boolean))
-    const unknown = asked.blocks.filter((one) => !known.has(one))
+    const unknown = blockedSteps.filter((one) => !known.has(one))
     if (unknown.length) {
-      return refuse(`${andSaid(unknown.map((one) => `“${one}”`))} ${unknown.length === 1 ? 'is not the id of a step' : 'are not ids of steps'} of this journey; \`get_journey\` lists them.`)
+      return refuse(`${andSaid(unknown.map((one) => `“${one}”`))} ${unknown.length === 1 ? 'is not the id of a step or a tracker ref' : 'are not ids of steps or tracker refs'} of this journey; \`get_journey\` lists the steps, and a ref is like "#41", "!44" or "gh#41".`)
     }
   }
+  const waitsOn = asked.waitsOn ?? before?.waitsOn
+  const badWait = asked.waitsOn?.filter((one) => !isTracked(one))
+  if (badWait?.length) return refuse(`${andSaid(badWait.map((one) => `“${one}”`))} ${badWait.length === 1 ? 'is not a tracker ref' : 'are not tracker refs'}: \`waitsOn\` takes refs like "#41", "!44" or "gh#41".`)
 
   const id = before?.id ?? asked.id ?? gateIdFor(title, gates.map((one) => one.id))
   const gate: Gate = {
@@ -837,6 +871,7 @@ function setGate(project: string | null, slug: string, asked: GateGiven, now: Da
     ...(pick('owner') ? { owner: pick('owner') } : {}),
     ...(pick('note') ? { note: pick('note') } : {}),
     ...(ref ? { ref } : {}),
+    ...(waitsOn?.length ? { waitsOn: [...new Set(waitsOn)] } : {}),
     ...(kind === 'ref-elsewhere' && epic ? { epic } : {}),
     state,
     ...(state === 'done' && doneAt ? { doneAt } : {}),
@@ -846,12 +881,13 @@ function setGate(project: string | null, slug: string, asked: GateGiven, now: Da
   const extra = at >= 0 ? Object.fromEntries(Object.entries(raw[at]!).filter(([key]) => !GATE_KEYS.includes(key))) : {}
   const kept = stored({ ...gate, ...extra })
   const list = at >= 0 ? raw.map((one, i) => (i === at ? kept : one)) : [...raw, kept]
-  const steps = asked.blocks !== undefined ? stepsHeldBy(journey, id, asked.blocks) : journey.steps
-  const changed = JSON.stringify(list) !== JSON.stringify(raw) || steps !== journey.steps
+  const steps = blockedSteps ? stepsHeldBy(journey, id, blockedSteps) : journey.steps
+  const blockedBy = blockedRefs ? refsHeldBy(journey.blockedBy, id, blockedRefs) : journey.blockedBy
+  const changed = JSON.stringify(list) !== JSON.stringify(raw) || steps !== journey.steps || JSON.stringify(blockedBy) !== JSON.stringify(journey.blockedBy)
   if (!changed) return { ok: true, journey, gate, keeper: keeperIn(store, slug), said: `${gateSaid(gate)} already reads so; nothing was written.` }
-  const written = writeJourney(project, { ...journey, gates: list, steps })
+  const written = writeJourney(project, { ...journey, gates: list, steps, blockedBy })
   if (!written.ok) return { ok: false, error: written.error }
-  const holds = heldSteps(written.journey, id)
+  const holds = [...heldSteps(written.journey, id), ...heldRefs(written.journey, id)]
   return {
     ok: true,
     journey: written.journey,
@@ -859,7 +895,7 @@ function setGate(project: string | null, slug: string, asked: GateGiven, now: Da
     keeper: written.keeper,
     said:
       `${before ? 'Set' : 'Added'} gate ${id}: ${gateSaid(gate)}. `
-      + (holds.length ? `It holds ${andSaid(holds.map((one) => `“${one}”`))}.` : 'It holds no step yet: pass `blocks`, or `blockedBy` on `set_step`.')
+      + (holds.length ? `It holds ${andSaid(holds.map((one) => `“${one}”`))}.` : 'It holds no step or ref yet: pass `blocks`, or `blockedBy` on `set_step`.')
       + settledSaid(written)
       + unpublishedSaid(written),
   }
@@ -869,14 +905,35 @@ function setGate(project: string | null, slug: string, asked: GateGiven, now: Da
 const stored = (gate: Gate | Record<string, unknown>): NonNullable<Journey['gates']>[number] => gate as NonNullable<Journey['gates']>[number]
 
 /** The keys `setGate` writes; any other key on a stored gate is somebody else's and is carried. */
-const GATE_KEYS = ['id', 'kind', 'title', 'owner', 'note', 'ref', 'epic', 'state', 'doneAt', 'doneBy']
+const GATE_KEYS = ['id', 'kind', 'title', 'owner', 'note', 'ref', 'waitsOn', 'epic', 'state', 'doneAt', 'doneBy']
 
 /** The titles of the steps one gate holds. */
 function heldSteps(journey: Journey, gate: string): string[] {
   return journey.steps.filter((step) => stepGates(step).includes(gate)).map((step) => step.title)
 }
 
-/** Take one gate out of a journey, and off every step it held. */
+/** The refs one gate holds: those whose `blockedBy` entry lists it. */
+function heldRefs(journey: Journey, gate: string): string[] {
+  return Object.entries(journey.blockedBy)
+    .filter(([, ids]) => ids.includes(gate))
+    .map(([ref]) => ref)
+}
+
+/** The journey's `blockedBy` with `gate` listed under exactly `refs` and under no other ref; an entry left empty goes. */
+function refsHeldBy(blockedBy: Journey['blockedBy'], gate: string, refs: readonly string[]): Journey['blockedBy'] {
+  const out: Journey['blockedBy'] = {}
+  for (const [ref, ids] of Object.entries(blockedBy)) {
+    const next = refs.includes(ref) ? ids : ids.filter((one) => one !== gate)
+    if (next.length) out[ref] = next
+  }
+  for (const ref of refs) {
+    const had = out[ref] ?? []
+    if (!had.includes(gate)) out[ref] = [...had, gate]
+  }
+  return out
+}
+
+/** Take one gate out of a journey, and off every step and ref it held. */
 function removeGate(project: string | null, slug: string, id: string): GateWritten {
   const found = journeyFor(project, slug)
   if (!found.ok) return found
@@ -886,11 +943,12 @@ function removeGate(project: string | null, slug: string, id: string): GateWritt
     const known = gatesOf(journey).map((one) => one.id)
     return { ok: false, error: `“${id}” is not a gate of ${slug}${known.length ? `; its gates are ${known.join(', ')}` : ', which has none'}. Nothing was removed.` }
   }
-  const held = heldSteps(journey, id)
+  const held = [...heldSteps(journey, id), ...heldRefs(journey, id)]
   const raw = (journey.gates ?? []).filter((one) => one.id !== id)
   const steps = stepsHeldBy(journey, id, [])
+  const blockedBy = refsHeldBy(journey.blockedBy, id, [])
   const { gates: _gates, ...rest } = journey
-  const written = writeJourney(project, raw.length ? { ...rest, gates: raw, steps } : { ...rest, steps })
+  const written = writeJourney(project, raw.length ? { ...rest, gates: raw, steps, blockedBy } : { ...rest, steps, blockedBy })
   if (!written.ok) return { ok: false, error: written.error }
   return {
     ok: true,
@@ -941,12 +999,12 @@ function gatesSaid(journey: Journey): string {
   if (!gates.length) return ''
   const ids = new Map(journey.steps.map((step) => [step.title, stepPart(step) ?? '?']))
   const lines = gates.map((gate) => {
-    const holds = heldSteps(journey, gate.id).map((title) => ids.get(title) ?? title)
-    return `  ${gate.id}\t${gateSaid(gate)}${holds.length ? `\tholds ${holds.join(', ')}` : '\tholds no step'}`
+    const holds = [...heldSteps(journey, gate.id).map((title) => ids.get(title) ?? title), ...heldRefs(journey, gate.id)]
+    return `  ${gate.id}\t${gateSaid(gate)}${holds.length ? `\tholds ${holds.join(', ')}` : '\tholds no step or ref'}`
   })
   return (
     'GATES: what stands in the way that is not a step — written with `set_gate` (and `remove_gate`), held by a step '
-    + 'through its `blockedBy` on `set_step`. A step an open gate holds is never next. Id, kind and title, who acts, where it stands, '
+    + 'through its `blockedBy` on `set_step`, a ref through the journey’s `blockedBy` (`set_gate` `blocks` takes step ids and refs). A step an open gate holds, or whose delivering ref one holds, is never next. Id, kind and title, who acts, where it stands, '
     + `and the steps it holds:\n${lines.join('\n')}\n\n`
   )
 }
@@ -1474,7 +1532,7 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
             `projected from there by ${plan.from.projector}. The empty "steps" array below means "not here", ` +
             'not "none".\n\n'
           : ''
-      return preamble + stepsSaid(journey, keeperIn(store, slug), Object.hasOwn(store.unsettled, slug)) + gatesSaid(journey) + JSON.stringify(journey, null, 2)
+      return preamble + stepsSaid(journey, keeperIn(store, slug), Object.hasOwn(store.unsettled, slug)) + gatesSaid(journey) + alsoSaidFor(journey, named.project) + JSON.stringify({ ...journey, ...alsoIn(journey, named.project) }, null, 2)
     },
   },
 
@@ -1788,7 +1846,7 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       'change in this epic; pass `ref`), `work` (work with no issue yet), `decision` (somebody has to decide), ' +
       '`access` (somebody outside the team has to grant something), or `ref-elsewhere` (a ref another epic owns; pass ' +
       '`ref` and `epic`, that epic’s slug). And a `title`, and optionally an `owner` (a person or a role), a `note` and ' +
-      'a `ref`. `blocks` is the whole list of step ids it holds (or set `blockedBy` on `set_step`). A step an open gate ' +
+      'a `ref`. `blocks` is the whole list it holds: step ids and tracker refs ("issue #3620 waits on the legal decision"; a ref may be in another epic\'s journey too), or set `blockedBy` on `set_step`. `waitsOn` lists refs the gate itself waits on. A step an open gate ' +
       'holds is never `next_step`. Omit `gate` to add one (its id is made from the title); pass `gate` to change that ' +
       'one — this is a patch: what you leave out stays, "" clears `owner`, `note`, `ref` or `epic`. A work, decision or ' +
       'access gate is done only when somebody says so: `state: "done"` with `by` (who decided, granted or did it) ' +
@@ -1809,7 +1867,8 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
         epic: { type: 'string', description: 'For `ref-elsewhere`: the slug of the epic that owns the ref.' },
         state: { type: 'string', enum: ['open', 'done'], description: '"done" marks it done (pass `by`); "open" reopens it.' },
         by: { type: 'string', description: 'Who marks it done: the person, or "agent" and on whose word.' },
-        blocks: { type: 'array', items: { type: 'string' }, description: 'The ids of the steps this gate holds; the whole list. [] holds none. Omit to leave it.' },
+        blocks: { type: 'array', items: { type: 'string' }, description: 'What this gate holds: step ids and tracker refs ("#3620", "!44", "gh#12"), mixed; the whole list. A ref it holds is not done while the gate is open, and a step one of whose delivering refs it holds is never `next_step`. [] holds none. Omit to leave it.' },
+        waitsOn: { type: 'array', items: { type: 'string' }, description: 'Tracker refs this gate itself waits on ("the legal decision waits on !44"); the whole list. [] clears it. Omit to leave it.' },
       },
       required: ['project', 'slug'],
     },
@@ -1886,7 +1945,7 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
  */
 export function nextSaid(journey: Journey, closed: string[] | null): string {
   const shut = new Set(closed ?? [])
-  const next = nextStep(journey.steps, (issue) => shut.has(issue), gatesOf(journey))
+  const next = nextStep(journey.steps, (issue) => shut.has(issue), gatesOf(journey), journey.blockedBy)
   const caveat = closed === null ? ' No `closed` refs were passed, so no issue was counted as done.' : ''
   const gated = next.gated.length
     ? ` Held by open gates: ${next.gated
@@ -2209,7 +2268,7 @@ export function answerAt(
     if (nothing) return bad(nothing, 409)
     const journey = journeyIn(store, slug)
     if (!journey) return bad(`this project does not hold a journey called "${slug}"`, 404)
-    return ok({ ok: true, journey: view(journey, keeperIn(store, slug), Object.hasOwn(store.unsettled, slug)) })
+    return ok({ ok: true, journey: view(journey, keeperIn(store, slug), Object.hasOwn(store.unsettled, slug), str(query.get('project'), MAX_PROJECT)) })
   }
 
   if (method === 'POST' && path.startsWith('/api/')) {
@@ -2257,19 +2316,19 @@ export function answerAt(
         given(body),
       )
       if (!out.ok) return bad(out.error)
-      return ok({ ok: true, journey: view(out.journey, out.keeper), said: out.said.trim() })
+      return ok({ ok: true, journey: view(out.journey, out.keeper, false, project), said: out.said.trim() })
     }
 
     if (path === '/api/step/remove') {
       const out = removeStep(project, slug, { position: position(body.position), id: str(body.step, MAX_PART) || undefined })
       if (!out.ok) return bad(out.error, out.status)
-      return ok({ ok: true, journey: view(out.journey, out.keeper), said: out.said })
+      return ok({ ok: true, journey: view(out.journey, out.keeper, false, project), said: out.said })
     }
 
     if (path === '/api/step/move') {
       const out = moveStep(project, slug, { position: position(body.position), id: str(body.step, MAX_PART) || undefined }, position(body.to))
       if (!out.ok) return bad(out.error, out.status)
-      return ok({ ok: true, journey: view(out.journey, out.keeper), said: out.said })
+      return ok({ ok: true, journey: view(out.journey, out.keeper, false, project), said: out.said })
     }
 
     /* Store a journey that is still in the older shape of parts on disk as
@@ -2277,7 +2336,7 @@ export function answerAt(
     if (path === '/api/settle') {
       const out = settle(project, slug)
       if (!out.ok) return bad(out.error, out.status)
-      return ok({ ok: true, journey: view(out.journey, out.keeper), said: out.said })
+      return ok({ ok: true, journey: view(out.journey, out.keeper, false, project), said: out.said })
     }
 
     /**
@@ -2309,7 +2368,7 @@ export function answerAt(
       }
       const out = createJourney(project, slug, { seed, title: str(body.title, MAX_TITLE) })
       if (!out.ok) return bad(out.error)
-      return ok({ ok: true, journey: view(out.journey, out.keeper), from: out.from, said: begun(out, dataFile(project).path) })
+      return ok({ ok: true, journey: view(out.journey, out.keeper, false, project), from: out.from, said: begun(out, dataFile(project).path) })
     }
 
     if (path === '/api/dependency') {
@@ -2326,24 +2385,24 @@ export function answerAt(
       else delete journey.blockedBy[ref]
       const written = writeJourney(project, journey)
       if (!written.ok) return bad(written.error)
-      return ok({ ok: true, journey: view(written.journey, written.keeper), said: (settledSaid(written) + unpublishedSaid(written)).trim() })
+      return ok({ ok: true, journey: view(written.journey, written.keeper, false, project), said: (settledSaid(written) + unpublishedSaid(written)).trim() })
     }
 
     /* The gates (`src/gates.ts`): the same writers the MCP door uses, so the refusals are one. */
     if (path === '/api/gate') {
       const out = setGate(project, slug, gateGiven(body))
       if (!out.ok) return bad(out.error, out.status)
-      return ok({ ok: true, journey: view(out.journey, out.keeper), said: out.said })
+      return ok({ ok: true, journey: view(out.journey, out.keeper, false, project), said: out.said })
     }
     if (path === '/api/gate/remove') {
       const out = removeGate(project, slug, str(body.gate, MAX_PART))
       if (!out.ok) return bad(out.error, out.status)
-      return ok({ ok: true, journey: view(out.journey, out.keeper), said: out.said })
+      return ok({ ok: true, journey: view(out.journey, out.keeper, false, project), said: out.said })
     }
     if (path === '/api/gate/from-note') {
       const out = noteToGate(project, slug, { position: position(body.position), id: str(body.step, MAX_PART) || undefined }, str(body.note, MAX_NOTE))
       if (!out.ok) return bad(out.error, out.status)
-      return ok({ ok: true, journey: view(out.journey, out.keeper), said: out.said })
+      return ok({ ok: true, journey: view(out.journey, out.keeper, false, project), said: out.said })
     }
   }
 

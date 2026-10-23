@@ -1,6 +1,7 @@
 import type { TrackerMissing, TrackerRow, TrackerSource } from 'kehikot-module-protocol'
 
 import type { Gate, RefRole } from './gates.ts'
+import type { Also } from './shared.ts'
 
 /**
  * The shapes this app's own server answers with.
@@ -80,6 +81,8 @@ export interface JourneyView {
   blockedBy: Record<string, string[]>
   /** What stands in the way that is not a step: see `gates.ts`. Absent on a journey with none. */
   gates?: Gate[]
+  /** Refs this journey shares with the project's other journeys, by ref: read-only, and absent when none is shared. See `shared.ts`. */
+  alsoIn?: Record<string, Also[]>
   /** Decision issues no commit will close, answered by these changes instead. Read as `done` once they merge. */
   settledBy?: Record<string, string[]>
   plan: 'stored' | 'elsewhere' | 'none'
