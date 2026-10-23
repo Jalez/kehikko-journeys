@@ -77,6 +77,7 @@ describe('the manifest a host reads', () => {
       'epics:read',
       'parts:set',
       'view:navigate',
+      'address:open',
     ])
     expect(MANIFEST.declares.uses).not.toContain('live:read')
     expect(MANIFEST.declares.uses).not.toContain('steps:read')

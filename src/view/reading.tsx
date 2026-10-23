@@ -3,6 +3,8 @@ import { createContext, useContext } from 'react'
 import type { Disposition } from 'kehikot-module-protocol'
 import type { Facet } from 'kehikot-module-protocol/facets'
 
+import type { OpenAddress } from '../lib/links.ts'
+
 import type { FactoryJob, JourneyView, Live } from '../kinds.ts'
 import type { Around } from '../live/lookup.ts'
 
@@ -38,6 +40,8 @@ export interface Reading {
   unfolded?: readonly string[]
   /** The Factory's newest job per step issue. Absent or empty: nothing to show. */
   factory?: Readonly<Record<string, FactoryJob>>
+  /** Hands a web address to the canvas (`address.open`); absent when the host does not answer it. */
+  openAddress?: OpenAddress | null
 }
 
 const ReadingContext = createContext<Reading>({ live: null, journey: null })
