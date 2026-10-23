@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { NOUN, anchorOf, indexed, type Shown } from './focus.ts'
 import {
   addTarget,
+  addressOpener,
   begin,
   clearPick,
   getSnapshot,
@@ -133,6 +134,7 @@ export function App() {
         marks: state.marks,
         hidden: state.hidden,
         unfolded: state.unfolded,
+        openAddress: addressOpener(),
       }}
     >
       <div className="mx-auto w-full max-w-[44rem] px-3 pt-3 pb-12 @min-[26rem]/container:px-4 @min-[26rem]/container:pt-4">

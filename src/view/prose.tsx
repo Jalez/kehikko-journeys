@@ -1,5 +1,6 @@
 import { Fragment } from 'react'
 
+import { handLink, handsLink } from '../lib/links.ts'
 import { stateOf } from '../live/lookup.ts'
 import { REF_IN_PROSE } from '../refs.ts'
 import { useReading } from './reading.tsx'
@@ -24,14 +25,26 @@ import { useReading } from './reading.tsx'
  * findable at 220px where the sentence around it is wrapping every four words.
  */
 export function Ref({ refName }: { refName: string }) {
-  const { live } = useReading()
+  const { live, openAddress } = useReading()
   const seen = stateOf(live, refName)
   const shared =
     'font-mono text-[0.84em] text-seen underline decoration-seen/30 underline-offset-2 hover:decoration-seen'
 
   if (seen?.url) {
     return (
-      <a data-ref={refName} href={seen.url} target="_blank" rel="noreferrer" className={shared}>
+      <a
+        data-ref={refName}
+        href={seen.url}
+        target="_blank"
+        rel="noreferrer"
+        className={shared}
+        onClick={(event) => {
+          /* Handed to the canvas when it answers `address.open`; otherwise (or when it declines) a new tab, as before. */
+          if (!seen.url || !openAddress || !handsLink(seen.url, openAddress)) return
+          event.preventDefault()
+          void handLink(seen.url, openAddress)
+        }}
+      >
         {refName}
       </a>
     )

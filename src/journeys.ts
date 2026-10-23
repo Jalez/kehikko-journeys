@@ -2090,6 +2090,15 @@ host.subscribe(() => {
   else set({ where: standing.where })
 })
 
+/**
+ * How a link out of this page is handed to the canvas (`address.open`, protocol 2.16.0): only when a
+ * host is framing the page and its greeting says it answers that. `null` otherwise, and a link is
+ * the new-tab link it always was.
+ */
+export function addressOpener(standing: HostStanding = host.get()): ((url: string) => ReturnType<typeof host.openAddress>) | null {
+  return standing.where === 'hosted' && standing.answers?.includes('address.open') === true ? (url) => host.openAddress(url) : null
+}
+
 /** Whether a host has greeted this page: whether there is anybody to ask. */
 const greeted = (): boolean => host.connection()?.greeted() ?? false
 

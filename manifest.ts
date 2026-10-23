@@ -311,6 +311,8 @@ export const MANIFEST: Manifest = manifestSchema.parse({
       'epics:read',
       'parts:set',
       'view:navigate',
+      /* A reference's link goes to the canvas's Browser (protocol 2.16.0), not a new tab. */
+      'address:open',
     ],
     storage: true,
     /*
