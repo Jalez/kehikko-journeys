@@ -7,7 +7,7 @@ import { defineConfig, type Plugin } from 'vite'
 
 import { BUILD, MANIFEST, TICKET, answer, servingAt } from './doors.ts'
 import { ID, PREFERRED_PORT } from './manifest.ts'
-import { isSkillPath } from './skills.ts'
+import { ours } from './skills.ts'
 
 /**
  * The `/journey` skill names the origin this module is really on, not the one it preferred
@@ -145,7 +145,7 @@ export default defineConfig({
       build: BUILD,
       page: { title: 'Journeys', ticket: TICKET },
       /* The protocol's doors, and the skill's SKILL.md at `/kehikot/skills/journey.md`. */
-      ours: (path) => path === '/healthz' || path === '/mcp' || path.startsWith('/api/') || isSkillPath(path),
+      ours,
     }),
     react(),
     tailwindcss(),
