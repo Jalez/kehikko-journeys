@@ -26,6 +26,6 @@
     "manifest.ts",
     "register.ts",
     "store.ts",
-    "vite.config.ts"
+    "serve.ts", "build.ts", "vite.config.ts"
   ]
 }

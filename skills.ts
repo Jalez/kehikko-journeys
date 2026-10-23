@@ -82,3 +82,6 @@ export function skillAt(path: string): { name: string; text: string } | null {
 
 /** Whether a path is one this module serves a skill on: what `doors()` hands to `answer`. */
 export const isSkillPath = (path: string): boolean => OFFERED.some((one) => skillPath(one.name) === path)
+
+/** The doors this module answers: the protocol's three, `/api/*`, and its skills. For the dev server and the built one alike. */
+export const ours = (path: string): boolean => path === '/healthz' || path === '/mcp' || path.startsWith('/api/') || isSkillPath(path)
