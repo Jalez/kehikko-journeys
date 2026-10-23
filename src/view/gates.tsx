@@ -3,8 +3,9 @@ import { CircleDot, ExternalLink, Hammer, KeyRound, Scale, type LucideIcon } fro
 import { Button } from '@/components/ui/button.tsx'
 import { cn } from '@/lib/utils.ts'
 
-import { KIND_SAID, gateDone, gatesOf, roleOf, stepGates, type Gate, type GateKind } from '../gates.ts'
-import { setGateState } from '../journeys.ts'
+import { KIND_SAID, gateDone, gatesOf, refGates, delivering, roleOf, stepGates, stepRefGates, type Gate, type GateKind } from '../gates.ts'
+import { goToJourney, setGateState } from '../journeys.ts'
+import { alsoSaid, type Also } from '../shared.ts'
 import type { Step } from '../kinds.ts'
 import { issueDone } from '../live/status.ts'
 import { Ref } from './prose.tsx'
@@ -39,7 +40,7 @@ export function GateKind({ kind }: { kind: GateKind }) {
 }
 
 /** One gate in one line: kind, title, who, its ref, where it stands, and the press that settles it. */
-export function GateLine({ gate, holds }: { gate: Gate; holds?: readonly string[] }) {
+export function GateLine({ gate, holds, via }: { gate: Gate; holds?: readonly string[]; via?: readonly string[] }) {
   const reading = useReading()
   const tracked = (ref: string) => issueDone(reading.live, ref, aroundOf(reading))
   const done = gateDone(gate, tracked)
@@ -63,7 +64,29 @@ export function GateLine({ gate, holds }: { gate: Gate; holds?: readonly string[
             : `done${gate.doneBy ? ` by ${gate.doneBy}` : ''}${gate.doneAt ? `, ${gate.doneAt.slice(0, 10)}` : ''}`
           : 'open'}
       </span>
-      {holds && <span className="text-muted-foreground">{holds.length ? `holds ${holds.join(', ')}` : 'holds no step'}</span>}
+      {gate.waitsOn?.length ? (
+        <span data-gate-waits className="text-muted-foreground">
+          waits on{' '}
+          {gate.waitsOn.map((ref, i) => (
+            <span key={ref}>
+              {i > 0 && ' '}
+              <Ref refName={ref} />
+            </span>
+          ))}
+        </span>
+      ) : null}
+      {via?.length ? (
+        <span data-gate-via className="text-muted-foreground">
+          holds{' '}
+          {via.map((ref, i) => (
+            <span key={ref}>
+              {i > 0 && ' '}
+              <Ref refName={ref} />
+            </span>
+          ))}
+        </span>
+      ) : null}
+      {holds && <span className="text-muted-foreground">{holds.length ? `holds ${holds.join(', ')}` : 'holds no step or ref'}</span>}
       {(gate.state === 'done' || !done) && (
         <Button
           type="button"
@@ -83,15 +106,18 @@ export function GateLine({ gate, holds }: { gate: Gate; holds?: readonly string[
 /** The gates that hold one step, under its place line. Nothing when none does. */
 export function StepGates({ step }: { step: Step }) {
   const { journey } = useReading()
-  const ids = stepGates(step)
-  const gates = gatesOf(journey).filter((gate) => ids.includes(gate.id))
+  const own = stepGates(step)
+  const viaRef = stepRefGates(step, journey?.blockedBy)
+  const gates = gatesOf(journey).filter((gate) => own.includes(gate.id) || viaRef.includes(gate.id))
   if (!gates.length) return null
+  /* A gate that holds a ref which delivers this step says which ref. */
+  const through = (id: string) => delivering(step).filter((ref) => (journey?.blockedBy?.[ref] ?? []).includes(id))
   return (
     <div data-step-gates className="mt-1.5 @min-[26rem]/container:ml-[2.1rem]">
       <span className="mr-1.5 text-xs tracking-wide text-muted-foreground uppercase opacity-70">waits on</span>
       <ul className="mt-0.5 grid gap-0.5">
         {gates.map((gate) => (
-          <GateLine key={gate.id} gate={gate} />
+          <GateLine key={gate.id} gate={gate} via={through(gate.id)} />
         ))}
       </ul>
     </div>
@@ -131,12 +157,61 @@ export function GatesList() {
   const { journey } = useReading()
   const gates = gatesOf(journey)
   if (!journey || !gates.length) return null
-  const holds = (id: string) => journey.steps.flatMap((step, i) => (stepGates(step).includes(id) ? [`step ${i + 1}`] : []))
+  const holds = (id: string) => [
+    ...journey.steps.flatMap((step, i) => (stepGates(step).includes(id) ? [`step ${i + 1}`] : [])),
+    ...Object.entries(journey.blockedBy ?? {}).flatMap(([ref, ids]) => (ids.includes(id) ? [ref] : [])),
+  ]
   return (
     <ul data-gates className="grid gap-1">
       {gates.map((gate) => (
         <GateLine key={gate.id} gate={gate} holds={holds(gate.id)} />
       ))}
     </ul>
+  )
+}
+
+/** The gates that hold one ref, as the journey's `blockedBy` lists them. Nothing when none does. */
+export function RefGates({ refName }: { refName: string }) {
+  const { journey } = useReading()
+  const gates = refGates(journey?.blockedBy, gatesOf(journey), refName)
+  if (!gates.length) return null
+  return (
+    <div data-ref-gates className="mt-1.5">
+      <span className="mr-1.5 text-xs tracking-wide text-muted-foreground uppercase opacity-70">waits on</span>
+      <ul className="mt-0.5 grid gap-0.5">
+        {gates.map((gate) => (
+          <GateLine key={gate.id} gate={gate} />
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/**
+ * A ref that is also in other journeys of the project: "also in: <epic> (<step>)", read-only, each
+ * with a link that opens that journey. Nothing when no other journey names it.
+ */
+export function AlsoIn({ refName }: { refName: string }) {
+  const { journey } = useReading()
+  const found: Also[] = journey?.alsoIn?.[refName] ?? []
+  if (!found.length) return null
+  return (
+    <p data-also-in={refName} className="mt-1.5 flex flex-wrap items-baseline gap-x-1.5 text-xs leading-5 text-muted-foreground">
+      <span className="tracking-wide uppercase opacity-70">also in</span>
+      {found.map((also, i) => (
+        <span key={`${also.epic}-${also.id ?? also.gate ?? i}`} data-also-epic={also.epic}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="container"
+            className="h-5 px-1.5 text-muted-foreground underline"
+            title={`Open the journey of ${also.epic}`}
+            onClick={() => void goToJourney(also.epic)}
+          >
+            {alsoSaid(also)}
+          </Button>
+        </span>
+      ))}
+    </p>
   )
 }

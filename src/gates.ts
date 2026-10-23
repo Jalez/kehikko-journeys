@@ -26,6 +26,15 @@ import { REF_IN_PROSE, isTracked } from './refs.ts'
  * A `work`, `decision` or `access` gate is done only when a person or an agent says so, and the
  * record keeps who and when.
  *
+ * ## Gates on refs
+ *
+ * A gate can hold a tracker ref as well as a step: the journey's `blockedBy` (ref -> what must
+ * land first) may name a gate's id among its values, so "issue #3620 waits on the legal decision"
+ * is `blockedBy: { '#3620': ['legal'] }`. A step is held by an open gate that holds any ref that
+ * DELIVERS it. And a gate can wait on refs itself (`waitsOn`): "the legal decision waits on !44".
+ * A `ref-elsewhere` gate is done once its ref is closed, wherever it is owned. All of it is
+ * optional: a journey with none reads as it always did.
+ *
  * ## A step's refs have a role
  *
  * `roles` on a step maps a ref to `prior-art` or `related`. A ref not in it DELIVERS the step,
@@ -54,6 +63,8 @@ export interface Gate {
   note?: string
   /** The tracker ref: the issue itself for `issue` and `ref-elsewhere`, context for the rest. */
   ref?: string
+  /** Refs this gate itself waits on: it is not settled before they are. */
+  waitsOn?: string[]
   /** For `ref-elsewhere`: the slug of the epic that owns the ref. */
   epic?: string
   state: GateState
@@ -93,9 +104,27 @@ export function gatesOf(journey: object | null | undefined): Gate[] {
       const value = text(g[key])
       if (value) gate[key] = value
     }
+    const waits = Array.isArray(g.waitsOn) ? [...new Set(g.waitsOn.map(text).filter((one): one is string => Boolean(one)))] : []
+    if (waits.length) gate.waitsOn = waits
     out.push(gate)
   }
   return out
+}
+
+/** Whether a `blockedBy` value is a gate id rather than a ref or a sentence: a slug no tracker spells. */
+export const isGateId = (value: string): boolean => GATE_ID.test(value) && !isTracked(value)
+
+/** The gates that hold one ref: those whose ids its `blockedBy` entry lists. An id no gate has is dropped. */
+export function refGates(blockedBy: Record<string, readonly string[]> | null | undefined, gates: readonly Gate[], ref: string): Gate[] {
+  const listed = blockedBy && Object.hasOwn(blockedBy, ref) ? blockedBy[ref]! : []
+  return [...new Set(listed)].flatMap((id) => gates.filter((gate) => gate.id === id))
+}
+
+/** The gate ids that hold a step through the refs that deliver it. */
+export function stepRefGates(step: { refs?: readonly string[]; roles?: unknown }, blockedBy: Record<string, readonly string[]> | null | undefined): string[] {
+  if (!blockedBy) return []
+  const ids = delivering(step).flatMap((ref) => (Object.hasOwn(blockedBy, ref) ? blockedBy[ref]! : []))
+  return [...new Set(ids.filter(isGateId))]
 }
 
 /** The gate ids a step names in `blockedBy`, as written. */
@@ -133,6 +162,7 @@ export function gateSaid(gate: Gate): string {
     `${kind.mark} ${kind.word}: “${gate.title}”`
     + (gate.owner ? `, ${gate.owner} to act` : '')
     + (gate.ref ? `, ${gate.ref}${gate.epic ? ` in ${gate.epic}` : ''}` : gate.epic ? `, in ${gate.epic}` : '')
+    + (gate.waitsOn?.length ? `, waits on ${gate.waitsOn.join(', ')}` : '')
     + (gate.state === 'done' ? ` — done${gate.doneBy ? ` by ${gate.doneBy}` : ''}${gate.doneAt ? ` at ${gate.doneAt}` : ''}` : ' — open')
   )
 }

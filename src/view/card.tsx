@@ -9,6 +9,7 @@ import { markDisposition } from '../journeys.ts'
 import { isChange, stateOf, verdictOf, type Verdict } from '../live/lookup.ts'
 import { isTracked } from '../refs.ts'
 import { Ref } from './prose.tsx'
+import { AlsoIn, RefGates } from './gates.tsx'
 import { Rail } from './rail.tsx'
 import { aroundOf, useReading } from './reading.tsx'
 import { StateBadge } from './state-badge.tsx'
@@ -48,7 +49,9 @@ export function Card({ refName, under }: { refName: string; under?: boolean }) {
   const reading = useReading()
   const { live, journey } = reading
   const seen = stateOf(live, refName)
-  const gates = journey?.blockedBy?.[refName] ?? []
+  /* What it waits on: gates (drawn by `RefGates`) are left out here; a ref or a sentence stays. */
+  const gateIds = new Set((journey?.gates ?? []).map((gate) => gate.id))
+  const others = (journey?.blockedBy?.[refName] ?? []).filter((one) => isTracked(one) || !gateIds.has(one))
   const verdict = verdictOf(live, refName, aroundOf(reading))
   /* Why it closed is said wherever it closed, and wherever somebody's word —
      a person's mark, the journey's `settledBy` — says more than the state.
@@ -135,10 +138,13 @@ export function Card({ refName, under }: { refName: string; under?: boolean }) {
         drawn as prose: a chip that long is not a chip, and as an unbreakable
         one it took the whole document 1187 pixels wide inside a 220-pixel container.
       */}
-      {gates.length > 0 && (
+      <RefGates refName={refName} />
+      <AlsoIn refName={refName} />
+
+      {others.length > 0 && (
         <div className="mt-1.5 text-xs leading-5 text-muted-foreground">
           <span className="mr-1.5 uppercase tracking-wide opacity-70">waits on</span>
-          {gates.map((gate, i) => (
+          {others.map((gate, i) => (
             <span key={gate} className="[overflow-wrap:anywhere]">
               {i > 0 && <span aria-hidden="true"> · </span>}
               {isTracked(gate) ? <Ref refName={gate} /> : gate}

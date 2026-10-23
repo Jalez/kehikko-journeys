@@ -87,7 +87,7 @@ export function refsOf(journey: JourneyView | null): string[] {
   }
   for (const [ref, answers] of Object.entries(journey.settledBy ?? {})) named.push(ref, ...answers)
   for (const [ref, gates] of Object.entries(journey.blockedBy ?? {})) named.push(ref, ...gates)
-  for (const gate of gatesOf(journey)) if (gate.ref) named.push(gate.ref)
+  for (const gate of gatesOf(journey)) named.push(...(gate.ref ? [gate.ref] : []), ...(gate.waitsOn ?? []))
   return [...new Set(named)].filter((ref) => readTrackerRef(ref) !== null)
 }
 
