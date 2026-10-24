@@ -17,10 +17,12 @@ The person typed `/journey $ARGUMENTS`. Your job is to design ONE journey with t
 ## 1. Find where you are
 
 1. Call `my_place` (the Kehikot host's tools, usually `mcp__kehikko__*`). It gives the project's absolute path, the epic, and the kehikko. Use that project path as `project` in every Journeys call. If no place is recorded, ask the person which project folder and epic this is for, in one question, and stop until they answer.
-2. Call `get_journey` for the epic (Journeys' tools, usually `mcp__journeys__*`). If it has steps already, you are refining that journey: keep what is still right, and say what you would change. If there is none, you will begin one with `create_journey` once the tree is accepted.
+2. Call `get_journey` for the epic (Journeys' tools, usually `mcp__journeys__*`). If it has steps already, you are refining that journey: keep what is still right, and say what you would change. Steps with no `under` are a flat journey: design the tree around them, and write it as **Refining a flat journey** at the end of section 5 says. If there is none, you will begin one with `create_journey` once the tree is accepted.
 3. Read what is already there: the epic and its parts (`read_canvas`), open issues (`read_tracker` for the epic), and the code the journey touches. Note what exists, so no step asks for it again.
 
 If the Journeys tools are not connected in this session, use the module's MCP door at {{origin}}/mcp with curl (JSON-RPC 2.0: `initialize`, then `tools/call` with `{"name": "...", "arguments": {...}}`). If that does not answer either, tell the person: "Kehikot's Journeys module at {{origin}} is not answering; start it from Kehikot and type /journey again. [skill {{version}}]" and stop.
+
+A Claude session keeps the tool list it started with. If a Journeys tool this skill names is missing (`patch_steps`), or a list argument (`phases`, `steps`) is refused as text, the session predates the module's update. Tell the person to restart the session, or make that call at the module's MCP door, {{origin}}/mcp, with curl as above.
 
 ## 2. Design the tree
 
@@ -80,8 +82,18 @@ Show the final tree and ask: "Shall I write this journey into Kehikot?" Write no
 2. **The parts.** Where the host keeps the epic's parts (`get_journey` says so), add one part per node with the host's `set_parts` (`add: {name}`), in tree order: each objective, then its leaves. Use short names. Note each id from the answer.
 3. **The steps.** One `set_step` per node, objectives before the steps under them. Give each one its `part` (where the host keeps parts), its `under`: the objective's step id, or leave it out for a node directly under the goal, and its `phase`: the phase's id (leave it out on a leaf that is in its objective's phase). Phrase `title` as what becomes true for the user. Keep `body` short: why it matters and how we'll know it's done.
 4. **The order.** For each node with prerequisites, call `set_dependency` with `step` and `after` (the ids of the steps it waits on). Journeys refuses an edge that would close a loop; if it does, the tree is wrong, so tell the person.
-5. **The gates.** One `set_gate` per gate: `kind`, `title`, `owner`, a `note` where it helps, `ref` for an `issue` or `ref-elsewhere` gate (and `epic` for the epic that owns a `ref-elsewhere` one), and `blocks` = the ids of the steps it holds. A ref that a step names as prior art or as related work, rather than work that delivers the step, gets `roles` on `set_step` (`{"#1850": "prior-art"}`) so it never reads as delivering. A note chip that names unfiled work becomes a `work` gate: write the step again without that note.
+5. **The gates.** One `set_gate` per gate: `kind`, `title`, `owner`, a `note` where it helps, `ref` for an `issue` or `ref-elsewhere` gate (and `epic` for the epic that owns a `ref-elsewhere` one), and `blocks` = the ids of the steps it holds. A ref that a step names as prior art or as related work, rather than work that delivers the step, gets `roles` on `set_step` (`{"#1850": "prior-art"}`) so it never reads as delivering. A note chip that names unfiled work becomes a `work` gate: take the note off with `patch_step` (`notes` = the rest).
 6. Read the journey back with `get_journey`, check it against the tree and its phases (the PHASES lines list each phase with its steps), and call `next_step` to say which step comes first.
+
+**Refining a flat journey.** The existing steps stay, with their parts, refs and notes; the tree is built around them:
+
+1. **Objectives.** Each new objective is a new part (`set_parts`, `add: {name}`) and a new step (`set_step` with that `part`, its `title`, `body` and `phase`, and `under` where it sits under another objective).
+2. **File the steps.** One `patch_steps` call: every existing step with its `under` (its objective's id) and its `phase`. A patch changes only the fields it names, so each step keeps its title, body, refs and notes as stored.
+3. **The order.** `set_dependency` with `step` and `after`, as in 4 above.
+4. **Gates already settled.** A gate the old journey records as decided, granted or done is `set_gate` with `state: "done"` and `by`.
+5. **The prose.** Read `lede`, `callout`, `exists`, `open` and `missing` again, and correct with `set_journey` whatever still describes a list or numbers steps that moved.
+
+Then read it back as in 6.
 
 ## 6. Issues, on a second yes
 
@@ -90,7 +102,7 @@ Ask separately: "Shall I file an issue for each leaf, with the 'blocked by' link
 - Find the repository from `git remote -v` in the project and the tracker sources `read_tracker` reports. Use the person's own `gh` (GitHub) or `glab` (GitLab).
 - File one issue per leaf, prerequisites first: the step's title, its body, and a line naming the journey and its goal. Use `gh issue create --repo OWNER/REPO --title ... --body ...` (or `glab issue create`).
 - Link the order. GitHub: `gh api -X POST repos/OWNER/REPO/issues/N/dependencies/blocked_by -F issue_id=<the blocking issue's numeric id, from gh api repos/OWNER/REPO/issues/M --jq .id>`; if that is refused, add "Blocked by #M" to the issue's body. GitLab: `glab api -X POST projects/:id/issues/N/links -f target_project_id=<id> -f target_issue_iid=M -f link_type=is_blocked_by`.
-- Record each issue on its step with `set_step` (`step` = its id, the same title, body and refs, and `issue` = the new ref, e.g. `gh#41` or `#41`). Then `set_dependency` with `ref` = the issue and `blockedBy` = its blockers' issues, so the order is visible on the issues too.
+- Record each issue on its step with `patch_step` (`step` = its id, `issue` = the new ref, e.g. `gh#41` or `#41`), or all of them in one `patch_steps`. Then `set_dependency` with `ref` = the issue and `blockedBy` = its blockers' issues, so the order is visible on the issues too.
 - A `work` gate you filed an issue for becomes an `issue` gate: `set_gate` with `gate` = its id, `kind: "issue"` and `ref` = the new issue.
 - Say what was filed, as a list of refs with titles, and which step is next.
 
