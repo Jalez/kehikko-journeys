@@ -398,7 +398,7 @@ function setStep(
   project: string | null,
   slug: string,
   where: { position?: number; id?: string },
-  step: { title: string; body: string; refs: string[]; notes: string[] },
+  step: StepFields,
   given: Given = {},
 ): { ok: false; error: string } | { ok: true; journey: Journey; where: number; id: string; said: string; keeper: Keeper } {
   if (!isSlug(slug)) return { ok: false, error: 'that is not a journey name' }
@@ -426,10 +426,6 @@ function setStep(
   const elsewhere = refusedBecauseElsewhere(journey)
   if (elsewhere) return { ok: false, error: elsewhere }
 
-  if (!step.title) return { ok: false, error: 'a step has to say what becomes true' }
-  const long = tooLong(step.body)
-  if (long) return { ok: false, error: long }
-
   let at: number
   if (where.id) {
     at = stepOfPart(journey, where.id)
@@ -438,7 +434,46 @@ function setStep(
     at = where.position && where.position <= journey.steps.length ? where.position - 1 : journey.steps.length
   }
 
-  const keeper = keeperIn(store, slug)
+  const into = stepInto(journey, keeperIn(store, slug), at, step, given)
+  if (!into.ok) return into
+  const circle = cycleSaid(into.record.steps)
+  if (circle) return { ok: false, error: circle }
+  const written = writeJourney(project, into.record)
+  if (!written.ok) return { ok: false, error: written.error }
+  const kept = written.journey.steps[at]
+  return {
+    ok: true,
+    journey: written.journey,
+    where: at + 1,
+    id: (kept && stepPart(kept)) || '',
+    said: into.said + settledSaid(written) + unpublishedSaid(written),
+    keeper: written.keeper,
+  }
+}
+
+/** The four things `set_step` says of a step every time. */
+interface StepFields {
+  title: string
+  body: string
+  refs: string[]
+  notes: string[]
+}
+
+/**
+ * The record with the step at `at` (zero-based; one past the end appends) written, or why it cannot be:
+ * every refusal `set_step` and `patch_step` share. Nothing is written here, and a loop between steps is
+ * the caller's to check, on the record it is about to write.
+ */
+function stepInto(
+  journey: Journey,
+  keeper: Keeper,
+  at: number,
+  step: StepFields,
+  given: Given,
+): { ok: false; error: string } | { ok: true; record: Journey; said: string } {
+  if (!step.title) return { ok: false, error: 'a step has to say what becomes true' }
+  const long = tooLong(step.body)
+  if (long) return { ok: false, error: long }
   const parsed = stepSchema.parse({ ...journey.steps[at], ...step })
   /* Its place in the tree. An id that names no step is refused, never kept pointing at nothing. */
   if (given.under !== undefined) {
@@ -546,19 +581,97 @@ function setStep(
     }
   }
 
+  return { ok: true, record, said }
+}
+
+/** What a step's patch may name. A field left out stays as it was. */
+const PATCHABLE = ['title', 'body', 'refs', 'notes', 'part', 'under', 'phase', 'issue', 'blockedBy', 'roles'] as const
+
+/** One step's change on `patch_step`: the fields it names, and nothing it left out. */
+interface StepPatch {
+  step: string
+  fields: Partial<StepFields>
+  given: Given
+  named: string[]
+}
+
+/**
+ * A patch out of a bag of arguments, or why it is not one. A list field that is not a list is refused
+ * rather than read as empty: on a patch, an empty list clears, and a value sent in the wrong shape
+ * would otherwise erase what it meant to change.
+ */
+function patchIn(bag: Record<string, unknown>): { ok: false; error: string } | { ok: true; patch: StepPatch } {
+  const step = str(bag.step, MAX_PART)
+  if (!step) return { ok: false, error: 'Which step? Pass `step`, the id of its part from `get_journey`.' }
+  const passed = (key: string) => Object.hasOwn(bag, key) && bag[key] !== undefined
+  const named = PATCHABLE.filter(passed)
+  if (!named.length) return { ok: false, error: `Nothing to change on ${step}: pass any of ${andSaid(PATCHABLE.map((key) => `\`${key}\``))}.` }
+  for (const key of ['refs', 'notes', 'blockedBy']) {
+    if (passed(key) && bag[key] !== null && !Array.isArray(bag[key])) {
+      return { ok: false, error: `\`${key}\` is a list of strings, and ${step}’s arrived as ${typeof bag[key]}.` }
+    }
+  }
+  if (passed('roles') && bag.roles !== null && (typeof bag.roles !== 'object' || Array.isArray(bag.roles))) {
+    return { ok: false, error: `\`roles\` is an object, { "<ref>": "prior-art" | "related" | "delivers" }, and ${step}’s arrived as ${Array.isArray(bag.roles) ? 'a list' : typeof bag.roles}.` }
+  }
+  if (passed('part') && !str(bag.part, MAX_PART)) return { ok: false, error: '`part` is the id of a part the host lists; a step’s part is not cleared.' }
+  const fields: Partial<StepFields> = {}
+  if (passed('title')) fields.title = str(bag.title, MAX_TITLE)
+  if (passed('body')) fields.body = str(bag.body, MAX_BODY)
+  if (passed('refs')) fields.refs = list(bag.refs, MAX_REF)
+  if (passed('notes')) fields.notes = list(bag.notes, MAX_NOTE)
+  const { name: _name, ...rest } = given(bag)
+  return { ok: true, patch: { step, fields, given: rest, named } }
+}
+
+/**
+ * Change only what each patch names on existing steps, in one write: every patch is applied in order
+ * to the record the one before it left, with `set_step`'s refusals, and the loop check is made on the
+ * result, so a restructure may pass through a shape that would loop on the way to one that does not.
+ * One refusal and nothing is written.
+ */
+function patchSteps(
+  project: string | null,
+  slug: string,
+  patches: StepPatch[],
+): { ok: false; error: string } | { ok: true; journey: Journey; done: { where: number; id: string; named: string[] }[]; said: string } {
+  if (!isSlug(slug)) return { ok: false, error: 'that is not a journey name' }
+  const store = held(project)
+  const nothing = nothingToReadIn(store)
+  if (nothing) return { ok: false, error: nothing }
+  const journey = journeyIn(store, slug)
+  if (!journey) return { ok: false, error: `no journey "${slug}" here. A patch changes steps that exist: begin a journey with \`create_journey\` and write its steps with \`set_step\`.` }
+  const elsewhere = refusedBecauseElsewhere(journey)
+  if (elsewhere) return { ok: false, error: elsewhere }
+  if (!patches.length) return { ok: false, error: 'No steps to patch: `steps` is empty. Nothing was written.' }
+
+  const keeper = keeperIn(store, slug)
+  const many = patches.length > 1
+  const refuse = (i: number, patch: StepPatch, why: string) => ({
+    ok: false as const,
+    error: `${many ? `Patch ${i + 1} (${patch.step}): ` : ''}${why.replace(/ The step was not written\.$/, '')} Nothing was written.`,
+  })
+  let record = journey
+  let said = ''
+  const done: { where: number; id: string; named: string[] }[] = []
+  for (const [i, patch] of patches.entries()) {
+    const at = stepOfPart(record, patch.step)
+    if (at < 0) return refuse(i, patch, `${notAStep(record, patch.step).replace(', or a 1-based `position`', '')} A patch changes a step that exists; \`set_step\` adds one.`)
+    if (keeper.by === 'journeys' && patch.given.part !== undefined) {
+      return refuse(i, patch, '`part` is not taken here: this app keeps this epic’s list of parts for a host that does not, so a step is its own part.')
+    }
+    const before = record.steps[at]!
+    const out = stepInto(record, keeper, at, { title: before.title, body: before.body, refs: before.refs, notes: before.notes, ...patch.fields }, patch.given)
+    if (!out.ok) return refuse(i, patch, out.error)
+    record = out.record
+    said += out.said
+    done.push({ where: at + 1, id: patch.step, named: patch.named })
+  }
   const circle = cycleSaid(record.steps)
   if (circle) return { ok: false, error: circle }
   const written = writeJourney(project, record)
   if (!written.ok) return { ok: false, error: written.error }
-  const kept = written.journey.steps[at]
-  return {
-    ok: true,
-    journey: written.journey,
-    where: at + 1,
-    id: (kept && stepPart(kept)) || '',
-    said: said + settledSaid(written) + unpublishedSaid(written),
-    keeper: written.keeper,
-  }
+  return { ok: true, journey: written.journey, done, said: said + settledSaid(written) + unpublishedSaid(written) }
 }
 
 /** What a caller who names a part is told where the name is not this app's to set. */
@@ -1557,6 +1670,28 @@ interface Annotations {
   openWorldHint: false
 }
 
+/** What a step's patch takes, on `patch_step` and in each of `patch_steps`. */
+const PATCH_FIELDS = {
+  step: { type: 'string', description: 'The id of the step to change, from `get_journey`' },
+  title: { type: 'string', description: "What becomes true, phrased from the user's side" },
+  body: { type: 'string', description: 'Why it matters and where it stands. 150 words at most. "" clears it.' },
+  refs: { type: 'array', items: { type: 'string' }, description: 'The whole list of refs, e.g. ["#2274", "gh#41"]. [] clears it.' },
+  notes: { type: 'array', items: { type: 'string' }, description: 'The whole list of chips for work with no ticket. [] clears it.' },
+  part: { type: 'string', description: 'Where the host keeps the list of parts: the id of the part this step, now in none, is the step of.' },
+  under: { type: 'string', description: 'The id of the objective this step is a prerequisite of. "" puts it directly under the goal.' },
+  phase: { type: 'string', description: 'The id of the journey’s phase this step is in. "" clears it, and a leaf is then in its objective’s.' },
+  issue: { type: 'string', description: 'The tracker issue that delivers this step, also added to `refs`. "" forgets it.' },
+  blockedBy: { type: 'array', items: { type: 'string' }, description: 'The ids of the gates that hold this step; the whole list. [] clears it.' },
+  roles: {
+    type: 'object',
+    additionalProperties: { type: 'string', enum: [...REF_ROLES] },
+    description: 'What each ref is to this step where it does not deliver it: { "<ref>": "prior-art" | "related" }. {} makes every ref deliver it.',
+  },
+} as const
+
+/** The fields a patch named, as the answer says them. */
+const patchedSaid = (named: string[]): string => andSaid(named.map((key) => `\`${key}\``))
+
 const TOOLS: Record<string, { description: string; schema: object; annotations: Annotations; run: ToolCall }> = {
   list_journeys: {
     description:
@@ -1603,7 +1738,7 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       'and `remove_step`) and what the part is called, and say who keeps the list of parts — the host, in the ' +
       'epic’s own file, or this app for a host that does not. In the JSON a step’s `part` is that id; `groups` ' +
       'is the list as an older host reads it, and is not read where the host keeps its own. What is written ' +
-      'with what: steps with `set_step`, `move_step` and `remove_step`; `blockedBy` between refs with `set_dependency`; ' +
+      'with what: steps with `set_step`, `patch_step`, `patch_steps`, `move_step` and `remove_step`; `blockedBy` between refs with `set_dependency`; ' +
       '`gates` — decisions, access, work with no issue, refs another epic owns — with `set_gate` and `remove_gate`, ' +
       'listed above the JSON with the steps each holds (a step’s own `blockedBy` is its gates, and `roles` says which of its ' +
       'refs are prior art or related rather than delivering it); ' +
@@ -1769,7 +1904,7 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       'deliver it. Omit `position` and `step` to append; pass `position` (1-based) or `step` (the id of the ' +
       'step’s part, which does not move when other steps are removed) to overwrite that step. Read the step ' +
       'first: this writes the whole step, so of title, body, refs and notes anything you leave out is gone and ' +
-      'anything stale you keep is a claim you are making afresh. Refused on a journey whose steps are kept ' +
+      'anything stale you keep is a claim you are making afresh; to change only some fields of a step, use `patch_step`. Refused on a journey whose steps are kept ' +
       'elsewhere, with a sentence saying where to write instead. A step is the step of one PART of the epic — ' +
       'what a person picks in the host’s bar to narrow every module — and `get_journey` says who keeps the list ' +
       'of parts. Where the HOST keeps it (in the epic’s own file), this never makes or renames a part: add one ' +
@@ -1853,6 +1988,81 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
         + (Object.hasOwn(args, 'file') ? ' `file` is no longer taken: a part’s chapter is set in the module that keeps the paper, not here.' : '')
         + out.said
       )
+    },
+  },
+
+  patch_step: {
+    description:
+      'Change only some fields of one existing step, named by `step` (the id of its part, from `get_journey`): ' +
+      'what you pass is replaced, what you leave out stays as it was. Use it to file a step `under` an objective, give ' +
+      'it a `phase`, record its `issue`, its gates (`blockedBy`) or its `roles`, or correct its title, body, refs or notes ' +
+      'without resending the rest. "" clears a string field (`body`, `under`, `phase`, `issue`; a step keeps a `title`), ' +
+      '[] clears a list (`refs`, `notes`, `blockedBy`) and {} clears `roles`. `part` files a step that is in no part ' +
+      'under a part the host lists. Refused with nothing written for everything `set_step` refuses: a phase the journey ' +
+      'does not have, an `under` that names no other step or makes a step its own prerequisite, a part that is not ' +
+      'listed or already has its step, a gate that does not exist. To change several steps in one write, use ' +
+      '`patch_steps`. A new step is written with `set_step`. If the journey’s prose says something the change makes ' +
+      'untrue, correct it with `set_journey`.',
+    schema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Absolute path of the project folder' },
+        slug: { type: 'string', description: 'The journey’s slug, which is the epic’s' },
+        ...PATCH_FIELDS,
+      },
+      required: ['project', 'slug', 'step'],
+    },
+    annotations: { title: 'Change part of a step', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run(args) {
+      const named = projectArg(args.project)
+      if ('error' in named) return named.error
+      const asked = patchIn(args)
+      if (!asked.ok) return `${asked.error} Nothing was written.`
+      const out = patchSteps(named.project, str(args.slug, MAX_SLUG), [asked.patch])
+      if (!out.ok) return out.error
+      const one = out.done[0]!
+      return `Patched step ${one.where} of ${out.journey.slug} (${one.id}): ${patchedSaid(one.named)}, in ${dataFile(named.project).path} and nowhere else.${out.said}`
+    },
+  },
+
+  patch_steps: {
+    description:
+      'Several `patch_step`s in one write, all or nothing: `steps` is a list of patches, each `{ step, ...fields }` with ' +
+      'the fields `patch_step` takes. They are applied in order, each to what the one before left, and if any one is ' +
+      'refused nothing is written and the answer says which. A loop is checked on the result, so a restructure may ' +
+      'move a step and its objective in either order. Use it to turn a flat journey into a tree: `under` and `phase` ' +
+      'for every step in one call. If the journey’s prose says something the change makes untrue, correct it with ' +
+      '`set_journey`.',
+    schema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Absolute path of the project folder' },
+        slug: { type: 'string', description: 'The journey’s slug, which is the epic’s' },
+        steps: {
+          type: 'array',
+          items: { type: 'object', properties: PATCH_FIELDS, required: ['step'] },
+          description: 'The patches, applied in order: [{ "step": "methods", "under": "evidence", "phase": "concepting" }, …]',
+        },
+      },
+      required: ['project', 'slug', 'steps'],
+    },
+    annotations: { title: 'Change part of several steps', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run(args) {
+      const named = projectArg(args.project)
+      if ('error' in named) return named.error
+      if (!Array.isArray(args.steps)) return `\`steps\` is a list of { step, ...fields }, and arrived as ${typeof args.steps}. Nothing was written.`
+      if (args.steps.length > MAX_LIST) return `At most ${MAX_LIST} patches in one call. Nothing was written.`
+      const patches: StepPatch[] = []
+      for (const [i, bag] of args.steps.entries()) {
+        if (!bag || typeof bag !== 'object' || Array.isArray(bag)) return `Patch ${i + 1} is not an object { step, ...fields }. Nothing was written.`
+        const asked = patchIn(bag as Record<string, unknown>)
+        if (!asked.ok) return `Patch ${i + 1}: ${asked.error} Nothing was written.`
+        patches.push(asked.patch)
+      }
+      const out = patchSteps(named.project, str(args.slug, MAX_SLUG), patches)
+      if (!out.ok) return out.error
+      const lines = out.done.map((one) => `  ${one.where}\t${one.id}\t${patchedSaid(one.named)}`)
+      return `Patched ${out.done.length} ${out.done.length === 1 ? 'step' : 'steps'} of ${out.journey.slug} in one write, in ${dataFile(named.project).path} and nowhere else:\n${lines.join('\n')}${out.said}`
     },
   },
 
@@ -2175,7 +2385,7 @@ function mcp(rpc: Rpc): Reply {
       serverInfo: { name: ID, version: VERSION },
       instructions:
         'The journeys themselves: what has to become true for a user, step by step, what blocks what, and the ' +
-        'prose around it. All of it is written here: steps with `set_step`, `move_step` and `remove_step`, what ' +
+        'prose around it. All of it is written here: steps with `set_step` (whole), `patch_step` and `patch_steps` (only the fields passed), `move_step` and `remove_step`, what ' +
         'blocks what with `set_dependency`, what stands in the way that is not a step — a decision, access, work with no issue, ' +
         'a ref another epic owns — as gates with `set_gate`, and the prose — title, lede, callout, what exists, is open and is ' +
         'missing, and the older reference headings — with `set_journey`. A journey is one document a person ' +
@@ -2189,7 +2399,7 @@ function mcp(rpc: Rpc): Reply {
         'in a host’s bar to narrow every module. The list of parts is the epic’s: a current host keeps it and ' +
         'edits it at its own door, and `set_step` here files a step under a part’s id; for an older host this ' +
         'app still keeps the list, one part to a step. `get_journey` says which, and lists the ids. A journey ' +
-        'can be a tree: `under` on `set_step` files a step under an objective, `set_dependency` with `step` and ' +
+        'can be a tree: `under` on `set_step` or `patch_step` files a step under an objective, `set_dependency` with `step` and ' +
         '`after` orders steps, and `next_step` names the first step free to start. Its `phases` on `set_journey` ' +
         'are its labelled sections, left to right, and `phase` on `set_step` puts a step in one. The person designs one with ' +
         'the /journey skill this module offers.',
