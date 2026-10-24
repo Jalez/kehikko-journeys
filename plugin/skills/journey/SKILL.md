@@ -40,9 +40,11 @@ A leaf that fails any of these is not a leaf yet: break it down again.
 
 **Gates.** Some obstacles are not steps anyone on the team can take: a decision someone has to make, access someone outside the team has to grant, work nobody has filed an issue for yet, or a ref another epic owns. Each is a gate: give it a kind (`decision`, `access`, `work`, `ref-elsewhere`, or `issue` for a tracker issue in this epic), a short title, its owner (a person or role) where you know one, and the steps it holds. A gate stays open until someone marks it done, so a step it holds is never next. Record every real gate: a journey with its gates left out reads as unblocked when it is waiting.
 
+**Phases.** Group the tree into an ordered list of phases: the labelled sections of the roadmap, left to right, in the order the work moves through them, for example "Concepting", "Creating framework", "Creating UI elements", "Creating data", "Finishing up". Name them for this journey, not from that list; three to six is usual. Assign every node one phase. A leaf in the same phase as its objective can leave it to its objective: a leaf with no phase of its own is read as its objective's. A phase that no node is in is not a phase yet: drop it.
+
 **Mikado, for leaves that change existing code.** When you look at the code for a leaf and find it cannot be done until something else is changed first, that something becomes a new prerequisite node under it. Keep going until the leaves you are left with can each be done on their own.
 
-Show the person the tree as an indented outline: the goal at the top, objectives under it, leaves under those, each leaf with its "after" list and the gates that hold it (kind, title, owner). Mark the first leaf that could start now.
+Show the person the phases in order, then the tree as an indented outline: the goal at the top, objectives under it, leaves under those, each node with its phase, and each leaf with its "after" list and the gates that hold it (kind, title, owner). Mark the first leaf that could start now.
 
 ## 3. Ask, only when the answer changes the tree
 
@@ -74,12 +76,12 @@ Apply what the judge required, and tell the person in a few lines what changed a
 
 Show the final tree and ask: "Shall I write this journey into Kehikot?" Write nothing until they say yes. Then:
 
-1. **The journey.** If the epic has no journey yet, `create_journey` first. With `set_journey`, write `goal`, `measure`, `appetite`, `rabbitHoles` and `noGos`, and a one-sentence `lede`.
+1. **The journey.** If the epic has no journey yet, `create_journey` first. With `set_journey`, write `goal`, `measure`, `appetite`, `rabbitHoles` and `noGos`, a one-sentence `lede`, and `phases`: the whole ordered list, each `{ "title": "Concepting" }`. Note each phase's id from `get_journey` (they are made from the titles); on a journey that already has phases, pass each kept phase's `id` so it stays the same.
 2. **The parts.** Where the host keeps the epic's parts (`get_journey` says so), add one part per node with the host's `set_parts` (`add: {name}`), in tree order: each objective, then its leaves. Use short names. Note each id from the answer.
-3. **The steps.** One `set_step` per node, objectives before the steps under them. Give each one its `part` (where the host keeps parts) and its `under`: the objective's step id, or leave it out for a node directly under the goal. Phrase `title` as what becomes true for the user. Keep `body` short: why it matters and how we'll know it's done.
+3. **The steps.** One `set_step` per node, objectives before the steps under them. Give each one its `part` (where the host keeps parts), its `under`: the objective's step id, or leave it out for a node directly under the goal, and its `phase`: the phase's id (leave it out on a leaf that is in its objective's phase). Phrase `title` as what becomes true for the user. Keep `body` short: why it matters and how we'll know it's done.
 4. **The order.** For each node with prerequisites, call `set_dependency` with `step` and `after` (the ids of the steps it waits on). Journeys refuses an edge that would close a loop; if it does, the tree is wrong, so tell the person.
 5. **The gates.** One `set_gate` per gate: `kind`, `title`, `owner`, a `note` where it helps, `ref` for an `issue` or `ref-elsewhere` gate (and `epic` for the epic that owns a `ref-elsewhere` one), and `blocks` = the ids of the steps it holds. A ref that a step names as prior art or as related work, rather than work that delivers the step, gets `roles` on `set_step` (`{"#1850": "prior-art"}`) so it never reads as delivering. A note chip that names unfiled work becomes a `work` gate: write the step again without that note.
-6. Read the journey back with `get_journey`, check it against the tree, and call `next_step` to say which step comes first.
+6. Read the journey back with `get_journey`, check it against the tree and its phases (the PHASES lines list each phase with its steps), and call `next_step` to say which step comes first.
 
 ## 6. Issues, on a second yes
 
