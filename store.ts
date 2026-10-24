@@ -506,6 +506,11 @@ export const journeySchema = journeyRecordSchema.extend({
   appetite: z.string().optional(),
   rabbitHoles: z.array(z.string()).optional(),
   noGos: z.array(z.string()).optional(),
+  /**
+   * The roadmap's sections, left to right, which a step names by id in `phase`. A leaf with no
+   * `phase` of its own is in its objective's (`src/phases.ts`). Absent on a record that has none.
+   */
+  phases: z.array(z.object({ id: z.string().min(1), title: z.string().min(1) }).passthrough()).optional(),
   order: z
     .array(z.object({ when: z.string().min(1), what: z.string().min(1), why: z.string().default('') }).passthrough())
     .default([]),

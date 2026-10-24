@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto'
 import { establishBuild, mintTicket, refuseTicket, sameTicket, type Reply } from 'kehikot-module-protocol/serve'
 
 import { tooLong } from './limits.ts'
-import { cycleSaid, nextStep, treeOf } from './src/tree.ts'
+import { cycleSaid, nextStep, nodeId, treeOf } from './src/tree.ts'
+import { phaseOfEach, phasesOf, type Phase } from './src/phases.ts'
 import { isTracked } from './src/refs.ts'
 import { alsoSaid, sharedRefs, type Also } from './src/shared.ts'
 import {
@@ -22,7 +23,7 @@ import {
 import { factoryStages } from './factory.ts'
 
 import { JOURNEYS_KEEP, listedBy, type Keeper } from './keeper.ts'
-import { manifestSchema, stepPart, type Manifest } from 'kehikot-module-protocol'
+import { PART_ID, manifestSchema, slugFrom, stepPart, type Manifest } from 'kehikot-module-protocol'
 import { ID, MANIFEST as DECLARED, VERSION } from './manifest.ts'
 import { serveFrom, skillAt, skillDeclarations } from './skills.ts'
 import { resolveProject } from './project.ts'
@@ -446,6 +447,14 @@ function setStep(
       const known = journey.steps.some((one, i) => i !== at && stepPart(one) === given.under)
       if (!known) return { ok: false, error: `“${given.under}” is not the id of another step of this journey, so nothing can be under it. The step was not written.` }
       parsed.under = given.under
+    }
+  }
+  if (given.phase !== undefined) {
+    if (given.phase === null) delete parsed.phase
+    else {
+      const phases = phasesOf(journey)
+      if (!phases.some((one) => one.id === given.phase)) return { ok: false, error: `${notAPhase(phases, given.phase)} The step was not written.` }
+      parsed.phase = given.phase
     }
   }
   if (given.issue !== undefined) {
@@ -1019,7 +1028,7 @@ const PROSE = ['title', 'lede', 'callout', 'missing', 'goal', 'measure', 'appeti
 /** Its lists of sentences. */
 const LISTS = ['exists', 'open', 'rabbitHoles', 'noGos'] as const
 /** Everything `setProse` writes, in the order it is said back. */
-const PROSE_FIELDS = [...PROSE, ...LISTS, 'headings'] as const
+const PROSE_FIELDS = [...PROSE, ...LISTS, 'phases', 'headings'] as const
 type ProseField = (typeof PROSE_FIELDS)[number]
 
 /** One heading of the older shape as a caller says it: what it is called and the references listed under it. */
@@ -1041,7 +1050,14 @@ interface ProseSaid {
   open?: string[]
   rabbitHoles?: string[]
   noGos?: string[]
+  phases?: PhaseSaid[]
   headings?: HeadingSaid[]
+}
+
+/** One phase as a caller says it: its title, and its id where the caller names one. */
+interface PhaseSaid {
+  id?: string
+  title: string
 }
 
 /** How long one sentence of `exists` or `open` may be. The longest this app ships is under a thousand characters. */
@@ -1117,6 +1133,24 @@ function proseSaid(bag: Record<string, unknown>): { ok: true; said: ProseSaid } 
       out.push({ heading: name, refs: listed })
     }
     said.headings = out
+  }
+
+  if (has('phases')) {
+    const value = bag.phases ?? []
+    if (!Array.isArray(value)) return no('`phases` is a list of { title, id? }, left to right; pass [] to remove them all.')
+    if (value.length > MAX_LIST) return no(`\`phases\` holds ${MAX_LIST} entries at most; this is ${value.length}.`)
+    const out: PhaseSaid[] = []
+    for (const one of value) {
+      if (!one || typeof one !== 'object' || Array.isArray(one)) return no('Each of `phases` is { title, id? }.')
+      const { id, title } = one as { id?: unknown; title?: unknown }
+      if (typeof title !== 'string' || !title.trim()) return no('Each of `phases` says what it is called, in `title`; to remove one, leave it out of the list.')
+      const name = title.trim()
+      if (name.length > MAX_TITLE) return no(`A phase's title runs to ${MAX_TITLE} characters at most; one of these is ${name.length}.`)
+      if (id === undefined || id === null || id === '') out.push({ title: name })
+      else if (typeof id !== 'string' || !PART_ID.test(id)) return no(`\`${String(id).slice(0, 60)}\` is not a phase id: lowercase letters, digits and dashes, as \`get_journey\` lists them. Leave \`id\` out to have one made from the title.`)
+      else out.push({ id, title: name })
+    }
+    said.phases = out
   }
 
   if (!PROSE_FIELDS.some((key) => said[key] !== undefined)) {
@@ -1204,6 +1238,27 @@ function setProse(
     if (kept.length) next.headings = kept
     else delete next.headings
   }
+  if (said.phases !== undefined) {
+    const had = phasesOf(journey)
+    const made = phasesMade(said.phases, had)
+    if (!made.ok) return { ok: false, error: `${made.error} Nothing was written.` }
+    const gone = had.filter((was) => !made.phases.some((one) => one.id === was.id))
+    const stranded = gone.flatMap((was) => {
+      const steps = journey.steps.flatMap((step, i) => (step.phase === was.id ? [`${i + 1} (${nodeId(step, i + 1)})`] : []))
+      return steps.length ? [`${was.id} “${was.title}”, which ${steps.length === 1 ? 'step' : 'steps'} ${andSaid(steps)} ${steps.length === 1 ? 'is' : 'are'} in`] : []
+    })
+    if (stranded.length) {
+      return {
+        ok: false,
+        status: 409,
+        error:
+          `\`phases\` would remove ${andSaid(stranded)}. A step is never left naming a phase the journey does not have: put those steps in `
+          + 'another phase, or clear theirs, with `phase` on `set_step` ("" clears it), or keep the phase’s `id` in the list to rename it. Nothing was written.',
+      }
+    }
+    if (made.phases.length) next.phases = made.phases
+    else delete next.phases
+  }
 
   const named = PROSE_FIELDS.filter((key) => said[key] !== undefined)
   const changed = named.filter((key) => JSON.stringify(next[key] ?? null) !== JSON.stringify(journey[key] ?? null))
@@ -1236,6 +1291,55 @@ function setProse(
     removed,
     said: hosts + settledSaid(written) + unpublishedSaid(written),
   }
+}
+
+/**
+ * The phases as they will be stored: an id given is kept, and a phase given without one keeps the
+ * id of the phase that had its title, or is given one made from the title.
+ */
+function phasesMade(said: readonly PhaseSaid[], had: readonly Phase[]): { ok: true; phases: Phase[] } | { ok: false; error: string } {
+  const named = said.flatMap((one) => (one.id ? [one.id] : []))
+  const twice = named.filter((id, i) => named.indexOf(id) !== i)
+  if (twice.length) return { ok: false, error: `\`phases\` names ${andSaid([...new Set(twice)].map((id) => `“${id}”`))} more than once; a phase id names one phase.` }
+  const taken = new Set(named)
+  const phases = said.map((one, i) => {
+    const was = one.id ? had.find((old) => old.id === one.id) : had.find((old) => old.title.trim().toLowerCase() === one.title.toLowerCase() && !taken.has(old.id))
+    const id = one.id ?? was?.id ?? idFor(slugFrom(one.title) ? one.title : `phase ${i + 1}`, taken)
+    taken.add(id)
+    return { ...was, id, title: one.title }
+  })
+  return { ok: true, phases }
+}
+
+/** Why `id` is not a phase of a journey with these phases. */
+function notAPhase(phases: readonly Phase[], id: string): string {
+  return phases.length
+    ? `“${id}” is not a phase of this journey. Its phases, left to right: ${phases.map((one) => `${one.id} “${one.title}”`).join(', ')}.`
+    : `“${id}” is not a phase of this journey, which has none: list them first with \`phases\` on \`set_journey\`.`
+}
+
+/**
+ * The journey's phases in lines an agent can read, each with its steps, above the JSON. Empty when
+ * the journey has none and no step names one.
+ */
+function phasesSaid(journey: Journey): string {
+  const phases = phasesOf(journey)
+  const read = phaseOfEach(journey.steps)
+  if (!phases.length && !read.some((one) => one.phase)) return ''
+  const stepsIn = (id: string | null) =>
+    journey.steps.flatMap((step, i) => (read[i]!.phase === id ? [`${i + 1} ${nodeId(step, i + 1)}${read[i]!.inherited ? ' (its objective’s)' : ''}`] : []))
+  const listed = (steps: string[]) => (steps.length ? steps.join(', ') : 'no step yet')
+  const lines = phases.map((one, i) => `  ${i + 1}\t${one.id}\t“${one.title}”: ${listed(stepsIn(one.id))}`)
+  const unknown = [...new Set(read.flatMap((one) => (one.phase && !phases.some((p) => p.id === one.phase) ? [one.phase] : [])))]
+  for (const id of unknown) lines.push(`  ?\t${id}\tnot a phase of this journey: ${listed(stepsIn(id))}`)
+  const none = stepsIn(null)
+  if (none.length) lines.push(`  —\tin no phase: ${none.join(', ')}`)
+  return (
+    'PHASES: the journey’s sections, left to right, written whole with `phases` on `set_journey`; a step is put in one '
+    + 'with `phase` on `set_step`. A step with no `phase` of its own is in the phase of the nearest step above it '
+    + '(its objective, then that one’s) that has one; the JSON below keeps only what was written. Each phase with '
+    + `its steps, by position and id:\n${lines.join('\n')}\n\n`
+  )
 }
 
 /** `a`, `a and b`, `a, b and c`. */
@@ -1278,6 +1382,7 @@ function given(bag: Record<string, unknown>): Given {
   if (part) out.part = part
   /* The tree (`src/tree.ts`): left out, it stays; "" clears it. */
   if (Object.hasOwn(bag, 'under') && bag.under !== undefined) out.under = str(bag.under, MAX_PART) || null
+  if (Object.hasOwn(bag, 'phase') && bag.phase !== undefined) out.phase = str(bag.phase, MAX_PART) || null
   if (Object.hasOwn(bag, 'issue') && bag.issue !== undefined) out.issue = str(bag.issue, MAX_REF) || null
   /* Gates and roles (`src/gates.ts`): left out, they stay; [] or {} clears. */
   if (Object.hasOwn(bag, 'blockedBy') && bag.blockedBy !== undefined) out.blockedBy = list(bag.blockedBy, MAX_PART)
@@ -1302,6 +1407,8 @@ interface Given {
   part?: string
   /** The id of the objective this step is a prerequisite of; null takes it out to the goal. */
   under?: string | null
+  /** The id of the journey's phase this step is in; null takes it out of its own phase. */
+  phase?: string | null
   /** The issue that delivers this step; null forgets it. Also put in `refs`. */
   issue?: string | null
   /** The ids of the gates that hold this step; [] clears. */
@@ -1500,7 +1607,9 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       '`gates` — decisions, access, work with no issue, refs another epic owns — with `set_gate` and `remove_gate`, ' +
       'listed above the JSON with the steps each holds (a step’s own `blockedBy` is its gates, and `roles` says which of its ' +
       'refs are prior art or related rather than delivering it); ' +
-      '`title`, `lede`, `callout`, `missing`, `exists`, `open` and `headings` with `set_journey`.',
+      '`title`, `lede`, `callout`, `missing`, `exists`, `open`, `phases` and `headings` with `set_journey`. ' +
+      'The journey’s `phases` (its sections, left to right) are listed above the JSON with the steps in each; a ' +
+      'step’s `phase` is the id of one, and a step with none of its own is in its objective’s.',
     schema: {
       type: 'object',
       properties: {
@@ -1532,7 +1641,7 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
             `projected from there by ${plan.from.projector}. The empty "steps" array below means "not here", ` +
             'not "none".\n\n'
           : ''
-      return preamble + stepsSaid(journey, keeperIn(store, slug), Object.hasOwn(store.unsettled, slug)) + gatesSaid(journey) + alsoSaidFor(journey, named.project) + JSON.stringify({ ...journey, ...alsoIn(journey, named.project) }, null, 2)
+      return preamble + stepsSaid(journey, keeperIn(store, slug), Object.hasOwn(store.unsettled, slug)) + phasesSaid(journey) + gatesSaid(journey) + alsoSaidFor(journey, named.project) + JSON.stringify({ ...journey, ...alsoIn(journey, named.project) }, null, 2)
     },
   },
 
@@ -1574,7 +1683,11 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       'above the steps), `missing` (what is assumed but not built), the lists `exists` and `open`, and `headings` ' +
       '— reference lists kept from an older shape, each { heading, refs }. And the design of the journey: `goal` ' +
       '(one sentence), `measure` (how we will know it is met), `appetite` (the time it is worth), and the lists ' +
-      '`rabbitHoles` and `noGos`. Use it after `set_step`, `remove_step` ' +
+      '`rabbitHoles` and `noGos`. And `phases`: the labelled sections of the roadmap, left to right ("Concepting", ' +
+      '"Creating UI elements", "Finishing up"), each { title, id? }, the whole list; a step is put in one with `phase` ' +
+      'on `set_step`. A phase given without an `id` keeps the id of the phase that had its title, or gets one made ' +
+      'from the title, so pass the `id` to rename one. Removing a phase that a step is in is refused, naming the ' +
+      'steps: move or clear them first. Use it after `set_step`, `remove_step` ' +
       'or `set_dependency` whenever what you changed makes a sentence here untrue: a step marked done under a ' +
       'callout that still says the work is open is a journey contradicting itself. Unlike `set_step` this is a ' +
       'patch: a field you leave out is not touched; a field you pass replaces what was stored, whole; "" or [] ' +
@@ -1601,6 +1714,18 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
         noGos: { type: 'array', items: { type: 'string' }, description: 'What this journey will not do, one sentence each; the whole list. [] clears it.' },
         exists: { type: 'array', items: { type: 'string' }, description: 'What already exists, one sentence each; the whole list. [] clears it.' },
         open: { type: 'array', items: { type: 'string' }, description: 'What is still undecided, one sentence each; the whole list. [] clears it.' },
+        phases: {
+          type: 'array',
+          description: 'The journey’s phases, left to right; the whole list. A phase left out is removed (refused while a step is in it); [] removes all.',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string', description: 'What the phase is called, e.g. "Concepting"' },
+              id: { type: 'string', description: 'Its id, from `get_journey`. Omit for a new phase: one is made from the title.' },
+            },
+            required: ['title'],
+          },
+        },
         headings: {
           type: 'array',
           description: 'The whole list of older reference headings. One left out is removed; [] removes all.',
@@ -1661,7 +1786,7 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       'the step. `blockedBy` is the ids of the GATES that hold the step (`set_gate` makes one: a decision, access, work ' +
       'with no issue, a ref in another epic); a step an open gate holds is never `next_step`. `roles` says what a ref is to ' +
       'the step where it does not deliver it: { "#1850": "prior-art", "#2493": "related" } — prior art and related refs never ' +
-      'make the step done. Left out, `under`, `issue`, `blockedBy` and `roles` stay as they were. The answer says the step’s position and the id of its part. Writing a step does not touch the ' +
+      'make the step done. `phase` puts the step in one of the journey’s phases (`phases` on `set_journey`), by id; an objective and a leaf can each have one, and a leaf with none of its own is in its objective’s. Left out, `under`, `phase`, `issue`, `blockedBy` and `roles` stay as they were. The answer says the step’s position and the id of its part. Writing a step does not touch the ' +
       'prose around the steps: if the journey’s `callout`, `lede`, `exists`, `open`, `missing` or `headings` ' +
       'now says something this step makes untrue — work described as open that this step records as done — ' +
       'correct it with `set_journey` in the same sitting.',
@@ -1679,6 +1804,7 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
         part: { type: 'string', description: 'Where the host keeps the list of parts: the id of the part this step is the step of, for a new step or one in no part.' },
         name: { type: 'string', description: 'Where this app keeps the list of parts: what the step’s part is called. Omit to leave it; "" for the title.' },
         under: { type: 'string', description: 'The id of the step (an intermediate objective) this step is a prerequisite of. Omit to leave it; "" puts it directly under the goal.' },
+        phase: { type: 'string', description: 'The id of the journey’s phase this step is in, from `get_journey`. Omit to leave it; "" clears it, and a leaf is then in its objective’s.' },
         issue: { type: 'string', description: 'The tracker issue that delivers this step, e.g. "#41" or "gh#41"; also added to `refs`. Omit to leave it; "" forgets it.' },
         blockedBy: { type: 'array', items: { type: 'string' }, description: 'The ids of the gates that hold this step, from `get_journey` or `set_gate`; the whole list. Omit to leave it; [] clears it.' },
         roles: {
@@ -2064,7 +2190,8 @@ function mcp(rpc: Rpc): Reply {
         'edits it at its own door, and `set_step` here files a step under a part’s id; for an older host this ' +
         'app still keeps the list, one part to a step. `get_journey` says which, and lists the ids. A journey ' +
         'can be a tree: `under` on `set_step` files a step under an objective, `set_dependency` with `step` and ' +
-        '`after` orders steps, and `next_step` names the first step free to start. The person designs one with ' +
+        '`after` orders steps, and `next_step` names the first step free to start. Its `phases` on `set_journey` ' +
+        'are its labelled sections, left to right, and `phase` on `set_step` puts a step in one. The person designs one with ' +
         'the /journey skill this module offers.',
     })
   }
