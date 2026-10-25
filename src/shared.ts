@@ -1,4 +1,4 @@
-import { stepPart } from 'kehikot-module-protocol'
+import { stepPart } from './part.ts'
 
 import { gatesOf } from './gates.ts'
 

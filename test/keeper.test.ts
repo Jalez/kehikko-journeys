@@ -132,7 +132,7 @@ describe('who keeps the list: the one decision', () => {
 })
 
 describe('a host that does not keep the list: every write is the one it was', () => {
-  test('reading writes nothing: not the journey, not the holdings', () => {
+  test('reading writes nothing: not the journey, not the holdings — only the steps it had not published', () => {
     const { get, call, bytes, dir } = project()
     const was = bytes()
     expect(get().listed).toBeNull()
@@ -140,7 +140,8 @@ describe('a host that does not keep the list: every write is the one it was', ()
     call('get_journey')
     call('list_journeys')
     expect(bytes()).toBe(was)
-    expect(readdirSync(dir)).toEqual(['journeys.json'])
+    /* The first read publishes the plan a host now reads instead of this file (`plans.ts`), and nothing else. */
+    expect(readdirSync(dir).sort()).toEqual(['journeys.json', 'steps.json'])
   })
 
   test('a new step is given a part with an id made here, and `groups` is written — which is where that host reads the list', () => {
@@ -185,7 +186,7 @@ describe('a host that keeps the list: `groups` is neither read nor written', () 
     expect(said).toContain('  1\tintroduction\t“Introduction”')
     expect(said).toContain('PARTS WITH NO STEP (pass the id as `part` to `set_step` to write its step): appendices “Appendices”')
     expect(bytes()).toBe(was)
-    expect(readdirSync(dir)).toEqual(['journeys.json'])
+    expect(readdirSync(dir).sort()).toEqual(['journeys.json', 'steps.json'])
   })
 
   test('a record still in the older shape is not read as one step to a part: no step is made for a part that has none', () => {

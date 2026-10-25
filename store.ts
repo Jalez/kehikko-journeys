@@ -10,9 +10,7 @@ import {
   journeysDocumentSchema,
   moduleDir,
   moduleFile,
-  stepPart,
   stepsFromSchema as recordStepsFromSchema,
-  stepsOf,
   within,
 } from 'kehikot-module-protocol'
 import { writeHoldings } from 'kehikot-module-protocol/serve'
@@ -20,7 +18,9 @@ import { writeHoldings } from 'kehikot-module-protocol/serve'
 import { JOURNEYS_KEEP, keeperFrom, type Keeper } from './keeper.ts'
 import { ID } from './manifest.ts'
 import { mirrored, simplified, type Fate, type Finding } from './parts.ts'
+import { backfill, backfillOnce, publishPlan } from './plans.ts'
 import { gated } from './src/gates.ts'
+import { stepPart } from './src/part.ts'
 
 /**
  * The journeys, on disk, inside the project they are about.
@@ -745,7 +745,14 @@ export interface Unsettled {
 export const BEFORE = 'journeys.before-parts'
 
 export function held(projectPath: string | null | undefined): Held {
-  return read(projectPath).held
+  const { held: store, raw } = read(projectPath)
+  /* The first read of a project in this process publishes the plan of every
+     journey `steps.json` does not have yet (`plans.ts`): a host reads that file
+     instead of this one for every epic once it exists. Only into a folder that
+     is already there, because there is only something to publish when this
+     file is; and each record as the file has it, which is what a host read. */
+  if (raw !== null && Object.keys(store.journeys).length) backfillOnce(projectPath, () => onDisk(raw, store))
+  return store
 }
 
 /**
@@ -813,6 +820,16 @@ function read(projectPath: string | null | undefined): { held: Held; raw: Record
       raw: null,
     }
   }
+}
+
+/**
+ * Every journey this app can read, as the file says it — the record on disk,
+ * not this app's reading of an older shape — by slug. What `plans.ts`
+ * publishes from: the same records a host read before there was a plan file.
+ */
+function onDisk(document: Record<string, unknown>, store: Held): Record<string, unknown> {
+  const journeys = document.journeys && typeof document.journeys === 'object' && !Array.isArray(document.journeys) ? (document.journeys as Record<string, unknown>) : {}
+  return Object.fromEntries(Object.keys(store.journeys).flatMap((slug) => (Object.hasOwn(journeys, slug) ? [[slug, journeys[slug]]] : [])))
 }
 
 /** Every slug this project holds, sorted, so a list is the same list twice running. */
@@ -971,7 +988,13 @@ export function writeJourney(projectPath: string | null | undefined, journey: Jo
   }
 
   writeFileSync(path, `${JSON.stringify(document, null, 2)}\n`)
-  return { ok: true, journey: parsed, settled, keeper, unpublished: publish(projectPath, parsed) }
+  /* Then what the journey publishes for other modules: what its steps hold for
+     the parts, and its steps as the protocol's plan (`plans.ts`) — and the plan
+     of every other journey the plan file does not have yet, since a host reads
+     that file for every epic once it exists. */
+  const unpublished = [publish(projectPath, parsed), publishPlan(projectPath, parsed.slug, record)].filter(Boolean).join(' ') || null
+  backfill(projectPath, onDisk(document, store))
+  return { ok: true, journey: parsed, settled, keeper, unpublished }
 }
 
 /**
@@ -1363,11 +1386,14 @@ export type Plan =
  * this app exists to not have.
  */
 export function planOf(journey: Journey): Plan {
-  /* The protocol's `stepsOf`, and not three lines of this app's own. A host
-     asks the same question of the same record, and "is this journey's empty
-     array none or elsewhere" answered by two functions is the bug this one was
-     written to prevent, waiting for the day one of them is edited. */
-  return stepsOf(journey)
+  /* This app's own three lines since protocol 2.21.0, which deprecated the
+     protocol's `stepsOf` with the rest of this file's shape. A host no longer
+     asks this question of this record: it reads the plan published from it
+     (`plans.ts`), and `planOfJourney` answers "elsewhere" with no plan, the
+     same split as here. */
+  if (journey.steps.length) return { kind: 'stored', steps: journey.steps, alsoProjected: journey.stepsFrom ?? null }
+  if (journey.stepsFrom) return { kind: 'elsewhere', from: journey.stepsFrom }
+  return { kind: 'none' }
 }
 
 /**
