@@ -61,6 +61,26 @@ export function carriedBy(live: Live | null, ref: string): string[] {
 }
 
 /**
+ * Which changes say they deliver only PART of an issue ("Part of #12") — the
+ * issue's own `contributedBy` (protocol 2.26.0), which the host fills from a
+ * change's own words. Drawn under the issue beside its closers, and never what
+ * finishes it: a merged part leaves the issue open, and the step is settled by
+ * the issue, not by its parts. Empty from a host before 2.26.0.
+ */
+export function partsBy(live: Live | null, ref: string): string[] {
+  const row = stateOf(live, ref)
+  if (!row || row.kind !== 'issue') return []
+  const closers = new Set(carriedBy(live, ref))
+  return (row.contributedBy ?? []).filter((change) => !closers.has(change))
+}
+
+/** The issues a change says it is part of, as the host read its own words (protocol 2.26.0). */
+export function partOf(live: Live | null, ref: string): string[] {
+  const row = stateOf(live, ref)
+  return row?.kind === 'change' ? (row.contributes ?? []) : []
+}
+
+/**
  * Every ref this journey would show a state for, in the order it names them,
  * and only the ones a tracker could answer.
  *
@@ -102,7 +122,7 @@ export function refsOf(journey: JourneyView | null): string[] {
 export function unreadLinks(live: Live): string[] {
   const out = new Set<string>()
   for (const row of live.rows.values()) {
-    for (const ref of carriedBy(live, row.ref)) {
+    for (const ref of [...carriedBy(live, row.ref), ...partsBy(live, row.ref)]) {
       if (!live.rows.has(ref) && !live.missing.has(ref) && readTrackerRef(ref)) out.add(ref)
     }
   }
@@ -167,7 +187,8 @@ export function heldOver(before: Live | null, next: Live): Live {
 /**
  * The cards a step draws, in the order it draws them.
  *
- * An issue first, then the changes the tracker itself attaches to it, then any
+ * An issue first, then the changes the tracker itself attaches to it (those that
+ * close it, then those that are only part of it), then any
  * change the step named that no issue carried in. A change drawn twice is a
  * reader counting the same work twice.
  *
@@ -185,7 +206,8 @@ export function cardsUnder(live: Live | null, refs: readonly string[]): { ref: s
   const drawn: { ref: string; under: boolean }[] = []
   for (const issue of issues) {
     drawn.push({ ref: issue, under: false })
-    for (const change of carriedBy(live, issue)) {
+    /* Its closers, then the changes that are only part of it (protocol 2.26.0); `partsBy` leaves out a closer. */
+    for (const change of [...carriedBy(live, issue), ...partsBy(live, issue)]) {
       claimed.add(change)
       drawn.push({ ref: change, under: true })
     }
@@ -353,6 +375,13 @@ export function railOf(live: Live | null, ref: string, around: Around = {}): Rai
   if (seen.state === 'closed') return railOfVerdict(verdict)
   const under = carriedBy(live, ref)
   if (under.length) return { now: 4, word: 'PR open', why: `A change is open against it: ${under.join(', ')}.` }
+  /* Work that is only part of it, open or merged, has started it and has not
+     finished it (protocol 2.26.0): never PR open, never In dev. */
+  const parts = partsBy(live, ref).filter((change) => {
+    const state = stateOf(live, change)?.state
+    return state === 'open' || state === 'merged'
+  })
+  if (parts.length) return { now: 2, word: 'In progress', why: `Part of it is in ${parts.join(', ')}; nothing that closes it yet.` }
   if ((seen.assignees ?? []).length) return { now: 1, word: 'Taken', why: 'The tracker has it assigned.' }
   return { now: 0, word: 'Todo', why: 'Nobody is on it in the tracker and no change exists.' }
 }

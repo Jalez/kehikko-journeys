@@ -5,10 +5,13 @@ import type { Disposition } from 'kehikot-module-protocol'
 import type { JourneyView, Live } from '../src/kinds.ts'
 import {
   absenceOf,
+  cardsUnder,
   carriedBy,
   facetsOfRef,
   isChange,
   isSettled,
+  partOf,
+  partsBy,
   railOf,
   readingOf,
   refsOf,
@@ -358,5 +361,51 @@ describe('what this page asks the host about', () => {
     expect(live.missing.has('gh#1')).toBe(false)
     expect(stateOf(live, 'gh#1')?.state).toBe('open')
     expect(live.at).toBe('2026-10-05T11:00:00.000Z')
+  })
+})
+
+/**
+ * Jalez/kehikko#187: a change that says "Part of #3912" is one piece of the issue (the host's
+ * `contributedBy`, protocol 2.26.0). It stands under the issue with the closers, says what it is
+ * part of, starts the issue, and never finishes it; "Closes #2638" does what it always did.
+ */
+describe('a change that is only part of an issue', () => {
+  const PARTS: Live = reading([
+    row('#3912', { state: 'open', contributedBy: ['!3907'] }),
+    row('!3907', { state: 'merged', contributes: ['#3912'] }),
+    row('#2638', { state: 'closed', closedByMerge: true, links: closedBy('!3251') }),
+    row('!3251', { state: 'merged', links: [{ ref: '#2638', relation: 'closes' }] }),
+    row('#50', { state: 'open', contributedBy: ['!51', '!52'], links: closedBy('!52') }),
+    row('!51', { state: 'open', contributes: ['#50'] }),
+    row('!52', { state: 'open' }),
+  ])
+
+  test('it is drawn under the issue, after the changes that close it, once', () => {
+    expect(cardsUnder(PARTS, ['#3912'])).toEqual([
+      { ref: '#3912', under: false },
+      { ref: '!3907', under: true },
+    ])
+    expect(cardsUnder(PARTS, ['#50']).map((card) => card.ref)).toEqual(['#50', '!52', '!51'])
+    expect(partsBy(PARTS, '#50')).toEqual(['!51'])
+    expect(carriedBy(PARTS, '#3912')).toEqual([])
+    expect(partOf(PARTS, '!3907')).toEqual(['#3912'])
+    expect(partOf(PARTS, '#3912')).toEqual([])
+  })
+
+  test('merged, it leaves the issue In progress and the step unsettled', () => {
+    expect(railOf(PARTS, '#3912').word).toBe('In progress')
+    expect(railOf(PARTS, '#3912').why).toContain('!3907')
+    expect(verdictOf(PARTS, '#3912').value).toBeNull()
+    expect(isSettled(PARTS, ['#3912'])).toBe(false)
+  })
+
+  test('a change that closes the issue still settles it', () => {
+    expect(verdictOf(PARTS, '#2638').value).toBe('done')
+    expect(isSettled(PARTS, ['#2638'])).toBe(true)
+  })
+
+  test('a part the page has not read is asked for', () => {
+    const unread = reading([row('#3912', { state: 'open', contributedBy: ['!3907'] })])
+    expect(unreadLinks(unread)).toEqual(['!3907'])
   })
 })
