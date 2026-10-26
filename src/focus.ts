@@ -1,4 +1,5 @@
-import { anchorInFocus, narrowToFocus, stepPart, type Anchor, type EpicPart } from 'kehikot-module-protocol'
+import { anchorInFocus, narrowToFocus, type Anchor, type EpicPart } from 'kehikot-module-protocol'
+import { stepPart } from './part.ts'
 
 import type { Step } from './kinds.ts'
 

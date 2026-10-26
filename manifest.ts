@@ -316,6 +316,12 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     ],
     storage: true,
     /*
+     * What this module publishes for every other one to read (protocol 2.21.0): an epic's steps, as
+     * the protocol's plan in `.kehikot/journeys/steps.json` (`plans.ts`). A host answers `steps.list`
+     * from it, and a skill that needs "a module that keeps an epic's steps" finds it by this word.
+     */
+    provides: ['steps'],
+    /*
      * "All epics" (protocol 2.9.0): with `context.scope: 'project'` the page lists every journey of
      * the project, grouped by epic, read-only — a step is edited with its epic open, because a
      * step's part and its tracker states belong to one epic. See `src/view/everything.tsx`.

@@ -1,4 +1,5 @@
-import { LIMITS, PART_ID, partFile, slugFrom, stepPart } from 'kehikot-module-protocol'
+import { LIMITS, PART_ID, partFile, slugFrom } from 'kehikot-module-protocol'
+import { stepPart } from './src/part.ts'
 
 /**
  * A part of an epic and the one step this app holds for it.

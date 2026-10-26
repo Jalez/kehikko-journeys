@@ -23,7 +23,8 @@ import {
 import { factoryStages } from './factory.ts'
 
 import { JOURNEYS_KEEP, listedBy, type Keeper } from './keeper.ts'
-import { PART_ID, manifestSchema, slugFrom, stepPart, type Manifest } from 'kehikot-module-protocol'
+import { PART_ID, manifestSchema, slugFrom, type Manifest } from 'kehikot-module-protocol'
+import { stepPart } from './src/part.ts'
 import { ID, MANIFEST as DECLARED, VERSION } from './manifest.ts'
 import { serveFrom, skillAt, skillDeclarations } from './skills.ts'
 import { resolveProject } from './project.ts'

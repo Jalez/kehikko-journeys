@@ -1,4 +1,4 @@
-import { stepPart } from 'kehikot-module-protocol'
+import { stepPart } from './part.ts'
 
 import { delivering, gateDone, stepGates, stepRefGates, type Gate } from './gates.ts'
 import { isTracked } from './refs.ts'

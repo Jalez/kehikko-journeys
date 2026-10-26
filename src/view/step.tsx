@@ -1,5 +1,5 @@
 import { Fragment } from 'react'
-import { stepPart } from 'kehikot-module-protocol'
+import { stepPart } from '../part.ts'
 import { sift } from 'kehikot-module-protocol/facets'
 
 import { Badge } from '@/components/ui/badge.tsx'
