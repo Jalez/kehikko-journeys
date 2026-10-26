@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { cn } from '@/lib/utils.ts'
 
 import { markDisposition } from '../journeys.ts'
-import { isChange, stateOf, verdictOf, type Verdict } from '../live/lookup.ts'
+import { isChange, partOf, stateOf, verdictOf, type Verdict } from '../live/lookup.ts'
 import { isTracked } from '../refs.ts'
 import { Ref } from './prose.tsx'
 import { AlsoIn, RefGates } from './gates.tsx'
@@ -58,6 +58,9 @@ export function Card({ refName, under }: { refName: string; under?: boolean }) {
      A merged change is left quiet: "done, from the tracker" on every one of
      them would be a line restating the badge beside it. */
   const telling = seen?.state === 'closed' || verdict.source === 'person' || verdict.source === 'journey'
+  /* The issues this change says it is only part of (protocol 2.26.0): said on the card, so a change
+     drawn under an issue says whether it finishes it or is one piece of it. */
+  const parts = partOf(live, refName)
 
   return (
     <div
@@ -140,6 +143,18 @@ export function Card({ refName, under }: { refName: string; under?: boolean }) {
       */}
       <RefGates refName={refName} />
       <AlsoIn refName={refName} />
+
+      {parts.length > 0 && (
+        <div data-part-of="" className="mt-1.5 text-xs leading-5 text-muted-foreground">
+          <span className="mr-1.5 uppercase tracking-wide opacity-70">part of</span>
+          {parts.map((issue, i) => (
+            <span key={issue} className="[overflow-wrap:anywhere]">
+              {i > 0 && <span aria-hidden="true"> · </span>}
+              <Ref refName={issue} />
+            </span>
+          ))}
+        </div>
+      )}
 
       {others.length > 0 && (
         <div className="mt-1.5 text-xs leading-5 text-muted-foreground">

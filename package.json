@@ -1,6 +1,6 @@
 {
   "name": "kehikko-journeys",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "private": true,
   "type": "module",
   "description": "The journeys themselves: what has to become true for a user, step by step, and where each piece of work stands. An app: a page, a store of its own and an MCP door, which a host may frame but nothing here needs one.",
@@ -19,7 +19,7 @@
     "lucide-react": "^1.33.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "kehikot-module-protocol": "git+https://github.com/Jalez/kehikko-protocol.git#v2.21.0",
+    "kehikot-module-protocol": "git+https://github.com/Jalez/kehikko-protocol.git#v2.26.0",
     "tailwind-merge": "^3.6.0",
     "zod": "^3.23.8"
   },
