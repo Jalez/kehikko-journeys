@@ -226,7 +226,11 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     'built. If the journey is wrong, name the step that is wrong and say why, and leave the ' +
     'rewriting to whoever wrote it.',
   entry: '/app',
-  modes: [{ id: 'journeys', label: 'Journeys', scope: 'epic' }],
+  /* What its content belongs to (protocol 2.29.0): one mode per scope, the default first. */
+  modes: [
+    { id: 'journeys', label: 'Journeys', scope: 'epic', scopeSays: 'the journey of the open epic, its steps editable' },
+    { id: 'all', label: 'All epics', scope: 'project', scopeSays: 'every journey of this project, grouped by epic, read-only' },
+  ],
   mcp: {
     url: '/mcp',
     transport: 'http',
@@ -325,6 +329,8 @@ export const MANIFEST: Manifest = manifestSchema.parse({
      * "All epics" (protocol 2.9.0): with `context.scope: 'project'` the page lists every journey of
      * the project, grouped by epic, read-only — a step is edited with its epic open, because a
      * step's part and its tracker states belong to one epic. See `src/view/everything.tsx`.
+     * Deprecated by the `project` mode above (protocol 2.29.0), which a host from 2.29.0 reads and
+     * lets the person pick per container; kept so a host before it still shows "All epics" here.
      */
     scopes: ['epic', 'project'],
   },

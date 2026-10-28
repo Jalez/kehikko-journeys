@@ -33,7 +33,9 @@ describe('the manifest a host reads', () => {
   })
 
   test('is scoped to an epic, which is what protocol 2 calls a journey', () => {
-    expect(MANIFEST.modes.map((mode) => mode.scope)).toEqual(['epic'])
+    /* Protocol 2.29.0: Epic by default, and Project ("All epics") for a person to pick. */
+    expect(MANIFEST.modes.map((mode) => mode.scope)).toEqual(['epic', 'project'])
+    expect(MANIFEST.modes.every((mode) => (mode.scopeSays ?? '').length > 0)).toBe(true)
   })
 
   test('can show a whole project: "All epics" lists every journey, by epic (protocol 2.9.0)', () => {
