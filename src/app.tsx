@@ -134,6 +134,7 @@ export function App() {
         marks: state.marks,
         hidden: state.hidden,
         unfolded: state.unfolded,
+        pointed: state.pointed,
         openAddress: addressOpener(),
       }}
     >

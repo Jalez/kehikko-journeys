@@ -282,12 +282,18 @@ describe('the /journey skill', () => {
     expect(skillTextIssue(skillText('journey', 'http://127.0.0.1:7840'), 'journey')).toBeNull()
   })
 
+  test('it tells the agent to keep the page on the step being discussed, with focus_step', () => {
+    const text = skillTemplate('journey')!
+    expect(text).toContain('`focus_step`')
+    expect(text).toContain('with no `step` to stop pointing')
+  })
+
   test('only a person runs it, and it is pre-approved for reads only', () => {
     const text = skillTemplate('journey')!
     const front = text.split('\n---\n')[0]!
     expect(front).toContain('disable-model-invocation: true')
     const allowed = /allowed-tools: (.*)/.exec(front)![1]!.split(',').map((one) => one.trim())
-    expect(allowed.every((one) => /(my_place|read_canvas|read_tracker|list_journeys|get_journey|next_step)$/.test(one))).toBe(true)
+    expect(allowed.every((one) => /(my_place|read_canvas|read_tracker|list_journeys|get_journey|next_step|focus_step)$/.test(one))).toBe(true)
   })
 
   test('asks one clear question at a time, with why and a recommended answer', () => {

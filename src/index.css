@@ -213,3 +213,10 @@
   border-radius: var(--radius-md);
   animation: journeys-found 900ms ease-out 1;
 }
+
+/* The step an agent is on (`focus_step`): lit for as long as it is pointed, where `data-found` fades. */
+[data-pointed='true'] {
+  outline: 2px solid var(--marker);
+  outline-offset: 3px;
+  border-radius: var(--radius-md);
+}

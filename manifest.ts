@@ -234,7 +234,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   mcp: {
     url: '/mcp',
     transport: 'http',
-    about: 'The journeys and their steps: read one, write a step, say what blocks what.',
+    about: 'The journeys and their steps: read one, write a step, say what blocks what, and point the page at the step a conversation is on (`focus_step`).',
   },
   extensions: { emits: [], consumes: [] },
   /**
