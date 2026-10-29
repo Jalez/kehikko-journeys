@@ -1,3 +1,7 @@
+import { attach, publish, watching } from 'kehikot-module-protocol/serve'
+
+import { EVENT, type Pointing } from './wire/pointing.ts'
+
 /**
  * Which step an agent is on, for the Journeys page to show.
  *
@@ -13,32 +17,25 @@
  * connects and each change after, so nothing asks again and again. A stream
  * connected is a page open, which is what the tool tells an agent, instead of
  * letting it point at a screen nobody has.
+ *
+ * The streams on one epic are a topic of the protocol's (`attach`, `publish`,
+ * `watching`, 2.32.0): the fan-out is the protocol's, the wire is this file's
+ * — the pointer as it stands goes first, as a `pointing` event like every
+ * change after, so the page hears one kind of event.
  */
 
-export interface Pointing {
-  /** The step's 1-based position in the journey, as the page numbers its cards. */
-  step: number
-  /** The step's title, so the page can say what it is pointed at without reading the journey again. */
-  title: string
-  /** One line of the agent's, plain text, shown beside the card; '' for none. */
-  say: string
-  /** When it was pointed, which is also what tells the page a pointer is new. */
-  at: string
-}
-
-export const SAY_MAX = 300
-
-/** The name of the one event on the stream; its data is `{ pointing }`, the pointer or null. */
-export const EVENT = 'pointing'
+export { EVENT, SAY_MAX, type Pointing } from './wire/pointing.ts'
 
 type Emit = (event: { pointing: Pointing | null }, name?: string) => void
 
 const held = new Map<string, Pointing>()
-const streams = new Map<string, Set<Emit>>()
 let last = 0
 
 /** The one key a pointer, and the streams on it, are kept under. */
 export const pointerKey = (project: string, slug: string): string => `${project}\u0000${slug}`
+
+/** The protocol topic the streams on one epic follow. */
+const topicOf = (key: string): string => `pointing:${key}`
 
 /** Point at a step, or with null stop pointing. Every stream on the epic is told. */
 export function point(key: string, pointing: Omit<Pointing, 'at'> | null): Pointing | null {
@@ -51,27 +48,23 @@ export function point(key: string, pointing: Omit<Pointing, 'at'> | null): Point
   } else {
     held.delete(key)
   }
-  for (const emit of streams.get(key) ?? []) emit({ pointing: next }, EVENT)
+  publish(topicOf(key), { pointing: next }, EVENT)
   return next
 }
 
 /**
  * A page listening: it is told the pointer as it stands at once, and each change after. Returns what
- * to call when the stream closes, which is the page no longer being open.
+ * to call when the stream closes, which is the page no longer being open. Past the protocol's
+ * `MAX_EVENT_STREAMS` the page is told the pointer once and hears no change.
  */
 export function listen(key: string, emit: Emit): () => void {
-  const set = streams.get(key) ?? new Set<Emit>()
-  streams.set(key, set)
-  set.add(emit)
   emit({ pointing: held.get(key) ?? null }, EVENT)
-  return () => {
-    set.delete(emit)
-    if (set.size === 0 && streams.get(key) === set) streams.delete(key)
-  }
+  const on = attach(topicOf(key), emit as (data: unknown, name?: string) => void)
+  return () => on?.close()
 }
 
 /** How many streams are connected for one epic. */
-export const listening = (key: string): number => streams.get(key)?.size ?? 0
+export const listening = (key: string): number => watching(topicOf(key))
 
 /** Whether a stream is connected, which is whether somebody can be seeing the pointer. */
 export const watched = (key: string): boolean => listening(key) > 0

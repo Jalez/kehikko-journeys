@@ -8,7 +8,7 @@ import { KEHIKOT_DIR, moduleFolder } from 'kehikot-module-protocol'
 import { answerAt as answer, stream } from '../doors.ts'
 import { ASK } from '../project.ts'
 import { ID } from '../manifest.ts'
-import { listen, listening, pointerKey, watched, type Pointing } from '../pointing.ts'
+import { listen, listening, point, pointerKey, watched, type Pointing } from '../pointing.ts'
 
 /**
  * `focus_step`: the tool's validation and its answer, and what the page is
@@ -260,5 +260,28 @@ describe('the stream door', () => {
     expect(away.events).toHaveLength(1)
     ;(walk.live as { close: () => void }).close()
     ;(away.live as { close: () => void }).close()
+  })
+})
+
+describe('the pointer’s streams are a protocol topic', () => {
+  test('every stream on the epic is told, in the same named event as before, and leaving is counted', async () => {
+    const { watching } = await import('kehikot-module-protocol/serve')
+    const key = pointerKey(project, 'topic-case')
+    const a: { event: unknown; name?: string }[] = []
+    const b: { event: unknown; name?: string }[] = []
+    const offA = listen(key, (event, name) => void a.push({ event, name }))
+    const offB = listen(key, (event, name) => void b.push({ event, name }))
+    expect(watching(`pointing:${key}`)).toBe(2)
+    expect(listening(key)).toBe(2)
+    const sent = point(key, { step: 1, title: 'First', say: '' })
+    for (const heard of [a, b]) {
+      expect(heard[0]).toEqual({ event: { pointing: null }, name: 'pointing' })
+      expect(heard[1]).toEqual({ event: { pointing: sent }, name: 'pointing' })
+    }
+    offA()
+    expect(listening(key)).toBe(1)
+    offB()
+    expect(watched(key)).toBe(false)
+    point(key, null)
   })
 })

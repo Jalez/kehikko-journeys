@@ -1,4 +1,4 @@
-import { EVENT, type Pointing } from '../pointing.ts'
+import { EVENT, type Pointing } from '../wire/pointing.ts'
 
 /**
  * How the page hears where an agent has pointed, without calling the server.
