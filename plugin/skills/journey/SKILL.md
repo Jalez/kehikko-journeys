@@ -3,7 +3,7 @@ name: journey
 description: Design a Kehikot journey as a tree of small, ordered steps - a goal, the objectives under it, and PR-sized leaves - asking the person only the design questions whose answers change the tree, then write it into the Journeys module, the epic's parts and, on a second yes, the tracker's issues. Only a person runs it, by typing /journey.
 argument-hint: "[what the journey is for, or an epic slug]"
 disable-model-invocation: true
-allowed-tools: mcp__kehikko__my_place, mcp__kehikko__read_canvas, mcp__kehikko__read_tracker, mcp__journeys__list_journeys, mcp__journeys__get_journey, mcp__journeys__next_step
+allowed-tools: mcp__kehikko__my_place, mcp__kehikko__read_canvas, mcp__kehikko__read_tracker, mcp__journeys__list_journeys, mcp__journeys__get_journey, mcp__journeys__next_step, mcp__journeys__focus_step
 ---
 
 The person typed `/journey $ARGUMENTS`. Your job is to design ONE journey with them: what has to become true for a user, as a tree of small steps in an order that holds. You design the journey, not the code. Kehikot's Journeys module at {{origin}} keeps journeys; this is skill {{version}}.
@@ -13,6 +13,8 @@ The person typed `/journey $ARGUMENTS`. Your job is to design ONE journey with t
 - **The person decides; you propose.** Nothing is written until they accept the tree, and no issue is filed until they say yes a second time.
 - **Look before you ask.** Read the code, the epic and the tracker first. Never ask what a file, `git log` or the tracker can tell you.
 - **Stay on the journey.** Ask about what has to become true for the user, who that user is, what is in scope, what order holds, and what is ruled out. Leave implementation choices (libraries, names, file layout) to whoever takes each step.
+
+- **Keep the page on the step you are talking about.** When you go through the journey with the person a step at a time, call `focus_step` (`project`, `slug`, and `step` or `position`, with an optional one-line `say`) each time the conversation moves to another step, and only then. The Journeys page scrolls to that card and lights it, with your line beside it as plain text. Its answer says whether a Journeys page is open on the epic; if none is, say the step in words as well. The person takes the page back by scrolling or picking a step, and it stays theirs until you call again. Call it with no `step` to stop pointing. It changes nothing in the journey.
 
 ## 1. Find where you are
 

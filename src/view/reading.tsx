@@ -40,6 +40,8 @@ export interface Reading {
   unfolded?: readonly string[]
   /** The Factory's newest job per step issue. Absent or empty: nothing to show. */
   factory?: Readonly<Record<string, FactoryJob>>
+  /** The step an agent has pointed this page at (`focus_step`), with its line; absent when none. */
+  pointed?: { step: number; say: string; slug: string } | null
   /** Hands a web address to the canvas (`address.open`); absent when the host does not answer it. */
   openAddress?: OpenAddress | null
 }

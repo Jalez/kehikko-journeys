@@ -28,8 +28,10 @@ import type { Brief, JourneyView, Live, Target } from './kinds.ts'
 import { cardsUnder, facetsOfRef, heldOver, readingOf, refsOf, unreadLinks, type Around } from './live/lookup.ts'
 import { shownSteps, stepInFocus } from './focus.ts'
 import { bounded, firstShown, samePick, togglePick } from './refs.ts'
-import { get, post, standIn } from './store/api.ts'
+import { get, post, standIn, standingIn as projectStanding } from './store/api.ts'
 import { treeOf } from './tree.ts'
+import type { Pointing } from '../pointing.ts'
+import { follower, streamFor } from './following.ts'
 import type { FactoryJob } from './kinds.ts'
 
 /**
@@ -214,6 +216,11 @@ export interface State {
   /** Which step has its editor open, or -1. */
   editing: number
   /**
+   * The step an agent has pointed this page at (`focus_step`), with its line, or null: none, or the
+   * person has taken the page back. Held in memory only; `slug` is the journey it was pointed in.
+   */
+  pointed: (Pick<Pointing, 'step' | 'say' | 'at'> & { slug: string }) | null
+  /**
    * The editor for a step that does not exist yet is open.
    *
    * Apart from `editing`, which is a position: "one past the last step" would
@@ -286,6 +293,7 @@ let state: State = {
   projectPath: null,
   projectId: null,
   editing: -1,
+  pointed: null,
   adding: false,
   addingFor: null,
   said: '',
@@ -351,7 +359,8 @@ export function setEditing(which: number): void {
   /* Closing an editor, or opening another step's over it, leaves the words that were in it — as it
      always has. Their held copy goes with them: that is a person throwing them away on purpose. */
   if (state.editing >= 0) hold(targetOf(state.editing), null)
-  set({ editing: state.editing === which ? -1 : which })
+  /* Opening a step, or closing one, is the person's hand on the page. */
+  set({ editing: state.editing === which ? -1 : which, ...(state.pointed ? { pointed: null } : {}) })
 }
 
 /**
@@ -2069,6 +2078,8 @@ const host = hostStore(
        this container. The same either way; see `refresh`. */
     onRefresh: () => void refresh(),
     onGoto: (goto, answer) => {
+      /* A host walking this page somewhere is somebody's doing, and not the agent's. */
+      takeBack()
       /* The one reference that is not a card: a host asking for the place
          this epic is divided into parts. See `PARTS_REF`. */
       if (goto.ref === PARTS_REF) {
@@ -2545,6 +2556,7 @@ function showSelection(): void {
  * quietly sent less than it said would be the page inventing a smaller pick.
  */
 export function pick(refs: readonly string[]): void {
+  takeBack()
   send(togglePick(picked, refs))
 }
 
@@ -2575,6 +2587,83 @@ function send(wanted: string[]): void {
 }
 
 /* ------------------------------------------------------------------ *
+ * Where an agent has pointed this page (`focus_step`)
+ *
+ * The agent has words and no hands. It says which step the conversation is on
+ * (`pointing.ts`, in the server's memory, never saved) and this page, which
+ * listens to the server's stream of pointers (`following.ts`), brings that step's card into view with `goTo` and
+ * keeps it lit, with the agent's line beside it.
+ *
+ * The person takes the page back by using it: scrolling, or picking or opening
+ * a step. That sets the pointer aside, and it stays aside until the agent
+ * points again — a new pointer is a new `at`. The scroll the page makes for
+ * the pointer itself raises no wheel, touch or key, so it never sets itself
+ * aside. No step, from the agent, takes the light off; the page stays where the
+ * person has it.
+ * ------------------------------------------------------------------ */
+
+/** A pointer already this old when the page first hears of it is left over from before, and not followed. */
+export const POINTER_STALE_MS = 10 * 60_000
+
+/** The pointer last taken in, followed or set aside, as `slug|at`: the same one is never taken twice. */
+let heard: string | null = null
+
+/** The person has the page back: the light goes off and nothing is moved until the agent points again. */
+export function takeBack(): void {
+  if (state.pointed) set({ pointed: null })
+}
+
+function pointerArrived(slug: string, next: Pointing | null): void {
+  if (!next) {
+    heard = null
+    takeBack()
+    return
+  }
+  const known = `${slug}|${next.at}`
+  if (known === heard) return
+  const first = heard === null || !heard.startsWith(`${slug}|`)
+  heard = known
+  /* Staleness is judged once, when a pointer is first heard of: one already followed is never dropped for its age. */
+  if (first && Date.now() - Date.parse(next.at) > POINTER_STALE_MS) return
+  set({ pointed: { step: next.step, say: next.say, at: next.at, slug } })
+  void goTo({ step: next.step }, { quiet: true })
+}
+
+/** What counts as the person's hand on the page: the wheel, a touch that drags, and the keys that scroll. */
+const SCROLLING_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '])
+window.addEventListener('wheel', () => takeBack(), { passive: true })
+window.addEventListener('touchmove', () => takeBack(), { passive: true })
+window.addEventListener('keydown', (event) => {
+  if (SCROLLING_KEYS.has(event.key)) takeBack()
+})
+
+/**
+ * Listen to the server's stream of pointers for the journey that is open (`following.ts`). Said to
+ * look again whenever the page's state changes and when it is hidden or shown; it opens, moves and
+ * closes the one stream as that asks, and does nothing when nothing it depends on has moved.
+ */
+function followPointer(): void {
+  if (typeof EventSource === 'undefined') return
+  const slugOf = (address: string) => new URL(address, 'http://x').searchParams.get('slug') ?? ''
+  const following = follower({
+    want: () => {
+      const project = projectStanding()
+      const slug = state.journey?.slug
+      return project && slug && state.scope !== 'project' && !state.nowhere ? streamFor(project, slug) : null
+    },
+    hidden: () => document.hidden,
+    open: (address) => new EventSource(address),
+    take: (address, pointing) => {
+      const slug = slugOf(address)
+      if (state.journey?.slug === slug) pointerArrived(slug, pointing)
+    },
+  })
+  subscribe(() => following.check())
+  document.addEventListener('visibilitychange', () => following.check())
+  following.check()
+}
+
+/* ------------------------------------------------------------------ *
  * Start
  *
  * The store first, always. If a host greets us in the meantime it will say
@@ -2592,6 +2681,7 @@ function send(wanted: string[]): void {
 
 export function start(): void {
   host.start()
+  followPointer()
 
   const where = fromHash()
   /*

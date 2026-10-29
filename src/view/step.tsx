@@ -184,6 +184,8 @@ export function StepBlock({
   const refs = delivering(step)
   const notes = step.notes ?? []
   const journey = reading.journey
+  /* The agent is on this step (`focus_step`): it stays lit, with the agent's line beside it, until the person takes the page back. */
+  const pointed = reading.pointed && reading.pointed.step === index + 1 && reading.pointed.slug === journey?.slug ? reading.pointed : null
   /* Who keeps the epic's list of parts: the host (`listed`), or this app, in the record's `groups`. */
   const hosted = (journey?.listed ?? null) !== null
   const where = standing(live, refs, around)
@@ -224,6 +226,7 @@ export function StepBlock({
      */
     <section
       data-step={index + 1}
+      data-pointed={pointed ? 'true' : undefined}
       data-picked={picked === 'none' ? undefined : picked}
       className={cn(
         'border-t pt-3.5 pb-1',
@@ -232,6 +235,12 @@ export function StepBlock({
         picked === 'some' && 'ring-1 ring-primary/35',
       )}
     >
+      {/* What the agent said about this step: its words, as text, and nothing it sent is ever drawn as markup or a link. */}
+      {pointed && pointed.say && (
+        <p data-says className="mb-1.5 border-l-2 border-l-[var(--marker)] pl-2 text-[0.88rem] leading-6 text-muted-foreground">
+          {pointed.say}
+        </p>
+      )}
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 @min-[26rem]/container:flex-nowrap">
         {/*
           The tick, which is only HOW the pick is set — the ring is the pick.

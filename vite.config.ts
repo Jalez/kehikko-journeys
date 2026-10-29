@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react'
 import { doors, originFor, serves } from 'kehikot-module-protocol/serve'
 import { defineConfig, type Plugin } from 'vite'
 
-import { BUILD, MANIFEST, TICKET, answer, servingAt } from './doors.ts'
+import { BUILD, MANIFEST, TICKET, answer, servingAt, stream } from './doors.ts'
 import { ID, PREFERRED_PORT } from './manifest.ts'
 import { ours } from './skills.ts'
 
@@ -142,6 +142,8 @@ export default defineConfig({
     doors({
       manifest: MANIFEST,
       answer,
+      /* The pointer's stream (`stream` in doors.ts): the protocol's doors send it unbuffered, with a heartbeat. */
+      stream,
       build: BUILD,
       page: { title: 'Journeys', ticket: TICKET },
       /* The protocol's doors, and the skill's SKILL.md at `/kehikot/skills/journey.md`. */

@@ -28,6 +28,7 @@ import { stepPart } from './src/part.ts'
 import { ID, MANIFEST as DECLARED, VERSION } from './manifest.ts'
 import { serveFrom, skillAt, skillDeclarations } from './skills.ts'
 import { resolveProject } from './project.ts'
+import { SAY_MAX, listen, point, pointerKey, watched } from './pointing.ts'
 import { fileOf, findingsSaid, idFor, nameOf, notAStep, stepOfPart, withPart, withStep, withStepMoved, withoutStep } from './parts.ts'
 import {
   type Held,
@@ -2274,6 +2275,63 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       return nextSaid(journey, Object.hasOwn(args, 'closed') ? list(args.closed, MAX_REF) : null)
     },
   },
+
+  focus_step: {
+    description:
+      'Point the Journeys page at the step the conversation is on: the page brings that step’s card into view and lights it, ' +
+      'with `say`, one line of yours, shown beside it as plain text. Name the step by `step` (the id of its part, from ' +
+      '`get_journey`) or by its 1-based `position`. Call it each time the conversation moves to another step, and only then, ' +
+      'so the page moves with the words and no faster. Name no step to stop pointing. The person takes the page back by ' +
+      'scrolling, or by picking or opening a step, and it stays theirs until you point again. The answer says whether a ' +
+      'Journeys page is open on that epic, so you know whether anyone sees it. Nothing is saved and nothing in the journey changes. Read-only.',
+    schema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Absolute path of the project folder' },
+        slug: { type: 'string', description: 'The journey’s slug, which is the epic’s' },
+        step: { type: 'string', description: 'The id of the step’s part, as `get_journey` prints it. Leave out (with `position`) to stop pointing.' },
+        position: { type: 'integer', description: 'The step’s 1-based position, instead of `step`.' },
+        say: { type: 'string', description: `Optional: one line of yours shown beside the card, as text (at most ${SAY_MAX} characters).` },
+      },
+      required: ['project', 'slug'],
+    },
+    annotations: { title: 'Point the page at a step', readOnlyHint: true, openWorldHint: false },
+    run(args) {
+      const named = projectArg(args.project)
+      if ('error' in named) return named.error
+      const slug = str(args.slug, MAX_SLUG)
+      if (!isSlug(slug)) return 'that is not a journey name'
+      const store = held(named.project)
+      const nothing = nothingToReadIn(store)
+      if (nothing) return nothing
+      const journey = journeyIn(store, slug)
+      if (!journey) return `no journey "${slug}" in ${named.project}`
+      const key = pointerKey(named.project, slug)
+      const id = str(args.step, MAX_PART)
+      if (!id && args.position === undefined) {
+        point(key, null)
+        return 'Stopped pointing. The page stays where the person has it.'
+      }
+      const plan = planOf(journey)
+      if (plan.kind === 'elsewhere') return `${slug}'s steps are kept in ${plan.from.where}, which this app cannot read, so there is no step here to point at.`
+      if (journey.steps.length === 0) return `${slug} has no steps yet, so there is none to point at.`
+      /* A position when one is given; otherwise the id of a part, and digits that are no part's id are a position too. */
+      const byId = id ? stepOfPart(journey, id) : -1
+      const position = args.position !== undefined ? Number(args.position) : byId < 0 && /^\d{1,4}$/.test(id) ? Number(id) : null
+      if (position !== null && (!Number.isInteger(position) || position < 1 || position > journey.steps.length)) {
+        return `${slug} has ${journey.steps.length} step${journey.steps.length === 1 ? '' : 's'}, so there is no position ${String(args.position ?? id).slice(0, 20)}.`
+      }
+      if (position === null && byId < 0) return notAStep(journey, id)
+      const at = position === null ? byId : position - 1
+      const step = journey.steps[at]!
+      const title = step.title ?? ''
+      point(key, { step: at + 1, title, say: str(args.say, SAY_MAX).replace(/\s+/g, ' ').trim() })
+      const looking = watched(key)
+        ? 'A Journeys page is open on this epic and shows it at once.'
+        : 'No Journeys page is connected for this epic, so nobody may be seeing it: it shows when a canvas with Journeys on it is open on this epic.'
+      return `Pointing at step ${at + 1} of ${slug}, “${title}”${stepPart(step) ? ` (${stepPart(step)})` : ''}. ${looking}`
+    },
+  },
 }
 
 /**
@@ -2403,7 +2461,8 @@ function mcp(rpc: Rpc): Reply {
         'can be a tree: `under` on `set_step` or `patch_step` files a step under an objective, `set_dependency` with `step` and ' +
         '`after` orders steps, and `next_step` names the first step free to start. Its `phases` on `set_journey` ' +
         'are its labelled sections, left to right, and `phase` on `set_step` puts a step in one. The person designs one with ' +
-        'the /journey skill this module offers.',
+        'the /journey skill this module offers. While you talk a person through a journey, `focus_step` brings the page to the step ' +
+        'you are on, and lights it; it is read-only.',
     })
   }
   /* A notification carries no id and is answered with nothing. */
@@ -2750,3 +2809,36 @@ export function answerAt(
   return null
 }
 
+/**
+ * The server-sent-event door (protocol `stream`, asked before `answer`): `GET /api/pointing/events`
+ * with `project` and `slug`. It sends the pointer as it stands at once, then one `pointing` event per
+ * change; the protocol's doors add the comment heartbeat. The project is put to the host first like
+ * every other door, which is asynchronous, so the stream is opened now and listens once that is
+ * answered; what is not vouched for gets one `refused` event and nothing else. What a stream says
+ * is the pointer and nothing of the journey.
+ */
+export function stream(
+  method: string,
+  path: string,
+  query: URLSearchParams,
+  emit: (event: unknown, name?: string) => void,
+): { reply: Reply } | { close: () => void } | null {
+  if (method !== 'GET' || path !== '/api/pointing/events') return null
+  const slug = str(query.get('slug'), MAX_SLUG)
+  if (!isSlug(slug)) return { reply: bad('that is not a journey name') }
+  const named = str(query.get('project'), MAX_PROJECT)
+  if (!named) return { reply: bad('which project?') }
+  let closed = false
+  let leave = () => {}
+  void resolveProject(named).then((at) => {
+    if (closed) return
+    if (!at.ok) return emit({ error: at.error }, 'refused')
+    leave = listen(pointerKey(at.path, slug), emit as Parameters<typeof listen>[1])
+  })
+  return {
+    close: () => {
+      closed = true
+      leave()
+    },
+  }
+}

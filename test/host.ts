@@ -312,9 +312,45 @@ let wire: Promise<Wire> | null = null
 export function started(): Promise<Wire> {
   wire ??= (async () => {
     stubStore()
+    ;(globalThis as { EventSource?: unknown }).EventSource = FakeStream
     const loaded = await import('../src/journeys.ts')
     loaded.start()
     return loaded
   })()
   return wire
+}
+
+/**
+ * The server's stream of pointers, as the page opens it (`EventSource`): kept, so a case can say what
+ * the server would say and see which are open. Installed before the page starts.
+ */
+export type Pointer = { step: number; title: string; say: string; at: string }
+export class FakeStream {
+  static all: FakeStream[] = []
+  closed = false
+  private listeners: Record<string, ((event: { data?: string }) => void)[]> = {}
+  constructor(readonly url: string) {
+    FakeStream.all.push(this)
+  }
+  addEventListener(type: string, listener: (event: { data?: string }) => void) {
+    ;(this.listeners[type] ??= []).push(listener)
+  }
+  close() {
+    this.closed = true
+  }
+  /** What the server says on a stream: the pointer, or null for none. Nothing arrives on a closed one. */
+  say(pointing: Pointer | null) {
+    if (this.closed) return
+    for (const listener of this.listeners.pointing ?? []) listener({ data: JSON.stringify({ pointing }) })
+  }
+}
+export const streams = {
+  all: () => FakeStream.all,
+  open: () => FakeStream.all.filter((one) => !one.closed),
+  /** The one stream that is open: the page listens to one journey at a time. */
+  current: () => {
+    const open = streams.open()
+    if (open.length !== 1) throw new Error(`${open.length} streams are open, not one`)
+    return open[0]!
+  },
 }
