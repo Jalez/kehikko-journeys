@@ -30,7 +30,7 @@ import { shownSteps, stepInFocus } from './focus.ts'
 import { bounded, firstShown, samePick, togglePick } from './refs.ts'
 import { get, post, standIn, standingIn as projectStanding } from './store/api.ts'
 import { treeOf } from './tree.ts'
-import type { Pointing } from '../pointing.ts'
+import type { Pointing } from '../wire/pointing.ts'
 import { follower, streamFor } from './following.ts'
 import type { FactoryJob } from './kinds.ts'
 
@@ -1542,8 +1542,9 @@ async function fill(): Promise<void> {
 
 /**
  * Where the Factory has this journey's step issues (`factory.ts` on the server). Read with every
- * `fill`, and every half minute while a journey is open, since a job moves on its own clock and
- * nothing tells this page. No Factory: an empty map, and the steps show nothing for it.
+ * `fill`, and every half minute while a journey with issues is open and the page is shown
+ * (`followFactory`), since a job moves on its own clock and nothing can tell this page. No Factory:
+ * an empty map, and the steps show nothing for it.
  */
 async function readFactory(): Promise<void> {
   const being = state.journey
@@ -1563,7 +1564,45 @@ async function readFactory(): Promise<void> {
   }
 }
 
-if (typeof window !== 'undefined') setInterval(() => void readFactory(), 30_000)
+/** The steps' issues the Factory could have a job for; none means nothing to ask about. */
+function issuesOf(journey: JourneyView | null): boolean {
+  return !!journey && treeOf(journey.steps).some((node) => !!node.issue)
+}
+
+/** How often the Factory's stages are asked again while a journey with issues is open and shown. */
+export const FACTORY_EVERY_MS = 30_000
+
+/**
+ * Ask `/api/factory` again on a clock, but only while it can matter: a journey with issues is open
+ * and the page is shown. Hidden, or no such journey: no timer at all. Shown again: one read at once,
+ * then the clock again.
+ *
+ * Why a clock at all: a job moves on the Factory's own clock and the one thing that says so, the
+ * Factory's `/api/watch` stream, is fenced to the Factory's own page (it checks the ticket printed
+ * into that page), so this module's server cannot follow it and republish. An unticketed, read-only
+ * watch on the Factory would let this go; that is a change to the Factory.
+ */
+function followFactory(): void {
+  let timer: ReturnType<typeof setInterval> | null = null
+  const wanted = () => typeof document !== 'undefined' && !document.hidden && !!projectStanding() && issuesOf(state.journey)
+  const check = () => {
+    if (wanted() === (timer !== null)) return
+    if (timer !== null) {
+      clearInterval(timer)
+      timer = null
+      return
+    }
+    timer = setInterval(() => void readFactory(), FACTORY_EVERY_MS)
+  }
+  subscribe(check)
+  document.addEventListener('visibilitychange', () => {
+    const was = timer !== null
+    check()
+    /* Shown again: what moved while it was hidden is read now, not a clock later. */
+    if (!was && timer !== null) void readFactory()
+  })
+  check()
+}
 
 /** Which `fill` is the newest. See the comment inside it. */
 let asking = 0
@@ -2682,6 +2721,7 @@ function followPointer(): void {
 export function start(): void {
   host.start()
   followPointer()
+  followFactory()
 
   const where = fromHash()
   /*
