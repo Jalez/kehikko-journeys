@@ -28,7 +28,7 @@ import { stepPart } from './src/part.ts'
 import { ID, MANIFEST as DECLARED, VERSION } from './manifest.ts'
 import { serveFrom, skillAt, skillDeclarations } from './skills.ts'
 import { resolveProject } from './project.ts'
-import { SAY_MAX, point, pointerKey, pointingFor, watched } from './pointing.ts'
+import { SAY_MAX, listen, point, pointerKey, watched } from './pointing.ts'
 import { fileOf, findingsSaid, idFor, nameOf, notAStep, stepOfPart, withPart, withStep, withStepMoved, withoutStep } from './parts.ts'
 import {
   type Held,
@@ -2327,8 +2327,8 @@ const TOOLS: Record<string, { description: string; schema: object; annotations: 
       const title = step.title ?? ''
       point(key, { step: at + 1, title, say: str(args.say, SAY_MAX).replace(/\s+/g, ' ').trim() })
       const looking = watched(key)
-        ? 'A Journeys page is open on this epic and shows it within a couple of seconds.'
-        : 'No Journeys page has asked about this epic in the last few seconds, so nobody may be seeing it: it shows when a canvas with Journeys on it is open on this epic.'
+        ? 'A Journeys page is open on this epic and shows it at once.'
+        : 'No Journeys page is connected for this epic, so nobody may be seeing it: it shows when a canvas with Journeys on it is open on this epic.'
       return `Pointing at step ${at + 1} of ${slug}, “${title}”${stepPart(step) ? ` (${stepPart(step)})` : ''}. ${looking}`
     },
   },
@@ -2650,13 +2650,6 @@ export function answerAt(
     })
   }
 
-  /* Where an agent has pointed this epic's page (`pointing.ts`). Asking is what says a page is open. */
-  if (path === '/api/pointing' && method === 'GET') {
-    const slug = str(query.get('slug'), MAX_SLUG)
-    if (!isSlug(slug)) return bad('that is not a journey name')
-    return ok({ ok: true, pointing: pointingFor(pointerKey(str(query.get('project'), MAX_PROJECT), slug)) })
-  }
-
   if (path === '/api/journey' && method === 'GET') {
     const slug = str(query.get('slug'), MAX_SLUG)
     /* Refused the same way whether or not the journey exists. A refusal that
@@ -2816,3 +2809,36 @@ export function answerAt(
   return null
 }
 
+/**
+ * The server-sent-event door (protocol `stream`, asked before `answer`): `GET /api/pointing/events`
+ * with `project` and `slug`. It sends the pointer as it stands at once, then one `pointing` event per
+ * change; the protocol's doors add the comment heartbeat. The project is put to the host first like
+ * every other door, which is asynchronous, so the stream is opened now and listens once that is
+ * answered; what is not vouched for gets one `refused` event and nothing else. What a stream says
+ * is the pointer and nothing of the journey.
+ */
+export function stream(
+  method: string,
+  path: string,
+  query: URLSearchParams,
+  emit: (event: unknown, name?: string) => void,
+): { reply: Reply } | { close: () => void } | null {
+  if (method !== 'GET' || path !== '/api/pointing/events') return null
+  const slug = str(query.get('slug'), MAX_SLUG)
+  if (!isSlug(slug)) return { reply: bad('that is not a journey name') }
+  const named = str(query.get('project'), MAX_PROJECT)
+  if (!named) return { reply: bad('which project?') }
+  let closed = false
+  let leave = () => {}
+  void resolveProject(named).then((at) => {
+    if (closed) return
+    if (!at.ok) return emit({ error: at.error }, 'refused')
+    leave = listen(pointerKey(at.path, slug), emit as Parameters<typeof listen>[1])
+  })
+  return {
+    close: () => {
+      closed = true
+      leave()
+    },
+  }
+}

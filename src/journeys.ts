@@ -28,9 +28,10 @@ import type { Brief, JourneyView, Live, Target } from './kinds.ts'
 import { cardsUnder, facetsOfRef, heldOver, readingOf, refsOf, unreadLinks, type Around } from './live/lookup.ts'
 import { shownSteps, stepInFocus } from './focus.ts'
 import { bounded, firstShown, samePick, togglePick } from './refs.ts'
-import { get, post, standIn } from './store/api.ts'
+import { get, post, standIn, standingIn as projectStanding } from './store/api.ts'
 import { treeOf } from './tree.ts'
 import type { Pointing } from '../pointing.ts'
+import { follower, streamFor } from './following.ts'
 import type { FactoryJob } from './kinds.ts'
 
 /**
@@ -2590,7 +2591,7 @@ function send(wanted: string[]): void {
  *
  * The agent has words and no hands. It says which step the conversation is on
  * (`pointing.ts`, in the server's memory, never saved) and this page, which
- * asks about once a second, brings that step's card into view with `goTo` and
+ * listens to the server's stream of pointers (`following.ts`), brings that step's card into view with `goTo` and
  * keeps it lit, with the agent's line beside it.
  *
  * The person takes the page back by using it: scrolling, or picking or opening
@@ -2600,9 +2601,6 @@ function send(wanted: string[]): void {
  * aside. No step, from the agent, takes the light off; the page stays where the
  * person has it.
  * ------------------------------------------------------------------ */
-
-/** How often the page asks. The server answers at once; this is the cost of a pointer arriving. */
-export const POINT_MS = 1_000
 
 /** A pointer already this old when the page first hears of it is left over from before, and not followed. */
 export const POINTER_STALE_MS = 10 * 60_000
@@ -2631,19 +2629,6 @@ function pointerArrived(slug: string, next: Pointing | null): void {
   void goTo({ step: next.step }, { quiet: true })
 }
 
-/** Ask the server once where the agent has pointed this journey, and follow it. */
-export async function pollPointer(): Promise<void> {
-  const slug = state.journey?.slug
-  if (!slug || state.scope === 'project' || state.nowhere) return
-  try {
-    const out = await get<{ ok: boolean; pointing?: Pointing | null }>('/api/pointing', { slug })
-    if (!out.ok || state.journey?.slug !== slug) return
-    pointerArrived(slug, out.pointing ?? null)
-  } catch {
-    /* A server that did not answer has not pointed anywhere new. */
-  }
-}
-
 /** What counts as the person's hand on the page: the wheel, a touch that drags, and the keys that scroll. */
 const SCROLLING_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '])
 window.addEventListener('wheel', () => takeBack(), { passive: true })
@@ -2652,9 +2637,30 @@ window.addEventListener('keydown', (event) => {
   if (SCROLLING_KEYS.has(event.key)) takeBack()
 })
 
+/**
+ * Listen to the server's stream of pointers for the journey that is open (`following.ts`). Said to
+ * look again whenever the page's state changes and when it is hidden or shown; it opens, moves and
+ * closes the one stream as that asks, and does nothing when nothing it depends on has moved.
+ */
 function followPointer(): void {
-  const again = () => setTimeout(() => void pollPointer().finally(again), POINT_MS)
-  again()
+  if (typeof EventSource === 'undefined') return
+  const slugOf = (address: string) => new URL(address, 'http://x').searchParams.get('slug') ?? ''
+  const following = follower({
+    want: () => {
+      const project = projectStanding()
+      const slug = state.journey?.slug
+      return project && slug && state.scope !== 'project' && !state.nowhere ? streamFor(project, slug) : null
+    },
+    hidden: () => document.hidden,
+    open: (address) => new EventSource(address),
+    take: (address, pointing) => {
+      const slug = slugOf(address)
+      if (state.journey?.slug === slug) pointerArrived(slug, pointing)
+    },
+  })
+  subscribe(() => following.check())
+  document.addEventListener('visibilitychange', () => following.check())
+  following.check()
 }
 
 /* ------------------------------------------------------------------ *

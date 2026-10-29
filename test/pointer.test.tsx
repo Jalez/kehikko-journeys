@@ -3,7 +3,7 @@ import { cleanup, render } from '@testing-library/react'
 import { mailbox } from 'kehikot-module-protocol/client'
 
 import { App } from '../src/app.tsx'
-import { scrolls, settle, started, store, stubHost, type Wire } from './host.ts'
+import { scrolls, settle, started, store, streams, stubHost, type Wire } from './host.ts'
 
 /**
  * The page, pointed at a step by an agent (`focus_step`): it scrolls to the
@@ -15,6 +15,7 @@ import { scrolls, settle, started, store, stubHost, type Wire } from './host.ts'
 let wire: Wire
 let projects = 0
 let pointers = 0
+let lastAt = ''
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false
 
@@ -44,11 +45,11 @@ async function framed() {
   return host
 }
 
-/** The agent points at a step; the page asks once and follows. */
+/** The agent points at a step; the server says so on the stream and the page follows. */
 async function point(step: number, say = '') {
   pointers += 1
-  store.pointing = { step, title: `Step ${step}`, say, at: new Date(Date.now() + pointers).toISOString() }
-  await wire.pollPointer()
+  lastAt = new Date(Date.now() + pointers).toISOString()
+  streams.current().say({ step, title: `Step ${step}`, say, at: lastAt })
   await settle()
 }
 
@@ -95,16 +96,17 @@ describe('an agent pointing the page at a step', () => {
     await framed()
     await point(2, 'x')
     const once = scrolls.count()
-    await wire.pollPointer()
-    await wire.pollPointer()
+    /* A reconnect says the pointer again: the same one, which is not followed twice. */
+    const same = { step: 2, title: 'Step 2', say: 'x', at: lastAt }
+    streams.current().say(same)
+    streams.current().say(same)
     expect(scrolls.count()).toBe(once)
   })
 
   test('naming no step takes the light off', async () => {
     await framed()
     await point(1, 'x')
-    store.pointing = null
-    await wire.pollPointer()
+    streams.current().say(null)
     await settle()
     expect(lit()).toEqual([])
     expect(says()).toBeNull()
@@ -113,8 +115,7 @@ describe('an agent pointing the page at a step', () => {
   test('a pointer left over from long before the page opened is not followed', async () => {
     await framed()
     pointers += 1
-    store.pointing = { step: 1, title: 'One', say: 'old', at: new Date(Date.now() - 3_600_000).toISOString() }
-    await wire.pollPointer()
+    streams.current().say({ step: 1, title: 'One', say: 'old', at: new Date(Date.now() - 3_600_000).toISOString() })
     await settle()
     expect(lit()).toEqual([])
   })
@@ -137,7 +138,7 @@ describe('the person taking the page back', () => {
     expect(says()).toBeNull()
     /* It stays theirs: the same pointer, asked again, is not followed. */
     const before = scrolls.count()
-    await wire.pollPointer()
+    streams.current().say({ step: 2, title: 'Step 2', say: 'mine', at: lastAt })
     await settle()
     expect(lit()).toEqual([])
     expect(scrolls.count()).toBe(before)
@@ -170,5 +171,51 @@ describe('the person taking the page back', () => {
     await point(2, 'mine')
     await point(1, 'next')
     expect(lit()).toEqual(['1'])
+  })
+})
+
+describe('the stream, and no polling', () => {
+  const hide = (hidden: boolean) => {
+    Object.defineProperty(document, 'hidden', { value: hidden, configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }
+  afterEach(() => hide(false))
+
+  test('one stream is open for the journey on the page, on the project and slug', async () => {
+    await framed()
+    const url = new URL(streams.current().url, 'http://x')
+    expect(url.pathname).toBe('/api/pointing/events')
+    expect(url.searchParams.get('slug')).toBe('probe')
+    expect(url.searchParams.get('project')).toBe(`/Users/somebody/Projects/pointer-${projects}`)
+  })
+
+  test('a hidden page closes it, and showing the page opens it again', async () => {
+    await framed()
+    const first = streams.current()
+    hide(true)
+    expect(first.closed).toBe(true)
+    expect(streams.open()).toHaveLength(0)
+    hide(false)
+    expect(streams.open()).toHaveLength(1)
+    expect(streams.current()).not.toBe(first)
+  })
+
+  test('a stream that was let go cannot move the page', async () => {
+    await framed()
+    const first = streams.current()
+    hide(true)
+    first.say({ step: 1, title: 'One', say: 'late', at: new Date().toISOString() })
+    await settle()
+    expect(lit()).toEqual([])
+  })
+
+  test('the page never asks for the pointer: no request goes to /api/pointing', async () => {
+    await framed()
+    await point(1, 'x')
+    await point(2, 'y')
+    hide(true)
+    hide(false)
+    await settle()
+    expect(store.asked.filter((line) => line.includes('/api/pointing'))).toEqual([])
   })
 })

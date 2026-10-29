@@ -50,10 +50,6 @@ export const store = {
   /** Every `/api/factory` read, and what it answers: the Factory's job per issue. */
   factoryAsked: [] as string[],
   factory: {} as Record<string, { id: string; ref: string; stage: string }>,
-  /** What `/api/pointing` answers: where an agent has pointed the page, or null. */
-  pointing: null as { step: number; title: string; say: string; at: string } | null,
-  /** Every `/api/pointing` read. */
-  pointingAsked: [] as string[],
   /** How many times one journey has been read. */
   reads: () => store.asked.filter((line) => line.startsWith('GET /api/journey?')).length,
   hold: (): (() => void) => {
@@ -94,8 +90,6 @@ export const store = {
     store.arranged = []
     store.factoryAsked = []
     store.factory = {}
-    store.pointing = null
-    store.pointingAsked = []
     held = null
   },
 }
@@ -118,11 +112,6 @@ function stubStore() {
     if (url.includes('/api/factory?')) {
       store.factoryAsked.push(url)
       return new Response(JSON.stringify({ ok: true, factory: Object.keys(store.factory).length > 0, jobs: store.factory }), { headers: { 'content-type': 'application/json' } })
-    }
-    /* Where an agent has pointed the page is asked on its own clock too, and answered from `store.pointing`. */
-    if (url.includes('/api/pointing?')) {
-      store.pointingAsked.push(url)
-      return new Response(JSON.stringify({ ok: true, pointing: store.pointing }), { headers: { 'content-type': 'application/json' } })
     }
     store.asked.push(`${init?.method ?? 'GET'} ${url}`)
     let refusal: string | null = null
@@ -323,9 +312,45 @@ let wire: Promise<Wire> | null = null
 export function started(): Promise<Wire> {
   wire ??= (async () => {
     stubStore()
+    ;(globalThis as { EventSource?: unknown }).EventSource = FakeStream
     const loaded = await import('../src/journeys.ts')
     loaded.start()
     return loaded
   })()
   return wire
+}
+
+/**
+ * The server's stream of pointers, as the page opens it (`EventSource`): kept, so a case can say what
+ * the server would say and see which are open. Installed before the page starts.
+ */
+export type Pointer = { step: number; title: string; say: string; at: string }
+export class FakeStream {
+  static all: FakeStream[] = []
+  closed = false
+  private listeners: Record<string, ((event: { data?: string }) => void)[]> = {}
+  constructor(readonly url: string) {
+    FakeStream.all.push(this)
+  }
+  addEventListener(type: string, listener: (event: { data?: string }) => void) {
+    ;(this.listeners[type] ??= []).push(listener)
+  }
+  close() {
+    this.closed = true
+  }
+  /** What the server says on a stream: the pointer, or null for none. Nothing arrives on a closed one. */
+  say(pointing: Pointer | null) {
+    if (this.closed) return
+    for (const listener of this.listeners.pointing ?? []) listener({ data: JSON.stringify({ pointing }) })
+  }
+}
+export const streams = {
+  all: () => FakeStream.all,
+  open: () => FakeStream.all.filter((one) => !one.closed),
+  /** The one stream that is open: the page listens to one journey at a time. */
+  current: () => {
+    const open = streams.open()
+    if (open.length !== 1) throw new Error(`${open.length} streams are open, not one`)
+    return open[0]!
+  },
 }

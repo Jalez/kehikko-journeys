@@ -2,7 +2,7 @@
 import { run } from 'kehikot-module-protocol/run'
 import { originFor } from 'kehikot-module-protocol/serve'
 
-import { BUILD, MANIFEST, TICKET, answer, servingAt } from './doors.ts'
+import { BUILD, MANIFEST, TICKET, answer, servingAt, stream } from './doors.ts'
 import { ID, PREFERRED_PORT } from './manifest.ts'
 import { ours } from './skills.ts'
 
@@ -23,6 +23,7 @@ const running = await run({
   dir: import.meta.dirname,
   manifest: MANIFEST,
   answer,
+  stream,
   build: BUILD,
   ticket: TICKET,
   ours,

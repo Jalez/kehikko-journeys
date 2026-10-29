@@ -8,10 +8,11 @@
  *
  * Held in memory, per project and epic: a pointer is about a conversation
  * happening now, is never written to the project and does not survive a
- * restart. The page asks every second or so (`GET /api/pointing`), and when it
- * last asked is kept, so the tool can tell an agent that no Journeys page is
- * open instead of letting it point at a screen nobody has. Same shape as the
- * Flows module's pointer.
+ * restart. The page listens on one server-sent-event stream per open journey
+ * (`GET /api/pointing/events`): it is told the current pointer when it
+ * connects and each change after, so nothing asks again and again. A stream
+ * connected is a page open, which is what the tool tells an agent, instead of
+ * letting it point at a screen nobody has.
  */
 
 export interface Pointing {
@@ -27,37 +28,50 @@ export interface Pointing {
 
 export const SAY_MAX = 300
 
-/** How recently a page must have asked for it to count as open. */
-export const WATCHING_MS = 6_000
+/** The name of the one event on the stream; its data is `{ pointing }`, the pointer or null. */
+export const EVENT = 'pointing'
+
+type Emit = (event: { pointing: Pointing | null }, name?: string) => void
 
 const held = new Map<string, Pointing>()
-const asked = new Map<string, number>()
+const streams = new Map<string, Set<Emit>>()
 let last = 0
 
-/** The one key a pointer, and a page's asking, are kept under. */
+/** The one key a pointer, and the streams on it, are kept under. */
 export const pointerKey = (project: string, slug: string): string => `${project}\u0000${slug}`
 
-/** Point at a step, or with null stop pointing. */
+/** Point at a step, or with null stop pointing. Every stream on the epic is told. */
 export function point(key: string, pointing: Omit<Pointing, 'at'> | null): Pointing | null {
-  if (!pointing) {
+  let next: Pointing | null = null
+  if (pointing) {
+    /* Strictly later than the last one, so two calls in one millisecond are still two. */
+    last = Math.max(Date.now(), last + 1)
+    next = { ...pointing, at: new Date(last).toISOString() }
+    held.set(key, next)
+  } else {
     held.delete(key)
-    return null
   }
-  /* Strictly later than the last one, so two calls in one millisecond are still two. */
-  last = Math.max(Date.now(), last + 1)
-  const next = { ...pointing, at: new Date(last).toISOString() }
-  held.set(key, next)
+  for (const emit of streams.get(key) ?? []) emit({ pointing: next }, EVENT)
   return next
 }
 
-/** The pointer for one epic, as the page asks for it. Asking is what marks a page as open. */
-export function pointingFor(key: string): Pointing | null {
-  asked.set(key, Date.now())
-  return held.get(key) ?? null
+/**
+ * A page listening: it is told the pointer as it stands at once, and each change after. Returns what
+ * to call when the stream closes, which is the page no longer being open.
+ */
+export function listen(key: string, emit: Emit): () => void {
+  const set = streams.get(key) ?? new Set<Emit>()
+  streams.set(key, set)
+  set.add(emit)
+  emit({ pointing: held.get(key) ?? null }, EVENT)
+  return () => {
+    set.delete(emit)
+    if (set.size === 0 && streams.get(key) === set) streams.delete(key)
+  }
 }
 
-/** Whether a page has asked lately, which is whether somebody can be seeing the pointer. */
-export function watched(key: string): boolean {
-  const at = asked.get(key)
-  return at !== undefined && Date.now() - at <= WATCHING_MS
-}
+/** How many streams are connected for one epic. */
+export const listening = (key: string): number => streams.get(key)?.size ?? 0
+
+/** Whether a stream is connected, which is whether somebody can be seeing the pointer. */
+export const watched = (key: string): boolean => listening(key) > 0
