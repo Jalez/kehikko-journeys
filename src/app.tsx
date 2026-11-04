@@ -4,6 +4,7 @@ import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'k
 
 import { Button } from '@/components/ui/button.tsx'
 
+import { BUSY_SAID, failedSaid } from './footer.ts'
 import { NOUN, anchorOf, indexed, type Shown } from './focus.ts'
 import {
   addTarget,
@@ -187,6 +188,7 @@ export function App() {
             projectPath={state.projectPath}
             framed={state.framed}
             reading={state.busy}
+            footed={state.footed}
           />
         )}
         {/* The one line this app uses to answer the reader. Polite rather than
@@ -211,7 +213,9 @@ export function App() {
             ))}
           </section>
         )}
+        {/* Footed, this line is the footer's first item; see `src/footer.ts`. */}
         <p
+          hidden={state.footed}
           aria-live="polite"
           data-reading={!state.said && state.busy && state.journey ? '' : undefined}
           className="mt-4 min-h-[1.4em] text-[0.82rem] text-muted-foreground"
@@ -224,18 +228,8 @@ export function App() {
   )
 }
 
-/**
- * What the line under the page says while the trackers are being read again and nothing else is
- * being answered: the states on screen are the reading before, and a reader comparing them with
- * the tracker should know a newer one is on its way. The journey itself stays exactly where it is
- * through a read — nothing is taken off the screen to make room for the next reading (#39).
- */
-export const BUSY_SAID = 'Reading the tracker… the states shown are from the reading before.'
-
-/** What the same line says when the newest read failed and an older reading is still drawn. */
-export function failedSaid(why: string): string {
-  return `The last read of the tracker did not land (${why}); the states shown are from the reading before.`
-}
+/* The line's words live beside the footer that says them too; still exported from here. */
+export { BUSY_SAID, failedSaid }
 
 /** A held draft's words for reading: a step's four fields on their own lines, anything else as it is. */
 function wordsOf(text: string): string {
@@ -383,8 +377,11 @@ function Journey({
   projectPath,
   framed,
   reading,
+  footed,
 }: {
   journey: JourneyView
+  /** The host draws this page's footer and header: the line, the picks and the reading note are said there. */
+  footed: boolean
   /** The trackers are being read again: said quietly beside the heading, and nothing else changes. */
   reading: boolean
   live: Live | null
@@ -432,13 +429,14 @@ function Journey({
         The journey
         {/* Where the reader is looking, in the heading's own muted register: a read is running and
             the states below are the reading before. The full sentence is the line under the page. */}
-        {reading && (
+        {reading && !footed && (
           <span data-reading-note title={BUSY_SAID} className="ml-2 font-normal tracking-normal normal-case">
             · reading the tracker…
           </span>
         )}
       </Rubric>
-      {framed && journey.plan === 'stored' && shown.length > 0 && (
+      {/* Footed, "pick every step" is the header's toggle and Clear stands beside the count of picks in the footer. */}
+      {framed && !footed && journey.plan === 'stored' && shown.length > 0 && (
         <Picking shown={shown} live={live} selection={selection} />
       )}
       <Plan
