@@ -27,6 +27,10 @@ import { GET_EPIC, GET_TRACKER, PARTS_REF, REFRESH_TRACKER, REPORT_CHANGE, SET_P
 import type { Brief, JourneyView, Live, Target } from './kinds.ts'
 import { cardsUnder, facetsOfRef, heldOver, readingOf, refsOf, unreadLinks, type Around } from './live/lookup.ts'
 import { shownSteps, stepInFocus } from './focus.ts'
+import { BUSY_SAID, failedSaid, footerItems, footerPressed, headerItems, type FooterState } from './footer.ts'
+import { issueDone, nextOf } from './live/status.ts'
+import { doneOf } from './tree.ts'
+import { pickedState } from './refs.ts'
 import { bounded, firstShown, samePick, togglePick } from './refs.ts'
 import { get, post, standIn, standingIn as projectStanding } from './store/api.ts'
 import { treeOf } from './tree.ts'
@@ -269,6 +273,12 @@ export interface State {
    * (`parts.set`) and reads ONE journey's tracker states, so a step is edited with its epic open.
    */
   everything: JourneyView[] | null
+  /**
+   * Whether the host draws this page's footer (`drawsFooter === true`, protocol 2.38.0). Then the
+   * header and the footer are declared (`rows` below) and the page draws neither the line under it
+   * nor the picking presses; with any other host it draws them as before.
+   */
+  footed: boolean
 }
 
 let state: State = {
@@ -306,6 +316,7 @@ let state: State = {
   from: null,
   scope: 'epic',
   everything: null,
+  footed: false,
 }
 
 const listeners = new Set<() => void>()
@@ -349,6 +360,7 @@ function set(patch: Partial<State>): void {
     for (const listener of listeners) listener()
   })
   offerRefresh()
+  rows()
 }
 
 export function say(what: string): void {
@@ -1736,6 +1748,98 @@ function offerRefresh(): void {
 }
 
 /* ------------------------------------------------------------------ *
+ * The rows the host draws
+ *
+ * The header ("pick every step") and the footer (the line, the step an
+ * agent pointed at, the picks with Clear, the progress), worked out by
+ * `src/footer.ts` from this state and declared after every change, only
+ * while the host draws a footer and only when they say something new.
+ * ------------------------------------------------------------------ */
+
+/** The last header and footer sent, as JSON, so that unchanged ones are not sent again. */
+let rowsSaid: string | null = null
+
+/** Every reference the steps in front carry, in journey order: what "pick every step" picks. */
+function namedInFront(): string[] {
+  const journey = state.journey
+  if (!state.framed || !journey || journey.plan !== 'stored' || state.scope === 'project') return []
+  const shown = shownSteps(state.parts, journey.steps, state.editing)
+  return [...new Set(shown.flatMap(({ step }) => cardsUnder(state.live, step.refs ?? []).map((card) => card.ref)))]
+}
+
+/** The footer's state, read off this page's. Exported for the tests. */
+export function footState(): FooterState {
+  const journey = state.scope === 'project' ? null : state.journey
+  const status: FooterState['status'] = state.said
+    ? { said: state.said, level: 'normal' }
+    : journey && state.busy
+      ? { said: 'Reading the tracker…', level: 'normal', tooltip: BUSY_SAID }
+      : journey && state.readFailed
+        ? { said: failedSaid(state.readFailed), level: 'warn' }
+        : null
+  let progress: FooterState['progress'] = null
+  if (journey && journey.plan === 'stored' && journey.steps.length) {
+    const near = around()
+    const isDone = (issue: string) => issueDone(state.live, issue, near)
+    const leaves = treeOf(journey.steps).filter((node) => node.leaf)
+    const done = doneOf(journey.steps, isDone)
+    const next = nextOf(journey, state.live, near)
+    progress = {
+      done: leaves.filter((node) => done.get(node.id)).length,
+      total: leaves.length,
+      blocked: next?.gated.length ?? 0,
+      next: next?.node ? { position: next.node.position, title: next.node.title } : null,
+      why: next?.why ?? null,
+    }
+  }
+  const pointed = state.pointed && journey && state.pointed.slug === journey.slug ? state.pointed : null
+  return {
+    status,
+    progress,
+    pointed: pointed ? { step: pointed.step, title: journey?.steps[pointed.step - 1]?.title ?? '', say: pointed.say } : null,
+    picked: state.framed ? state.selection.length : 0,
+  }
+}
+
+function rows(): void {
+  if (!host.connection()) return
+  if (!state.footed) {
+    /* No longer drawn: take back what was declared, once, so the client does not keep replaying it. */
+    if (rowsSaid !== null) {
+      host.header([])
+      host.footer([])
+    }
+    rowsSaid = null
+    return
+  }
+  const named = namedInFront()
+  const header = headerItems({ named: named.length, all: pickedState(state.selection, named) === 'all' })
+  const footer = footerItems(footState())
+  const key = JSON.stringify([header, footer])
+  if (key === rowsSaid) return
+  rowsSaid = key
+  host.header(header)
+  host.footer(footer)
+}
+
+/** A press in the host's header or footer: done, or the sentence saying why not. */
+function rowPressed(press: { item: string; value?: unknown; place?: 'footer' | 'header' }): string | undefined {
+  if (press.place === 'footer') {
+    const asked = footerPressed(press.item, { picked: state.selection.length })
+    if (asked !== 'clear') return asked
+    clearPick()
+    return undefined
+  }
+  if (press.item !== 'pick-all') return 'This module has no such item.'
+  const named = namedInFront()
+  if (!named.length) return 'No step in front names a reference, so there is nothing of it a canvas could hold.'
+  const all = pickedState(state.selection, named) === 'all'
+  if (press.value === all) return undefined
+  pick(named)
+  return undefined
+}
+
+/* ------------------------------------------------------------------ *
  * The filter, offered
  *
  * One `toggles` group called "hide", built by `offer()` from the shared
@@ -2116,6 +2220,8 @@ const host = hostStore(
     /* A press on the host's refresh control, or the interval somebody set for
        this container. The same either way; see `refresh`. */
     onRefresh: () => void refresh(),
+    /* A press in the header or footer the host draws; see `rows`. */
+    onPress: (press) => rowPressed(press),
     onGoto: (goto, answer) => {
       /* A host walking this page somewhere is somebody's doing, and not the agent's. */
       takeBack()
@@ -2136,6 +2242,8 @@ const host = hostStore(
 )
 host.subscribe(() => {
   const standing = host.get()
+  const footed = standing.where === 'hosted' && standing.drawsFooter === true
+  if (footed !== state.footed) state = { ...state, footed }
   if (standing.context) context(standing, standing.context)
   else set({ where: standing.where })
 })
