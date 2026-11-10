@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { PROTOCOL, manifestSchema, showsProject, speaks } from 'kehikot-module-protocol'
+import { HELP_LIMITS, PROTOCOL, helpOf, manifestSchema, showsProject, speaks } from 'kehikot-module-protocol'
 
-import { ID, MANIFEST } from '../manifest.ts'
+import { HELP, ID, MANIFEST } from '../manifest.ts'
 
 /**
  * The manifest is the only half of this program a host reads before deciding
@@ -168,5 +168,26 @@ describe('the manifest a host reads', () => {
   test('is the id the registration file is named after', () => {
     expect(MANIFEST.id).toBe(ID)
     expect(ID).toBe('kehikot.journeys')
+  })
+})
+
+describe('How to use (protocol 2.52.0)', () => {
+  test('is declared, within the protocol’s bounds, and read back whole as plain one-line text', () => {
+    const help = helpOf(MANIFEST)
+    expect(help).toEqual(HELP)
+    expect(HELP.summary.length).toBeLessThanOrEqual(HELP_LIMITS.SUMMARY)
+    expect(HELP.sections.length).toBeLessThanOrEqual(HELP_LIMITS.SECTIONS)
+    for (const section of HELP.sections) {
+      expect(section.title.length).toBeLessThanOrEqual(HELP_LIMITS.TITLE)
+      expect(section.points.length).toBeLessThanOrEqual(HELP_LIMITS.POINTS)
+      for (const point of section.points) {
+        expect(point.length).toBeLessThanOrEqual(HELP_LIMITS.POINT)
+        expect(point).not.toMatch(/[<>]|https?:|\]\(/)
+      }
+    }
+  })
+
+  test('says what it shows, how to use it and what agents can do', () => {
+    expect(HELP.sections.map((section) => section.title)).toEqual(expect.arrayContaining(['What it shows', 'How to use it', 'What agents can do']))
   })
 })

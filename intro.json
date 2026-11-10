@@ -1,0 +1,437 @@
+{
+  "slides": [
+    {
+      "title": "What has to become true, step by step",
+      "body": "A journey lays out the epic as steps for a user, each with the issues and changes it is about and where every one of them stands.",
+      "art": {
+        "label": "a journey's steps in order, each with its issues and their states",
+        "shapes": [
+          {
+            "kind": "pane",
+            "x": 30,
+            "y": 10,
+            "w": 260,
+            "h": 130
+          },
+          {
+            "kind": "dot",
+            "x": 50,
+            "y": 40,
+            "r": 6,
+            "tone": "ok",
+            "motion": "pop",
+            "delay": 0.2
+          },
+          {
+            "kind": "rows",
+            "x": 64,
+            "y": 38,
+            "widths": [
+              120
+            ],
+            "tone": "text"
+          },
+          {
+            "kind": "box",
+            "x": 210,
+            "y": 33,
+            "w": 60,
+            "h": 14,
+            "round": 7,
+            "tone": "ok"
+          },
+          {
+            "kind": "line",
+            "x": 50,
+            "y": 46,
+            "x2": 50,
+            "y2": 70,
+            "tone": "faint"
+          },
+          {
+            "kind": "dot",
+            "x": 50,
+            "y": 76,
+            "r": 6,
+            "tone": "busy",
+            "motion": "pulse",
+            "delay": 0.6
+          },
+          {
+            "kind": "rows",
+            "x": 64,
+            "y": 74,
+            "widths": [
+              100
+            ],
+            "tone": "text"
+          },
+          {
+            "kind": "box",
+            "x": 210,
+            "y": 69,
+            "w": 60,
+            "h": 14,
+            "round": 7,
+            "tone": "busy"
+          },
+          {
+            "kind": "line",
+            "x": 50,
+            "y": 82,
+            "x2": 50,
+            "y2": 106,
+            "tone": "faint"
+          },
+          {
+            "kind": "dot",
+            "x": 50,
+            "y": 112,
+            "r": 6,
+            "tone": "card",
+            "motion": "pop",
+            "delay": 1
+          },
+          {
+            "kind": "rows",
+            "x": 64,
+            "y": 110,
+            "widths": [
+              130
+            ]
+          },
+          {
+            "kind": "box",
+            "x": 210,
+            "y": 105,
+            "w": 60,
+            "h": 14,
+            "round": 7,
+            "tone": "card"
+          }
+        ]
+      }
+    },
+    {
+      "title": "Design one with an agent",
+      "body": "Type /journey in Claude Code and design the journey together: the steps, which step waits on which, and the phases it moves through.",
+      "art": {
+        "label": "a conversation turning into a tree of steps",
+        "shapes": [
+          {
+            "kind": "box",
+            "x": 14,
+            "y": 54,
+            "w": 100,
+            "h": 30,
+            "round": 6,
+            "tone": "card",
+            "motion": "pop"
+          },
+          {
+            "kind": "text",
+            "x": 24,
+            "y": 73,
+            "text": "/journey",
+            "size": 9,
+            "mono": true,
+            "tone": "text"
+          },
+          {
+            "kind": "line",
+            "x": 116,
+            "y": 69,
+            "x2": 146,
+            "y2": 69,
+            "dashed": true,
+            "motion": "draw",
+            "delay": 0.5
+          },
+          {
+            "kind": "box",
+            "x": 150,
+            "y": 58,
+            "w": 44,
+            "h": 22,
+            "round": 4,
+            "tone": "strong",
+            "motion": "pop",
+            "delay": 0.8
+          },
+          {
+            "kind": "line",
+            "x": 194,
+            "y": 69,
+            "x2": 232,
+            "y2": 34,
+            "motion": "draw",
+            "delay": 1.1
+          },
+          {
+            "kind": "line",
+            "x": 194,
+            "y": 69,
+            "x2": 232,
+            "y2": 69,
+            "motion": "draw",
+            "delay": 1.1
+          },
+          {
+            "kind": "line",
+            "x": 194,
+            "y": 69,
+            "x2": 232,
+            "y2": 104,
+            "motion": "draw",
+            "delay": 1.1
+          },
+          {
+            "kind": "box",
+            "x": 232,
+            "y": 24,
+            "w": 70,
+            "h": 20,
+            "round": 4,
+            "tone": "card",
+            "motion": "pop",
+            "delay": 1.4
+          },
+          {
+            "kind": "box",
+            "x": 232,
+            "y": 59,
+            "w": 70,
+            "h": 20,
+            "round": 4,
+            "tone": "card",
+            "motion": "pop",
+            "delay": 1.6
+          },
+          {
+            "kind": "box",
+            "x": 232,
+            "y": 94,
+            "w": 70,
+            "h": 20,
+            "round": 4,
+            "tone": "card",
+            "motion": "pop",
+            "delay": 1.8
+          }
+        ]
+      }
+    },
+    {
+      "title": "Tick a step to narrow the kehikko",
+      "body": "Ticking a step picks out its issues and changes, so the other modules on the kehikko show only what that step is about.",
+      "art": {
+        "label": "a step ticked, and the list beside it narrowing to that step's issues",
+        "shapes": [
+          {
+            "kind": "pane",
+            "x": 14,
+            "y": 14,
+            "w": 134,
+            "h": 122
+          },
+          {
+            "kind": "box",
+            "x": 26,
+            "y": 40,
+            "w": 10,
+            "h": 10,
+            "round": 2,
+            "tone": "card"
+          },
+          {
+            "kind": "rows",
+            "x": 42,
+            "y": 43,
+            "widths": [
+              80
+            ]
+          },
+          {
+            "kind": "box",
+            "x": 26,
+            "y": 66,
+            "w": 10,
+            "h": 10,
+            "round": 2,
+            "tone": "strong",
+            "motion": "chip",
+            "delay": 0.3
+          },
+          {
+            "kind": "rows",
+            "x": 42,
+            "y": 69,
+            "widths": [
+              90
+            ],
+            "tone": "text"
+          },
+          {
+            "kind": "box",
+            "x": 26,
+            "y": 92,
+            "w": 10,
+            "h": 10,
+            "round": 2,
+            "tone": "card"
+          },
+          {
+            "kind": "rows",
+            "x": 42,
+            "y": 95,
+            "widths": [
+              70
+            ]
+          },
+          {
+            "kind": "pointer",
+            "x": 32,
+            "y": 72,
+            "motion": "pop"
+          },
+          {
+            "kind": "pane",
+            "x": 162,
+            "y": 14,
+            "w": 144,
+            "h": 122
+          },
+          {
+            "kind": "rows",
+            "x": 174,
+            "y": 40,
+            "widths": [
+              110
+            ],
+            "tone": "text"
+          },
+          {
+            "kind": "rows",
+            "x": 174,
+            "y": 60,
+            "widths": [
+              90
+            ],
+            "motion": "narrow",
+            "delay": 0.8
+          },
+          {
+            "kind": "rows",
+            "x": 174,
+            "y": 80,
+            "widths": [
+              100
+            ],
+            "tone": "text"
+          },
+          {
+            "kind": "rows",
+            "x": 174,
+            "y": 100,
+            "widths": [
+              80
+            ],
+            "motion": "narrow",
+            "delay": 0.8
+          }
+        ]
+      }
+    },
+    {
+      "title": "See what stands in the way",
+      "body": "A gate shows what a step is waiting on: a decision, access, or work with no issue. The footer says how many steps are done and which is next.",
+      "art": {
+        "label": "a step held by a gate, and the count of steps done in the footer",
+        "shapes": [
+          {
+            "kind": "pane",
+            "x": 30,
+            "y": 10,
+            "w": 260,
+            "h": 130
+          },
+          {
+            "kind": "box",
+            "x": 50,
+            "y": 40,
+            "w": 90,
+            "h": 30,
+            "round": 5,
+            "tone": "card"
+          },
+          {
+            "kind": "rows",
+            "x": 60,
+            "y": 52,
+            "widths": [
+              60
+            ],
+            "tone": "text"
+          },
+          {
+            "kind": "line",
+            "x": 140,
+            "y": 55,
+            "x2": 180,
+            "y2": 55,
+            "dashed": true
+          },
+          {
+            "kind": "box",
+            "x": 180,
+            "y": 40,
+            "w": 90,
+            "h": 30,
+            "round": 5,
+            "tone": "warn",
+            "dashed": true,
+            "motion": "pulse",
+            "delay": 0.4
+          },
+          {
+            "kind": "text",
+            "x": 225,
+            "y": 59,
+            "text": "decision",
+            "size": 8,
+            "middle": true,
+            "tone": "text"
+          },
+          {
+            "kind": "line",
+            "x": 30,
+            "y": 112,
+            "x2": 290,
+            "y2": 112,
+            "tone": "faint"
+          },
+          {
+            "kind": "text",
+            "x": 42,
+            "y": 129,
+            "text": "4/9 done",
+            "size": 8,
+            "tone": "muted",
+            "motion": "rise",
+            "delay": 0.8
+          },
+          {
+            "kind": "text",
+            "x": 120,
+            "y": 129,
+            "text": "Next: 5. Sign in",
+            "size": 8,
+            "tone": "muted",
+            "motion": "rise",
+            "delay": 1
+          }
+        ]
+      }
+    }
+  ]
+}

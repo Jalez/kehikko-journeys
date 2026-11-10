@@ -1,5 +1,51 @@
 import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'kehikot-module-protocol'
 import pkg from './package.json'
+/* This module's introduction (protocol 2.57.0): slides the host shows in its introduction dialog. Also
+   read as a file from the repository, so a person can watch it before the module runs or is installed. */
+import intro from './intro.json'
+
+/** "How to use" (protocol 2.52.0). Each string one line of plain text. */
+export const HELP = {
+  summary: 'What has to become true for a user, step by step: the epic laid out as steps, what each waits on, and where every issue and change in it stands.',
+  sections: [
+    {
+      title: 'What it shows',
+      points: [
+        'The open epic’s journey: its steps in order, each filed under one part of the epic, with the issues and changes it is about and where each stands.',
+        'A journey can be a tree: objectives with steps under them, which step waits on which, and phases such as Concepting or Finishing up.',
+        'Gates: what a step waits on that is not a step, such as a decision, access, or work with no issue.',
+        'The footer says how many steps are done or blocked, which step is next, and how much is picked on the canvas.',
+        'With All epics chosen, every epic’s journey in the project, read-only.',
+      ],
+    },
+    {
+      title: 'How to use it',
+      points: [
+        'Design a journey with /journey in Claude Code: the steps, what waits on what, and the phases.',
+        'Tick a step to pick its issues and changes on the canvas, so References and the other modules narrow to what it is about. Clear in the footer unpicks them.',
+        'Pick every step, in the View menu, picks every step’s references at once.',
+        'Press an issue or change to open it in the Browser beside Journeys, when the kehikko has one.',
+        'On a closed issue’s card, say why it closed: done, won’t do, duplicate of, or superseded by.',
+      ],
+    },
+    {
+      title: 'What agents can do',
+      points: [
+        'Write a journey’s steps (set_step, patch_step, patch_steps, move_step, remove_step), what blocks what (set_dependency), gates (set_gate, remove_gate) and its prose (set_journey).',
+        'Read journeys (list_journeys, get_journey) and name the first step free to start (next_step).',
+        'Bring the page to the step under discussion with focus_step, with one line beside it. Scrolling or picking takes the page back.',
+      ],
+    },
+    {
+      title: 'Rules',
+      points: [
+        'A journey is written by a person. An agent should read it before proposing work, and say which step is wrong rather than rewrite it.',
+        'Journeys are kept in the project, in .kehikot/journeys/journeys.json. Agents change them only through the tools, never by editing the file.',
+        'Where an issue stands is read from its tracker by Kehikot; nothing here reads a tracker itself.',
+      ],
+    },
+  ],
+}
 
 export const ID = 'kehikot.journeys'
 /** The module's version: package.json's, the one place it is written. A release is tagged with it. */
@@ -225,6 +271,9 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     'order is usually a step taken twice. Do not invent steps to match what you have already ' +
     'built. If the journey is wrong, name the step that is wrong and say why, and leave the ' +
     'rewriting to whoever wrote it.',
+  /* "How to use" (protocol 2.52.0), and the introduction (protocol 2.57.0). */
+  help: HELP,
+  intro,
   entry: '/app',
   /* What its content belongs to (protocol 2.29.0): one mode per scope, the default first. */
   modes: [
