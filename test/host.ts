@@ -1,3 +1,4 @@
+import { afterEach } from 'bun:test'
 import { MESSAGE, PROTOCOL } from 'kehikot-module-protocol'
 
 import { mirrored, withPart, withStep, withStepMoved, withoutStep, type Divided } from '../parts.ts'
@@ -212,6 +213,18 @@ type Request = { type: string; id: string; method: string; params: Record<string
 
 /** Something to be greeted by, and to read what the page says back to it. */
 /**
+ * Requests a case left without an answer. The page's client refuses an unanswered question after
+ * 12 seconds (`ANSWER_WITHIN_MS`) and the page then SAYS so; the whole suite shares one page
+ * module, so on a slow runner a timer left by an earlier case fired in a later one and replaced the
+ * line it was reading. Every case ends by answering what it left open, so nothing is left to fire.
+ */
+const unanswered = new Map<string, (data: unknown) => void>()
+afterEach(() => {
+  for (const [id, answer] of [...unanswered]) answer({ type: MESSAGE.RESPONSE, id, ok: true, data: null })
+  unanswered.clear()
+})
+
+/**
  * `parts` is what this host does with `parts.set`. `'older'` (the default) is
  * a host from before protocol 1.2.0: it answers at once that it does not know
  * the method, as a released host does, so every case written before the
@@ -224,12 +237,15 @@ export function stubHost(how: { parts?: 'older' | 'asked' } = {}) {
   const source = {
     postMessage: (message: Record<string, unknown>) => {
       said.push(message)
+      if (message.type === MESSAGE.REQUEST) unanswered.set(message.id as string, (data) => post(data))
       if (message.type === MESSAGE.REQUEST && message.method === 'parts.set' && (how.parts ?? 'older') === 'older') {
         queueMicrotask(() => post({ type: MESSAGE.RESPONSE, id: message.id, ok: false, reason: 'unknown-method', error: 'No such method.' }))
       }
     },
   }
   const post = (data: unknown) => {
+    const answering = data as { type?: string; id?: string }
+    if (answering.type === MESSAGE.RESPONSE && answering.id) unanswered.delete(answering.id)
     const event = new MessageEvent('message', { data, origin: 'http://localhost:7777' })
     Object.defineProperty(event, 'source', { value: source })
     window.dispatchEvent(event)
