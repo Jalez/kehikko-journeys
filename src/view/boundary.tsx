@@ -48,6 +48,41 @@ function same(a: unknown, b: unknown): boolean {
 
 export const PAGE_FAILED = 'Journeys stopped drawing this page.'
 
+/**
+ * The whole page, when it could not be drawn: the error in words and Reload. Drawn by `Boundary`'s
+ * `page` size and, through `mountPage`'s `fallback`, by the protocol's `ReportErrors` around the
+ * page, which also tells the host what failed (protocol 2.70.0).
+ */
+export function PageFailed({ error }: { error: unknown }) {
+  return (
+    <section
+      role="alert"
+      data-crashed="page"
+      className="mx-auto grid w-full max-w-[44rem] gap-2 px-3 py-6 text-[0.95rem] leading-7 text-foreground"
+    >
+      <p className="font-semibold">{PAGE_FAILED}</p>
+      <p className="text-[0.85rem] text-muted-foreground [overflow-wrap:anywhere]">
+        It failed with: <span className="font-mono text-[0.8rem] text-foreground">{errorWords(error)}</span>
+      </p>
+      <p className="text-[0.85rem] text-muted-foreground">
+        Your journeys are kept in the project and are not affected. Reloading draws the page again.
+      </p>
+      <div>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="rounded-md border px-3 py-1 text-[0.85rem] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          Reload
+        </button>
+      </div>
+    </section>
+  )
+}
+
+/** `mountPage`'s `fallback`: this page's own words for a render that threw. */
+export const pageFallback = (error: Error): ReactNode => <PageFailed error={error} />
+
 export class Boundary extends Component<BoundaryProps, Caught> {
   override state: Caught = { error: null, at: undefined }
 
@@ -69,32 +104,7 @@ export class Boundary extends Component<BoundaryProps, Caught> {
   override render(): ReactNode {
     const { error } = this.state
     if (!error) return this.props.children
-    if ((this.props.size ?? 'page') === 'page') {
-      return (
-        <section
-          role="alert"
-          data-crashed="page"
-          className="mx-auto grid w-full max-w-[44rem] gap-2 px-3 py-6 text-[0.95rem] leading-7 text-foreground"
-        >
-          <p className="font-semibold">{PAGE_FAILED}</p>
-          <p className="text-[0.85rem] text-muted-foreground [overflow-wrap:anywhere]">
-            It failed with: <span className="font-mono text-[0.8rem] text-foreground">{errorWords(error)}</span>
-          </p>
-          <p className="text-[0.85rem] text-muted-foreground">
-            Your journeys are kept in the project and are not affected. Reloading draws the page again.
-          </p>
-          <div>
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="rounded-md border px-3 py-1 text-[0.85rem] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
-            >
-              Reload
-            </button>
-          </div>
-        </section>
-      )
-    }
+    if ((this.props.size ?? 'page') === 'page') return <PageFailed error={error} />
     return (
       <p
         role="alert"

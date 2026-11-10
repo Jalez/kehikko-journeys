@@ -80,6 +80,7 @@ describe('the manifest a host reads', () => {
       'parts:set',
       'view:navigate',
       'address:open',
+      'state:keep',
     ])
     expect(MANIFEST.declares.uses).not.toContain('live:read')
     expect(MANIFEST.declares.uses).not.toContain('steps:read')
