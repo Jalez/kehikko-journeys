@@ -18,6 +18,7 @@ import {
   pick,
   reopenHeld,
   retry,
+  sayDrawn,
   setAdding,
   stepless,
   subscribe,
@@ -123,6 +124,13 @@ export function App() {
   }, [landed])
   const strays = heldStrays()
   const whole = cover !== null && cover !== 'no-epic'
+
+  /* Once what the page was opened for is on screen, the host's cover comes off (protocol 2.70.0).
+     Not gated on `visible`: the host keeps a covered page hidden, so that would wait forever. */
+  const drawn = drawnOf(state, cover)
+  useEffect(() => {
+    if (drawn) sayDrawn()
+  }, [drawn])
 
   return (
     <ReadingProvider
@@ -243,6 +251,23 @@ function wordsOf(text: string): string {
 }
 
 /** Which cover the page is under, if any. Pure, so every standing can be asserted without a host. */
+/**
+ * Whether the page shows what it was opened for, the moment to lift the host's cover (`ready()`).
+ * Still listening, or a project named and its journey not read yet, is not drawn; anything this page
+ * says in its own words (its cover's sentence, trouble, no project, the journey, the press that
+ * begins one, every journey of the project, or no epic open) is. Pure, for the tests.
+ */
+export function drawnOf(
+  state: Pick<ReturnType<typeof getSnapshot>, 'where' | 'journey' | 'epic' | 'unwritten' | 'trouble' | 'nowhere' | 'scope' | 'everything' | 'index'>,
+  cover: CoverState | null,
+): boolean {
+  if (state.where === 'listening') return false
+  if (cover !== null) return true
+  if (state.trouble || state.nowhere) return true
+  if (state.scope === 'project') return state.everything !== null
+  return state.journey !== null || (state.epic !== null && state.unwritten === state.epic)
+}
+
 export function coverOf(
   state: Pick<ReturnType<typeof getSnapshot>, 'where' | 'projectPath' | 'epic' | 'trouble'> & { scope?: 'epic' | 'project' },
   server: ReturnType<typeof useServerStanding>,

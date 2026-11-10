@@ -1,6 +1,3 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-
 import './index.css'
 /**
  * Imported for its side effect, and the order on this page is the whole point.
@@ -19,14 +16,16 @@ import './index.css'
  * has not run yet, which is the same bug wearing a bundler's clothes.
  */
 import 'kehikot-module-protocol/client'
+import { mountPage } from 'kehikot-module-protocol/client/mount'
+
 import { App } from './app.tsx'
 import { start } from './journeys.ts'
-import { Boundary } from './view/boundary.tsx'
+import { pageFallback } from './view/boundary.tsx'
 
 /**
  * The conversation, then React.
  *
- * `start` before `createRoot` for the reason above: it subscribes to the mailbox, and a greeting
+ * `start` before `mountPage` for the reason above: it subscribes to the mailbox, and a greeting
  * that has already arrived is replayed to it rather than lost — which cannot be true of anything
  * that first runs in an effect.
  *
@@ -36,14 +35,9 @@ import { Boundary } from './view/boundary.tsx'
  */
 start()
 
-const root = document.getElementById('root')
-if (root) {
-  createRoot(root).render(
-    <StrictMode>
-      {/* Nothing that throws while drawing may leave an empty dark frame behind (#39). */}
-      <Boundary>
-        <App />
-      </Boundary>
-    </StrictMode>,
-  )
-}
+/*
+ * `mountPage` (protocol 2.70.0): StrictMode, and the protocol's `ReportErrors` around the page, so a
+ * render that throws is told to the host and nothing leaves an empty dark frame behind (#39). Its
+ * fallback is this page's own words and Reload (`PageFailed`).
+ */
+mountPage('root', <App />, { fallback: pageFallback })

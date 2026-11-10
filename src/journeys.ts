@@ -166,8 +166,8 @@ export interface State {
    * Issues whose changes somebody has unfolded.
    *
    * Folded is the default, so this lists the exceptions. In memory and no
-   * further: remembering it across reloads would need `state:keep`, which
-   * this app does not declare, and a fold is cheap to redo.
+   * further: this app keeps no state of its own with the host (`state:keep` is
+   * declared for the protocol's kept view only), and a fold is cheap to redo.
    */
   unfolded: string[]
   /**
@@ -2238,7 +2238,13 @@ const host = hostStore(
   /* 900ms, this module's own number rather than the client's 500, because
      `goTo` above is async: it may have to load a journey before it can
      honestly say whether the reference is in it. */
-  { gotoBackstop: 900 },
+  {
+    gotoBackstop: 900,
+    /* The kept view (protocol 2.70.0): the scroll and the header's toggles come back per container.
+       Not "Pick every step": its value follows the canvas selection, which the host already keeps,
+       and pressing it back would pick or unpick references on the canvas. */
+    keepView: { except: ['pick-all'] },
+  },
 )
 host.subscribe(() => {
   const standing = host.get()
@@ -2283,6 +2289,18 @@ export async function retry(): Promise<void> {
   if (state.scope === 'project') return readEverything()
   await readIndex()
   if (!state.journey && standingOn) await open(standingOn)
+}
+
+/**
+ * The page is drawn: the host's cover comes off (protocol 2.70.0, `ready()`). Said once, when the
+ * page first shows what it was opened for (see `drawnOf` in `app.tsx`); never on visibility, since
+ * the host keeps a covered page hidden. Without it the host lifts the cover after `HOLD_COVER_MS`.
+ */
+let saidDrawn = false
+export function sayDrawn(): void {
+  if (saidDrawn) return
+  saidDrawn = true
+  host.ready()
 }
 
 export function grow(): void {

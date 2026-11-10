@@ -366,6 +366,8 @@ export const MANIFEST: Manifest = manifestSchema.parse({
       'view:navigate',
       /* A reference's link goes to the canvas's Browser (protocol 2.16.0), not a new tab. */
       'address:open',
+      /* The kept view (protocol 2.70.0): the container's scroll and header toggles, kept by the host. */
+      'state:keep',
     ],
     storage: true,
     /*

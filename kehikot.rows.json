@@ -1,0 +1,113 @@
+[
+  {
+    "name": "a journey, nothing picked",
+    "header": [
+      {
+        "kind": "toggle",
+        "id": "pick-all",
+        "label": "Pick every step",
+        "checked": false,
+        "agents": true
+      }
+    ],
+    "footer": [
+      {
+        "kind": "text",
+        "id": "next",
+        "text": "Next: 3. A reader sees what happened",
+        "align": "end",
+        "optional": true,
+        "tooltip": "Next: 3. A reader sees what happened"
+      },
+      {
+        "kind": "text",
+        "id": "progress",
+        "text": "2/5 done · 1 blocked",
+        "align": "end",
+        "tooltip": "2/5 done · 1 blocked."
+      }
+    ],
+    "state": true
+  },
+  {
+    "name": "every step picked, an agent pointing, the tracker being read",
+    "header": [
+      {
+        "kind": "toggle",
+        "id": "pick-all",
+        "label": "Pick every step",
+        "checked": true,
+        "agents": true
+      }
+    ],
+    "footer": [
+      {
+        "kind": "text",
+        "id": "status",
+        "text": "Reading the tracker…",
+        "level": "normal",
+        "tooltip": "Reading the tracker…"
+      },
+      {
+        "kind": "text",
+        "id": "pointed",
+        "text": "Step 2 · Two",
+        "tooltip": "Step 2 · Two: this one",
+        "optional": true
+      },
+      {
+        "kind": "text",
+        "id": "picked",
+        "text": "3 picked",
+        "align": "center",
+        "optional": true
+      },
+      {
+        "kind": "run",
+        "id": "clear",
+        "label": "Clear",
+        "icon": "x",
+        "align": "center",
+        "tooltip": "Clear the canvas selection — everything picked here and in any other container."
+      },
+      {
+        "kind": "text",
+        "id": "next",
+        "text": "Next: 3. A reader sees what happened",
+        "align": "end",
+        "optional": true,
+        "tooltip": "Next: 3. A reader sees what happened"
+      },
+      {
+        "kind": "text",
+        "id": "progress",
+        "text": "2/5 done · 1 blocked",
+        "align": "end",
+        "tooltip": "2/5 done · 1 blocked."
+      }
+    ],
+    "state": true
+  },
+  {
+    "name": "a journey whose steps name no reference",
+    "header": [],
+    "footer": [
+      {
+        "kind": "text",
+        "id": "next",
+        "text": "Next: 1. One",
+        "align": "end",
+        "optional": true,
+        "tooltip": "Next: 1. One"
+      },
+      {
+        "kind": "text",
+        "id": "progress",
+        "text": "0/2 done",
+        "align": "end",
+        "tooltip": "0/2 done."
+      }
+    ],
+    "state": true
+  }
+]
