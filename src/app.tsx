@@ -19,6 +19,7 @@ import {
   reopenHeld,
   retry,
   sayDrawn,
+  sayLoading,
   setAdding,
   stepless,
   subscribe,
@@ -125,11 +126,13 @@ export function App() {
   const strays = heldStrays()
   const whole = cover !== null && cover !== 'no-epic'
 
-  /* Once what the page was opened for is on screen, the host's cover comes off (protocol 2.70.0).
-     Not gated on `visible`: the host keeps a covered page hidden, so that would wait forever. */
+  /* Once what the page was opened for is on screen, the host's cover comes off (protocol 2.70.0);
+     while a switch is being read, it may go up again in this module's words (2.84.0). Not gated on
+     `visible`: the host keeps a covered page hidden, so that would wait forever. */
   const drawn = drawnOf(state, cover)
   useEffect(() => {
     if (drawn) sayDrawn()
+    else sayLoading()
   }, [drawn])
 
   return (
