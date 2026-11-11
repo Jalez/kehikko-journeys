@@ -147,7 +147,7 @@ export function App() {
         openAddress: addressOpener(),
       }}
     >
-      <div className="mx-auto w-full max-w-[44rem] px-3 pt-3 pb-12 @min-[26rem]/container:px-4 @min-[26rem]/container:pt-4">
+      <div data-kehikot-page className="mx-auto w-full max-w-[44rem] px-3 pt-3 pb-12 @min-[26rem]/container:px-4 @min-[26rem]/container:pt-4">
         {cover && (
           <Cover
             state={cover}
