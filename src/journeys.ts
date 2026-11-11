@@ -2292,15 +2292,25 @@ export async function retry(): Promise<void> {
 }
 
 /**
- * The page is drawn: the host's cover comes off (protocol 2.70.0, `ready()`). Said once, when the
- * page first shows what it was opened for (see `drawnOf` in `app.tsx`); never on visibility, since
- * the host keeps a covered page hidden. Without it the host lifts the cover after `HOLD_COVER_MS`.
+ * The page is drawn: the host's cover comes off (protocol 2.70.0, `ready()`). Said when the page
+ * shows what it was opened for (see `drawnOf` in `app.tsx`); never on visibility, since the host
+ * keeps a covered page hidden. Without it the host lifts the cover after `HOLD_COVER_MS`. Saying it
+ * again for a page already drawn does nothing.
  */
-let saidDrawn = false
 export function sayDrawn(): void {
-  if (saidDrawn) return
-  saidDrawn = true
   host.ready()
+}
+
+/** What the host's cover says while this page reads a journey: on the first load, and after a switch. */
+export const LOADING_JOURNEY = 'Loading the journey…'
+
+/**
+ * The page is reading what a new epic or project asks for (protocol 2.84.0, `loading()`): the host
+ * covers it with this module's icon and `LOADING_JOURNEY` if it is not drawn within a moment, so a
+ * quick switch does not flash. The first load's cover says the same.
+ */
+export function sayLoading(): void {
+  host.loading(LOADING_JOURNEY)
 }
 
 export function grow(): void {
