@@ -99,7 +99,7 @@ function skillOrigin(): Plugin {
  * happily and runs nothing in it — the frame's `load` fires, the host greets
  * it, and nothing answers. This repository now HAS a `src/app.tsx`, which is
  * exactly that collision, so the order below is load-bearing rather than
- * defensive: `/app` is claimed before Vite's resolver ever sees it. Atlas lost
+ * defensive: `/app` is claimed before Vite's resolver ever sees it. Another module lost
  * half a day to this before it was written down.
  *
  * ## No `tailwind.config.js`, and there must not be one

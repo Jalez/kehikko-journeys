@@ -213,7 +213,7 @@ describe('a step and its part, through the doors', () => {
   })
 
   /**
-   * `file` set a part's chapter until a part's chapter became the Paper
+   * `file` set a part's chapter until a part's chapter became a document
    * module's to keep. For one release it is still accepted, changes nothing,
    * and is SAID to have changed nothing; a document already in a record is
    * carried as it is, because a released host still reads it there.

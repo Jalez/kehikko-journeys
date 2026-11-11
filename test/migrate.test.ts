@@ -124,7 +124,7 @@ describe('the migration itself', () => {
 
   /**
    * The fields this app carries and never draws. `quizzes` and `vocabulary` are
-   * the Learning app's, `owners` and `groups` are the ownership table's, and a
+   * another module's, `owners` and `groups` are the ownership table's, and a
    * migration that dropped them would be destroying material in the course of
    * moving material.
    */

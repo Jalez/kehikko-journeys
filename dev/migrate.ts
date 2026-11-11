@@ -12,7 +12,7 @@ import { type Journey, journeySchema, makeDir, dataFile, held, isSlug } from '..
  *
  * ## Why this is a script and not a migration on read
  *
- * Checklist's store migrates on read, and its reasoning is good: a migration
+ * Another module's store migrates on read, and its reasoning is good: a migration
  * that has to be RUN is a migration the person who needed it never runs,
  * because they did not know it existed. It does not apply here, and the reason
  * is the whole difference between the two moves.

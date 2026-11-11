@@ -208,7 +208,7 @@ describe('what is not a reason to read again', () => {
   test('another module’s material, or the host’s own epics', async () => {
     const { context } = await framed()
     const before = store.asked.length
-    context([changed(T1, 'probe', 'kehikot.references'), changed(T1, 'probe', CONTENT_HOST)])
+    context([changed(T1, 'probe', 'kehikot.example'), changed(T1, 'probe', CONTENT_HOST)])
     await settle()
     expect(store.asked.length).toBe(before)
   })

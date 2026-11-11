@@ -20,7 +20,7 @@ import { reading, row } from './reading.ts'
 /**
  * A journey as a tree: what `/journey` designs, what Journeys keeps of it (`under`, `after`,
  * `issue` on a step), what comes next, and where each step stands — its board column and the
- * Factory's stage. And the skill itself, as a host is served it.
+ * stage of the work running on it. And the skill itself, as a host is served it.
  */
 
 afterEach(() => {

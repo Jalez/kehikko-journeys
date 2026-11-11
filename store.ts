@@ -98,7 +98,7 @@ import { stepPart } from './src/part.ts'
  *
  * ## What is carried but not drawn, and what is carried without being known
  *
- * `quizzes` and `vocabulary` are the Learning app's material and `owners` is
+ * `quizzes` and `vocabulary` are another module's material and `owners` is
  * the ownership table's. They are in the schema and written back untouched.
  * `groups` used to be on that list and no longer is: a host reads a group as a
  * PART of the epic, a step may say which part it is in (`part`), and a group
@@ -247,7 +247,7 @@ export function makeDir(projectPath: string | null | undefined): { dir: string |
 
   /* Whether the `.kehikot` folder is new decides whether the `.gitignore` is
      written, and this app's own folder inside it is not the same question: a
-     project where Notes ran first already has `.kehikot` and already has the
+     project where another module ran first already has `.kehikot` and already has the
      ignore line, and adding a second copy of it because THIS module's folder is
      new would be the duplicate the whole idempotence argument is about. */
   const fresh = !existsSync(join(root.path, KEHIKOT_DIR))
@@ -470,7 +470,7 @@ export const quizSchema = z
       .passthrough()
       .optional(),
   })
-  /* Carried, not rendered: quizzes are the Learning app's. Held loosely on
+  /* Carried, not rendered: quizzes are another module's. Held loosely on
      purpose — the refinement Kehikot puts on `passage` is a rule about
      material this app never draws, and enforcing somebody else's invariant on
      the read path is how a store refuses to open a file it has no opinion

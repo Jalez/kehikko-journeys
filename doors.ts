@@ -77,7 +77,7 @@ import {
  *
  * ## The store is still this app's own, and that is the whole point
  *
- * Unlike Atlas and References, which draw everything the host hands them, this
+ * Unlike a module that draws everything the host hands it, this
  * app HOLDS the journeys. `/api/journeys` and `/api/journey` read them; `/api/step`
  * and `/api/dependency` write them. None of it involves a host, and the page is
  * fully drawn before a single bridge message is read. The extraction is only a
@@ -100,8 +100,8 @@ import {
  *
  * The page is told which project by the host, in `kehikot.context.projectPath`.
  * An agent over MCP is not told anything and must say, and is refused with a
- * sentence when it does not. This is the argument `quiz/projects.ts` makes in
- * the Learning module, made again here because the conclusion is the same one
+ * sentence when it does not. This is an argument another module made first,
+ * made again here because the conclusion is the same one
  * and a second module quietly reaching a different one is how a convention
  * stops being a convention.
  */
@@ -1584,8 +1584,7 @@ function stepsSaid(journey: Journey, keeper: Keeper, unsettled: boolean): string
  * The project an MCP caller named, or a refusal saying to name one.
  *
  * Refused rather than defaulted. See the head of this file for why each
- * available default is wrong, and `quiz/projects.ts` in the Learning module for
- * the same argument made first.
+ * available default is wrong.
  */
 function projectArg(value: unknown): { project: string } | { error: string } {
   const named = str(value, MAX_PROJECT)

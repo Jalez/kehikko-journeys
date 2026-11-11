@@ -27,12 +27,14 @@ function files(dir: string): string[] {
   })
 }
 
-const OTHERS = ['paper', 'review', 'checklist', 'factory', 'flows', 'slides', 'screenplay', 'source', 'diff', 'notes', 'history', 'queue', 'browser', 'explorer', 'learning', 'notifications', 'claude', 'codex']
+const OTHERS = ['paper', 'review', 'checklist', 'factory', 'flows', 'slides', 'screenplay', 'source', 'diff', 'notes', 'history', 'queue', 'browser', 'explorer', 'learning', 'notifications', 'claude', 'codex', 'references', 'kanban', 'citations', 'orchestrator', 'terminal', 'atlas', 'monitor', 'worktrees', 'antigravity', 'opencode', 'vibe', 'calls']
 const NEIGHBOURS: [string, RegExp][] = [
   ['another module’s id', new RegExp(`\\b(?:kehikot|roadmap)\\.(?:${OTHERS.join('|')})\\b`)],
   ['another module’s data folder', new RegExp(`\\.kehikot/(?:${OTHERS.join('|')})\\b`)],
+  ['another module’s MCP tools', new RegExp(`mcp__(?:${OTHERS.join('|')})__`)],
   ['a provider’s route spelled here', /['"`]\/api\/jobs\b/],
-  ['another module by name', /\b(?:Factory|Flows|Screenplay)\b/],
+  /* Names that are only ever a module's. "References", "Notes" and "Source" are also plain words here. */
+  ['another module by name', /\b(?:Factory|Flows|Screenplay|Browser|Checklist|Learning|Atlas|Kanban|Citations|Orchestrator|Notifications|Paper|Reviews?|Diff|Explorer|Slides)\b/],
 ]
 
 describe('no neighbours named', () => {
@@ -42,6 +44,18 @@ describe('no neighbours named', () => {
       readFileSync(path, 'utf8').split('\n').forEach((line, i) => {
         for (const [what, pattern] of NEIGHBOURS) if (pattern.test(line)) hits.push(`${relative(ROOT, path)}:${i + 1} ${what}: ${line.trim().slice(0, 120)}`)
       })
+    }
+    expect(hits).toEqual([])
+  })
+
+  test('the docs and the seed journeys name no other module either', () => {
+    const hits: string[] = []
+    for (const dir of ['docs', 'seed']) {
+      for (const name of readdirSync(join(ROOT, dir))) {
+        readFileSync(join(ROOT, dir, name), 'utf8').split('\n').forEach((line, i) => {
+          for (const [what, pattern] of NEIGHBOURS) if (pattern.test(line)) hits.push(`${dir}/${name}:${i + 1} ${what}: ${line.trim().slice(0, 120)}`)
+        })
+      }
     }
     expect(hits).toEqual([])
   })

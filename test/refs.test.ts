@@ -94,7 +94,7 @@ describe('telling one selection from the one before it', () => {
  *
  * The failure these guard has no symptom of its own: a toggle that added when
  * it should have removed looks like a checkbox that will not untick, and a
- * toggle that dropped a neighbour's pick looks like References forgetting a
+ * toggle that dropped a neighbour's pick looks like a list of references forgetting a
  * row. Both would be blamed on the host, which is the one party that did
  * nothing.
  */
