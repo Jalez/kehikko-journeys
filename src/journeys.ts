@@ -36,7 +36,7 @@ import { get, post, standIn, standingIn as projectStanding } from './store/api.t
 import { treeOf } from './tree.ts'
 import type { Pointing } from '../wire/pointing.ts'
 import { follower, streamFor } from './following.ts'
-import type { FactoryJob } from './kinds.ts'
+import type { Work, WorkJob } from './kinds.ts'
 
 /**
  * The browser half of the app: everything it holds, and everything it decides.
@@ -132,10 +132,11 @@ export interface State {
   /** The host's shared tracker reading for this journey's refs, or null. */
   live: Live | null
   /**
-   * Where the Factory module has each step's issue, by issue: its newest job. Empty with no Factory,
-   * or none for these issues. Read through this app's server (`/api/factory`, `factory.ts`).
+   * The work on each step's issue, by issue: its newest job, and the name of what runs it, from
+   * whichever module provides `work.status`. Null with nothing providing it, or nothing for these
+   * issues. Read through this app's server (`/api/work`, `work.ts`).
    */
-  factory: Record<string, FactoryJob>
+  work: Work | null
   /**
    * Whether the trackers are being read again right now: by a press on this
    * container, or by anybody in this project, as `context.tracker.refreshing`
@@ -286,7 +287,7 @@ let state: State = {
   journey: null,
   epic: null,
   live: null,
-  factory: {},
+  work: null,
   busy: false,
   withheld: null,
   readFailed: null,
@@ -1485,7 +1486,7 @@ async function reload(): Promise<void> {
  */
 async function fill(): Promise<void> {
   const being = state.journey
-  void readFactory()
+  void readWork()
   if (!greeted() || !being) return
   /*
    * An answer to a question nobody is waiting on any more is dropped, and
@@ -1553,48 +1554,47 @@ async function fill(): Promise<void> {
 }
 
 /**
- * Where the Factory has this journey's step issues (`factory.ts` on the server). Read with every
- * `fill`, and every half minute while a journey with issues is open and the page is shown
- * (`followFactory`), since a job moves on its own clock and nothing can tell this page. No Factory:
- * an empty map, and the steps show nothing for it.
+ * The work on this journey's step issues (`work.ts` on the server), from whichever module provides
+ * `work.status`. Read with every `fill`, and every half minute while a journey with issues is open
+ * and the page is shown (`followWork`), since a job moves on its own clock and nothing can tell this
+ * page. Nothing providing it: null, and the steps show nothing for it.
  */
-async function readFactory(): Promise<void> {
+async function readWork(): Promise<void> {
   const being = state.journey
   if (!being) return
   const issues = [...new Set(treeOf(being.steps).map((node) => node.issue).filter((one): one is string => !!one))]
   if (!issues.length) {
-    if (Object.keys(state.factory).length) set({ factory: {} })
+    if (state.work) set({ work: null })
     return
   }
   try {
-    const out = await get<{ ok: boolean; jobs?: Record<string, FactoryJob> }>('/api/factory', { refs: issues.join(',') })
+    const out = await get<{ ok: boolean; work?: string | null; jobs?: Record<string, WorkJob> }>('/api/work', { refs: issues.join(',') })
     if (state.journey !== being) return
-    const jobs = out.ok && out.jobs ? out.jobs : {}
-    if (JSON.stringify(jobs) !== JSON.stringify(state.factory)) set({ factory: jobs })
+    const work: Work | null = out.ok && typeof out.work === 'string' && out.work ? { name: out.work, jobs: out.jobs ?? {} } : null
+    if (JSON.stringify(work) !== JSON.stringify(state.work)) set({ work })
   } catch {
     /* No answer is no job. */
   }
 }
 
-/** The steps' issues the Factory could have a job for; none means nothing to ask about. */
+/** The steps' issues work could be running for; none means nothing to ask about. */
 function issuesOf(journey: JourneyView | null): boolean {
   return !!journey && treeOf(journey.steps).some((node) => !!node.issue)
 }
 
-/** How often the Factory's stages are asked again while a journey with issues is open and shown. */
-export const FACTORY_EVERY_MS = 30_000
+/** How often the work's stages are asked again while a journey with issues is open and shown. */
+export const WORK_EVERY_MS = 30_000
 
 /**
- * Ask `/api/factory` again on a clock, but only while it can matter: a journey with issues is open
+ * Ask `/api/work` again on a clock, but only while it can matter: a journey with issues is open
  * and the page is shown. Hidden, or no such journey: no timer at all. Shown again: one read at once,
  * then the clock again.
  *
- * Why a clock at all: a job moves on the Factory's own clock and the one thing that says so, the
- * Factory's `/api/watch` stream, is fenced to the Factory's own page (it checks the ticket printed
- * into that page), so this module's server cannot follow it and republish. An unticketed, read-only
- * watch on the Factory would let this go; that is a change to the Factory.
+ * Why a clock at all: a job moves on its provider's own clock, and the service says no stream to
+ * follow, so this module's server cannot follow it and republish. A read-only watch in the
+ * `work.status` service would let this go; that is a change to the protocol.
  */
-function followFactory(): void {
+function followWork(): void {
   let timer: ReturnType<typeof setInterval> | null = null
   const wanted = () => typeof document !== 'undefined' && !document.hidden && !!projectStanding() && issuesOf(state.journey)
   const check = () => {
@@ -1604,14 +1604,14 @@ function followFactory(): void {
       timer = null
       return
     }
-    timer = setInterval(() => void readFactory(), FACTORY_EVERY_MS)
+    timer = setInterval(() => void readWork(), WORK_EVERY_MS)
   }
   subscribe(check)
   document.addEventListener('visibilitychange', () => {
     const was = timer !== null
     check()
     /* Shown again: what moved while it was hidden is read now, not a clock later. */
-    if (!was && timer !== null) void readFactory()
+    if (!was && timer !== null) void readWork()
   })
   check()
 }
@@ -2847,7 +2847,7 @@ function followPointer(): void {
 export function start(): void {
   host.start()
   followPointer()
-  followFactory()
+  followWork()
 
   const where = fromHash()
   /*

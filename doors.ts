@@ -20,7 +20,7 @@ import {
   stepGates,
   type Gate,
 } from './src/gates.ts'
-import { factoryStages } from './factory.ts'
+import { workStages } from './work.ts'
 
 import { JOURNEYS_KEEP, listedBy, type Keeper } from './keeper.ts'
 import { PART_ID, manifestSchema, slugFrom, type Manifest } from 'kehikot-module-protocol'
@@ -2559,13 +2559,14 @@ export async function answer(
   }
   if (refusal !== null) return refused(refusal)
 
-  /* Where the Factory has each of these issues (`factory.ts`). Async, so here rather than in
-     `answerAt`; a read, so ungated like the other reads. */
-  if (path === '/api/factory' && method === 'GET') {
+  /* What stage the work on each of these issues is at, from whichever module provides `work.status`
+     (`work.ts`), with what it is called. Async, so here rather than in `answerAt`; a read, so ungated
+     like the other reads. */
+  if (path === '/api/work' && method === 'GET') {
     const project = str(asked.get('project'), MAX_PROJECT)
     if (!project) return bad('which project?')
     const refs = (asked.get('refs') ?? '').split(',').map((one) => one.trim().slice(0, MAX_REF)).filter(Boolean)
-    return ok({ ok: true, ...(await factoryStages(project, refs)) })
+    return ok({ ok: true, ...(await workStages(project, refs)) })
   }
 
   const reply = answerAt(method, path, asked, sent, ticket)

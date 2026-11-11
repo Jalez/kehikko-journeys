@@ -9,8 +9,8 @@ import { ID } from './manifest.ts'
  *
  * A host no longer reads `journeys.json` for an epic's steps once this module
  * has a `steps.json` beside it: it takes the union of every module's
- * `steps.json` (`readPlans`) and answers `steps.list` from that, so Flows,
- * Factory and the rest read whichever module keeps steps, not this one's file.
+ * `steps.json` (`readPlans`) and answers `steps.list` from that, so the other
+ * modules read whichever module keeps steps, not this one's file.
  * `journeys.json` stays this module's own store; `steps.json` is what it
  * publishes from it, after every write, the way `parts.json` is.
  *
