@@ -22,9 +22,9 @@ export const HELP = {
       title: 'How to use it',
       points: [
         'Design a journey with /journey in Claude Code: the steps, what waits on what, and the phases.',
-        'Tick a step to pick its issues and changes on the canvas, so References and the other modules narrow to what it is about. Clear in the footer unpicks them.',
+        'Tick a step to pick its issues and changes on the canvas, so the other modules narrow to what it is about. Clear in the footer unpicks them.',
         'Pick every step, in the View menu, picks every step’s references at once.',
-        'Press an issue or change to open it in the Browser beside Journeys, when the kehikko has one.',
+        'Press an issue or change to open it in a page viewer beside it, when the kehikko has one.',
         'On a closed issue’s card, say why it closed: done, won’t do, duplicate of, or superseded by.',
       ],
     },
