@@ -22,7 +22,7 @@ import { nextOf, statusOf, statusSaid, treeOf } from '../live/status.ts'
 
 /**
  * Where a step sits in the journey's tree and where its issue stands: "Next", what it is under and
- * after, the board column (or open/closed), and the Factory's stage. Text, each with a shape before
+ * after, the board column (or open/closed), and the stage its work is at, said with what runs it. Text, each with a shape before
  * it, so nothing is told by colour alone. Nothing is drawn for a journey that is a plain list with
  * no issues: there is nothing to say.
  */
@@ -36,7 +36,7 @@ export function StepPlace({ index }: { index: number }) {
   const around = aroundOf(reading)
   const next = nextOf(journey, reading.live, around)
   const isNext = next?.node?.id === node.id
-  const status = statusOf(reading.live, node, reading.factory ?? {}, around)
+  const status = statusOf(reading.live, node, reading.work ?? null, around)
   const titleOf = (id: string) => nodes.find((one) => one.id === id)?.title ?? id
   const bits: { key: string; mark: string; text: string; title?: string }[] = []
   if (isNext) bits.push({ key: 'next', mark: '▶', text: 'Next', title: 'The first step not done whose prerequisites are all done.' })
@@ -51,7 +51,7 @@ export function StepPlace({ index }: { index: number }) {
       title: status.column ? `Column “${status.column.name}” on the board “${status.column.board}”.` : 'The tracker’s state; the issue is on no board the host read.',
     })
   }
-  if (status.stage) bits.push({ key: 'stage', mark: '⚙', text: `Factory: ${status.stage}`, title: 'Where the Factory module’s job for this issue is.' })
+  if (status.stage && status.by) bits.push({ key: 'stage', mark: '⚙', text: `${status.by}: ${status.stage}`, title: `Where ${status.by}’s work for this issue is.` })
   if (!bits.length) return null
   return (
     <p

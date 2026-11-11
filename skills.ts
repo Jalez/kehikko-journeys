@@ -16,7 +16,7 @@ import { PREFERRED_PORT } from './manifest.ts'
  * skill's version. A host shows the text and installs it on a person's press; this module installs
  * nothing. The version is the first twelve hex digits of the sha256 of the text with the origin
  * filled in and `{{version}}` not, so a changed template or a moved port makes an installed copy
- * outdated. The same scheme as the Claude and Factory modules.
+ * outdated. The same scheme as other modules that offer skills.
  */
 
 export const PLUGIN_DIR = join(import.meta.dirname, 'plugin')

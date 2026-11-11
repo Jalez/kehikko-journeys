@@ -25,3 +25,10 @@ const ANSWER_WITHIN_MS = 12_000
 const realSetTimeout = globalThis.setTimeout
 globalThis.setTimeout = ((handler: TimerHandler, delay?: number, ...rest: unknown[]) =>
   realSetTimeout(handler, delay === ANSWER_WITHIN_MS ? delay * 1000 : delay, ...rest)) as typeof setTimeout
+
+/* No case asks a real host which module runs work per issue (`services.find` would otherwise go to
+   the protocol's default origins: the person's running app). Nothing provides it unless a case
+   stands one in. */
+/* Imported here, after the document exists: a static import would be hoisted above it. */
+const { WORK } = await import('../work.ts')
+WORK.find = async () => null

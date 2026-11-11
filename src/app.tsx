@@ -136,7 +136,7 @@ export function App() {
     <ReadingProvider
       value={{
         live: state.live,
-        factory: state.factory,
+        work: state.work,
         journey: state.journey,
         framed: state.framed,
         withheld: state.withheld,

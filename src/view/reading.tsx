@@ -5,7 +5,7 @@ import type { Facet } from 'kehikot-module-protocol/facets'
 
 import type { OpenAddress } from '../lib/links.ts'
 
-import type { FactoryJob, JourneyView, Live } from '../kinds.ts'
+import type { JourneyView, Live, Work } from '../kinds.ts'
 import type { Around } from '../live/lookup.ts'
 
 /**
@@ -38,8 +38,8 @@ export interface Reading {
   hidden?: readonly Facet[]
   /** Issues whose changes somebody has unfolded. Folded is the default. */
   unfolded?: readonly string[]
-  /** The Factory's newest job per step issue. Absent or empty: nothing to show. */
-  factory?: Readonly<Record<string, FactoryJob>>
+  /** The work on the step issues: what runs it and its newest job per issue. Absent or null: nothing to show. */
+  work?: Work | null
   /** The step an agent has pointed this page at (`focus_step`), with its line; absent when none. */
   pointed?: { step: number; say: string; slug: string } | null
   /** Hands a web address to the canvas (`address.open`); absent when the host does not answer it. */

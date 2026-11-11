@@ -368,6 +368,9 @@ export const MANIFEST: Manifest = manifestSchema.parse({
       'address:open',
       /* The kept view (protocol 2.70.0): the container's scroll and header toggles, kept by the host. */
       'state:keep',
+      /* Which module runs work per issue (`work.status`, protocol 2.81.0): the server finds it through
+         the host and asks it for each step's stage (`work.ts`), never naming it. */
+      'services:read',
     ],
     storage: true,
     /*

@@ -7,11 +7,11 @@ import { cleanup, render } from '@testing-library/react'
 import { KEHIKOT_DIR, moduleFolder, skillPath, skillTextIssue } from 'kehikot-module-protocol'
 
 import { MANIFEST, answerAt as answer, servingAt } from '../doors.ts'
-import { factoryStages, jobsIn, newest } from '../factory.ts'
+import { workStages, jobsIn, newest, type WorkAsk } from '../work.ts'
 import { ID } from '../manifest.ts'
 import { skillDeclarations, skillTemplate, skillText } from '../skills.ts'
 import type { JourneyView, Step } from '../src/kinds.ts'
-import { nextOf, statusOf } from '../src/live/status.ts'
+import { nextOf, statusOf, statusSaid } from '../src/live/status.ts'
 import { cycleIn, doneOf, nextStep, treeOf } from '../src/tree.ts'
 import { ReadingProvider } from '../src/view/reading.tsx'
 import { StepPlace } from '../src/view/step.tsx'
@@ -200,10 +200,11 @@ describe('where a step stands', () => {
     expect(statusOf(live, treeOf(STEPS)[1]!)).toMatchObject({ column: null, state: 'closed', done: true })
   })
 
-  test('the Factory’s stage, when it has a job for the issue, and nothing when it has none', () => {
+  test('the stage of the work, and what runs it, when it has a job for the issue, and nothing when it has none', () => {
     const job = { id: 'j1', ref: 'gh#2', stage: 'reviewing' }
-    expect(statusOf(null, treeOf(STEPS)[2]!, { 'gh#2': job }).stage).toBe('reviewing')
-    expect(statusOf(null, treeOf(STEPS)[1]!, { 'gh#2': job }).stage).toBeNull()
+    expect(statusOf(null, treeOf(STEPS)[2]!, { name: 'Runner', jobs: { 'gh#2': job } })).toMatchObject({ stage: 'reviewing', by: 'Runner' })
+    expect(statusOf(null, treeOf(STEPS)[1]!, { name: 'Runner', jobs: { 'gh#2': job } })).toMatchObject({ stage: null, by: null })
+    expect(statusSaid(statusOf(null, treeOf(STEPS)[2]!, { name: 'Runner', jobs: { 'gh#2': job } }))).toContain('; Runner: reviewing')
   })
 
   test('drawn as text with a shape: Next, the column, the stage', () => {
@@ -211,54 +212,56 @@ describe('where a step stands', () => {
       row('gh#1', { state: 'closed', column: { name: 'Done', board: 'Roadmap' } }),
       row('gh#2', { state: 'open', column: { name: 'In progress', board: 'Roadmap' } }),
     ])
-    const factory = { 'gh#2': { id: 'j', ref: 'gh#2', stage: 'building' } }
+    const work = { name: 'Runner', jobs: { 'gh#2': { id: 'j', ref: 'gh#2', stage: 'building' } } }
     expect(nextOf(VIEW, live)?.node?.id).toBe('api')
     const shown = render(
-      <ReadingProvider value={{ live, journey: VIEW, factory }}>
+      <ReadingProvider value={{ live, journey: VIEW, work }}>
         <StepPlace index={2} />
       </ReadingProvider>,
     )
     const text = shown.container.textContent ?? ''
     expect(text).toContain('Next')
     expect(text).toContain('gh#2 · In progress')
-    expect(text).toContain('Factory: building')
+    expect(text).toContain('Runner: building')
+    expect(shown.container.querySelector('[title="Where Runner’s work for this issue is."]')).not.toBeNull()
     expect(text).toContain('after “The schema holds shares”')
     expect(shown.container.querySelector('[data-next]')).not.toBeNull()
   })
 
-  test('no Factory: no stage drawn', () => {
+  test('nothing running work: no stage drawn', () => {
     const shown = render(
       <ReadingProvider value={{ live: reading([]), journey: VIEW }}>
         <StepPlace index={1} />
       </ReadingProvider>,
     )
-    expect(shown.container.textContent).not.toContain('Factory')
+    expect(shown.container.textContent).not.toContain('⚙')
   })
 })
 
-describe('the Factory, read from its registered origin', () => {
-  test('its jobs, in any of the shapes it may answer with', () => {
+describe('the work, from whichever module provides work.status', () => {
+  test('its jobs, as the service answers them; another issue’s are left out', () => {
     const job = { id: 'a', title: 't', ref: 'gh#2', stage: 'building', column: 'In progress', place: {}, updatedAt: '2026-10-20T10:00:00Z' }
-    expect(jobsIn([job], 'gh#2')).toHaveLength(1)
     expect(jobsIn({ jobs: [job] }, 'gh#2')[0]).toMatchObject({ stage: 'building', column: 'In progress' })
-    expect(jobsIn(job, 'gh#2')).toHaveLength(1)
     expect(jobsIn({ jobs: [{ ...job, ref: 'gh#9' }] }, 'gh#2')).toHaveLength(0)
-    expect(newest([{ ...job, id: 'old', updatedAt: '2026-01-01' }, job].map((one) => jobsIn(one, 'gh#2')[0]!))?.id).toBe('a')
+    expect(jobsIn([job], 'gh#2')).toHaveLength(0)
+    expect(newest([{ ...job, id: 'old', updatedAt: '2026-01-01' }, job].map((one) => jobsIn({ jobs: [one] }, 'gh#2')[0]!))?.id).toBe('a')
   })
 
-  test('no Factory registered is no Factory, and one that fails is no job', async () => {
-    expect(await factoryStages('/p', ['gh#2'], { origin: () => null, fetch: async () => null })).toEqual({ factory: false, jobs: {} })
-    const asked: string[] = []
-    const out = await factoryStages('/p', ['gh#2', 'gh#3'], {
-      origin: () => 'http://127.0.0.1:8040',
-      fetch: async (url) => {
-        asked.push(url)
-        if (url.includes('gh%233')) throw new Error('down')
+  test('nothing providing it is no work; the provider is asked at its descriptor’s route by the id the host answered; one that fails is no job', async () => {
+    const asked: { module: string; path: string }[] = []
+    const none: WorkAsk = { find: async () => null, fetch: async (module, path) => (asked.push({ module, path }), null) }
+    expect(await workStages('/p', ['gh#2'], none)).toEqual({ work: null, jobs: {} })
+    expect(asked).toEqual([])
+    const out = await workStages('/p', ['gh#2', 'gh#3'], {
+      find: async () => ({ module: 'kehikot.anything', name: 'Runner', jobs: '/api/runs' }),
+      fetch: async (module, path) => {
+        asked.push({ module, path })
+        if (path.includes('gh%233')) throw new Error('down')
         return { jobs: [{ id: 'j', ref: 'gh#2', stage: 'judging' }] }
       },
     })
-    expect(out).toEqual({ factory: true, jobs: { 'gh#2': { id: 'j', ref: 'gh#2', stage: 'judging', title: undefined, column: undefined, updatedAt: undefined } } })
-    expect(asked[0]).toBe('http://127.0.0.1:8040/api/jobs?ref=gh%232&projectPath=%2Fp')
+    expect(out).toEqual({ work: 'Runner', jobs: { 'gh#2': { id: 'j', ref: 'gh#2', stage: 'judging' } } })
+    expect(asked[0]).toEqual({ module: 'kehikot.anything', path: '/api/runs?ref=gh%232&projectPath=%2Fp' })
   })
 })
 

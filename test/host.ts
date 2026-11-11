@@ -45,11 +45,11 @@ export const PROJECT = '/Users/somebody/Projects/probe'
  */
 export const store = {
   journey: JOURNEY as typeof JOURNEY,
-  /** Every request, in order, as `METHOD /path?query`. Not `/api/factory`: see `factoryAsked`. */
+  /** Every request, in order, as `METHOD /path?query`. Not `/api/work`: see `workAsked`. */
   asked: [] as string[],
-  /** Every `/api/factory` read, and what it answers: the Factory's job per issue. */
-  factoryAsked: [] as string[],
-  factory: {} as Record<string, { id: string; ref: string; stage: string }>,
+  /** Every `/api/work` read, and what it answers: what runs the work (null: nothing) and its job per issue. */
+  workAsked: [] as string[],
+  work: null as { name: string; jobs: Record<string, { id: string; ref: string; stage: string }> } | null,
   /** How many times one journey has been read. */
   reads: () => store.asked.filter((line) => line.startsWith('GET /api/journey?')).length,
   hold: (): (() => void) => {
@@ -88,8 +88,8 @@ export const store = {
     store.fail = null
     store.begun = []
     store.arranged = []
-    store.factoryAsked = []
-    store.factory = {}
+    store.workAsked = []
+    store.work = null
     held = null
   },
 }
@@ -107,11 +107,11 @@ function viewed(): Record<string, unknown> {
 function stubStore() {
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input)
-    /* The Factory's stages are read beside the journey on their own clock (`readFactory`); they are
+    /* The work's stages are read beside the journey on their own clock (`readWork`); they are
        counted apart, so a case about what the journey asks is not about them. */
-    if (url.includes('/api/factory?')) {
-      store.factoryAsked.push(url)
-      return new Response(JSON.stringify({ ok: true, factory: Object.keys(store.factory).length > 0, jobs: store.factory }), { headers: { 'content-type': 'application/json' } })
+    if (url.includes('/api/work?')) {
+      store.workAsked.push(url)
+      return new Response(JSON.stringify({ ok: true, work: store.work?.name ?? null, jobs: store.work?.jobs ?? {} }), { headers: { 'content-type': 'application/json' } })
     }
     store.asked.push(`${init?.method ?? 'GET'} ${url}`)
     let refusal: string | null = null

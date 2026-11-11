@@ -129,12 +129,21 @@ export interface Target {
   slug?: string
 }
 
-/** The Factory's newest job for one issue, as `/api/factory` hands it over (see `factory.ts`). */
-export interface FactoryJob {
+/** The newest job for one issue, as `/api/work` hands it over (see `work.ts`). */
+export interface WorkJob {
   id: string
   ref: string
   stage: string
   title?: string
   column?: string
   updatedAt?: string
+}
+
+/**
+ * The work on a journey's issues: what runs it — its `work.status` descriptor's name, the only
+ * name said for it — and its newest job per issue.
+ */
+export interface Work {
+  name: string
+  jobs: Readonly<Record<string, WorkJob>>
 }
