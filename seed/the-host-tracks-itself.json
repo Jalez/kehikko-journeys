@@ -300,7 +300,7 @@
     },
     {
       "title": "The switch that changes the page sits above the page",
-      "body": "The Journeys/Reviews pair is the leftmost thing in the tab strip, which is where a reader expects to be told what the row is — so a control that switches the whole page below reads as a heading for the tabs beside it. It is also nowhere near what it changes: press Reviews and the difference appears a screenful lower while the control stays in the corner. Once the row above is about identity — which product, then which journey of it — a mode pair in front of it is a third kind of tab in a row of two other kinds. gh#55 centres it on its own row, directly above the content it governs and still inside the sticky bar, so it does not scroll away from the thing it switches.",
+      "body": "The journeys/reviews pair is the leftmost thing in the tab strip, which is where a reader expects to be told what the row is — so a control that switches the whole page below reads as a heading for the tabs beside it. It is also nowhere near what it changes: press reviews and the difference appears a screenful lower while the control stays in the corner. Once the row above is about identity — which product, then which journey of it — a mode pair in front of it is a third kind of tab in a row of two other kinds. gh#55 centres it on its own row, directly above the content it governs and still inside the sticky bar, so it does not scroll away from the thing it switches.",
       "refs": [
         "gh#55"
       ],
@@ -308,7 +308,7 @@
     },
     {
       "title": "Somebody meeting a journey has a way in",
-      "body": "Both modes assume the reader already knows the domain: a newcomer gets thirty steps of plan and no way in. The material to teach from is already written and already on the page, scattered through the plan where it reads as background — the lede, the callout, the word definitions, and the check-yourself questions, which sit at the very foot of a long journey where the reader has either understood it or given up. gh#59 makes Learning a third mode whose job is to teach what the epic is about, and moves the questions there. It also lets a question be attached to one issue or change rather than only to the whole: a reader learns a journey one piece at a time, and what a single change actually changes is the question worth asking.",
+      "body": "Both modes assume the reader already knows the domain: a newcomer gets thirty steps of plan and no way in. The material to teach from is already written and already on the page, scattered through the plan where it reads as background — the lede, the callout, the word definitions, and the check-yourself questions, which sit at the very foot of a long journey where the reader has either understood it or given up. gh#59 makes learning a third mode whose job is to teach what the epic is about, and moves the questions there. It also lets a question be attached to one issue or change rather than only to the whole: a reader learns a journey one piece at a time, and what a single change actually changes is the question worth asking.",
       "refs": [
         "gh#59"
       ],

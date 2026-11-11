@@ -1,6 +1,6 @@
 # Parts: one list, one rule
 
-A proposal. This repository implements only the Journeys side of it (see
+A proposal. This repository implements only this module's side of it (see
 "What this change builds"). Everything under "Protocol", "Host" and "Other
 modules" is a specification for somebody else's change, written here because
 this is the change that made it necessary.
@@ -12,7 +12,7 @@ hardcoded to know of any module.*
 ## The design in plain words
 
 **A part belongs to the epic.** It is an id, a name and a place in an order.
-It is not a Journeys thing and not a Paper thing.
+It is not any one module's thing.
 
 **The list of parts lives with the epic**, in the file the host already
 keeps for it (`<project>/.kehikot/host/epics/<slug>.json`, `.kehikot/kehikko/` before protocol 2.2.0, as
@@ -23,22 +23,22 @@ which is already in the bar and is the one module-agnostic place; no module
 draws a box for it.
 
 **Each module keeps what it has for a part in its own data, keyed by the
-part's id.** Journeys: its one step. Paper: its one chapter. Another module:
-whatever it has. No module's code or data names another module.
+part's id.** This module: its one step. A document module: its one chapter.
+Another module: whatever it has. No module's code or data names another module.
 
 **What a module holds for a part is published in one place every module has**
 — `<project>/.kehikot/<module>/parts.json` — as the two things anything else
 can be tied to: documents and references.
 
 ```json
-{ "version": 1, "epics": { "thesis": { "methods": { "documents": [".kehikot/paper/thesis/chapters/3_methods.tex"], "refs": [] } } } }
+{ "version": 1, "epics": { "thesis": { "methods": { "documents": ["docs/thesis/chapters/3_methods.tex"], "refs": [] } } } }
 ```
 
 The host reads that file from every module folder that has one (a directory
 sweep; it knows no module's name) and unions them into the part it sends:
-`context.parts[i] = { id, heading, picked, refs, files }`. So Notes can
-narrow by a file that Paper said belongs to a part, and References by a
-reference that Journeys said does, with neither knowing the other exists. A
+`context.parts[i] = { id, heading, picked, refs, files }`. So one module can
+narrow by a file that another said belongs to a part, and a list of
+references by a reference that this module said does, with neither knowing the other exists. A
 new module that has one X per part writes its own `parts.json`; nothing else
 changes anywhere.
 
@@ -78,55 +78,49 @@ machine). "The owner chose not to" is not a reason under one rule.
 ## What contradicts this today
 
 - The part record carries `files` ("files of the epic's **paper**") and lives
-  in **Journeys'** `journeys.json`; the host's `dividing.ts` names Journeys as
-  `MAKER` and says "Parts are made in Journeys".
-- The protocol names two modules: `PAPER_MODULE` and `paperFileOf` (a file is
-  only ever in a part if it is under `.kehikot/paper/<epic>/`), and
-  `JOURNEYS_MODULE`, `readJourneys`, `partsOf(record)` (a part's references
-  are folded in from Journeys' steps by the host).
+  in **this module's** `journeys.json`; the host's `dividing.ts` names this
+  module as `MAKER` and says parts are made here.
+- The protocol names two modules: a document module's id and a helper that
+  puts a file in a part only if it is under that module's folder, and this
+  module's id with `readJourneys` and `partsOf(record)` (a part's references
+  are folded in from this module's steps by the host).
 - `docs/parts.md` in the protocol REQUIRES the count sentence ("3 questions
   outside the picked part", and `0 … outside` said) which every module has
   since removed on the owner's instruction. The document and the modules
   disagree; the modules are right.
 - Seven wordings of the empty sentence; `keep` passed by four modules of
-  eight; unanchored items shown by one (Checklist) and hidden by the rest;
+  eight; unanchored items shown by one and hidden by the rest;
   three modules narrowing by a rule of their own.
 
 ## Audit: every module against the contract
 
-Read at each repository's `origin/main` (kehikko-claude has no remote; its
-local `main` was read).
+Each module was read at its repository's `origin/main` when this was written.
+In short, by kind rather than by name:
 
-| Module | Today | Verdict | Smallest change to conform |
-|---|---|---|---|
-| Journeys | `{ part }` — a step's own part. One step to a part after this change. `keep` = the step being edited. One sentence when empty. | Conforms on the rule. **Deviates on ownership**: writes the parts list (`groups`), and reads Paper's folder (`paper.ts`, `chapters.ts`) to offer chapters. | After the host keeps the list: stop writing `groups`; write `parts.json` (refs); delete `paper.ts`/`chapters.ts` and the chapter field. |
-| Paper | `{ file }`, literal `part.files`. No `keep`; own mechanism (open file kept, marked pages added). One sentence in the PDF pane. Standing marks: gap rules "pp. 3–6 · outside the picked part", tabs "— outside", "shown anyway" notices. | Deviates: own narrowing beside `narrowToFocus`; standing "outside" marks; does not hold its chapter per part itself. | Hold `partId → chapter` in its own data and publish it (`parts.json`, with the files the chapter `\input`s); offer "a part for each chapter" through the host; pass `keep`; drop the "outside" marks. |
-| Learning | `{ file }` (question's source). `keep` = answering / opened. One sentence. No chrome. | Conforms. | Use the shared sentence helper. |
-| Notes | `{ file }` (`note.path`). `keep` = open / replying / rewriting / pointed. One sentence. Scope line shows the picked parts' names. | Conforms, but for the scope line (standing chrome about the pick). | Drop the part names from the scope line. |
-| Slides | Several `{ file }`. `keep` = caret / unsaved. One sentence. Counter reads "2 of 5 · slide 9 of 25". | Conforms; the counter is its own position, reworded by the pick. | None required; shared sentence helper. |
-| Citations | Several `{ file }`. `keep` for entries, not for broken citations. One sentence. Hardcodes `PAPER_MODULE = 'kehikot.paper'` in `store.ts`. | Deviates: names another module; `keep` on one list of two. | Import the folder from the protocol until documents are project-relative, then anchor by document; `keep` on both lists. |
-| Checklist | Own `focusOn`, not `useFocus`. `{ ref }` for ref targets; file ids compared by hand through `PAPER_MODULE`. **Shows** unattached and whole-paper checklists under a pick. No `keep`. | Deviates on four points: own rule, names Paper, unanchored shown, nothing kept in hand. | `anchorOf(list)` → `{ ref }` / `{ file }` / none, through `useFocus().narrow`; unanchored hidden like everywhere else (or the owner rules that "the whole paper" is every part — see decisions); `keep` the list being edited. |
-| References | `{ ref }`, own `sift` calling `anchorInFocus`. No `keep`: a selected row outside the pick is hidden. Hardcodes `JOURNEYS = 'kehikot.journeys'` as a content source. | Deviates: no `keep`; names another module. | `keep` = selected rows; listen for epic content by epic, not by module id. |
-| Tests | `partless` ("narrowing would hide their own selection"). Runs are keyed by ref. | `partless` no longer right: its items have a `{ ref }`. | `reacts: ['parts']`, `{ ref }`, `keep` = the selected refs — so a person's own selection is never hidden, and the project's other runs narrow. |
-| Review | `partless` (the selected pull request, a draft in progress). | Right in effect: it shows exactly one thing and that thing is in hand. | None. Reword the reason: "Shows one selected change, which is always in hand." |
-| Diff | `partless` (the selected pull request). | Same as Review. | None; same rewording. |
-| Orchestrator | `partless` ("the owner chose not to narrow them"). Sessions carry refs; already narrows by selection. | Not right under one rule: items have `{ ref }`. | `reacts: ['parts']`, `{ ref }`, `keep` = sessions on selected refs. |
-| Notifications | `partless` ("no ref, epic or part"). Its events DO carry `epic` and `refs`. | Right (its scope is the machine, not one epic), wrong reason. | Reword: "A log across projects and epics; it sits above any one epic's parts." |
-| History | `partless` (commits). Names Checklist, Notes, Learning, Journeys in prose and in `describe.ts`. | Right (project scope). | None for parts. |
-| Explorer | `partless` ("a part owns files of the paper, not of the repository"). Rows are files. | Right **only while** a part's files are paper files. With documents project-relative it has `{ file }` on every row. | Then: `reacts: ['parts']`, `{ file }`, ancestors of a shown file kept. |
-| Source | Reacts; `fileInFocus` by hand; draws the pointed file anyway with a muted line saying it is outside. | Conforms in spirit (its one item is in hand); a standing line about the pick. | Drop the line; the file is in hand. |
-| Atlas | `partless` (epics and projects). | Right. | None. |
-| Terminal | `partless` (a shell). | Right. | None. |
-| Claude | Reacts; keys its sessions by the SET of picked part ids; narrows nothing. Stores part ids in `.kehikot/claude/places.json`. | Conforms (it follows the pick; it has no list to narrow). | None. A removed part's sessions stay listed under the gone id. |
+- **Modules filed by part id** (this one: a step's own part) conform on the
+  rule; this one deviated on ownership — it wrote the parts list and read a
+  document module's folder to offer chapters — which the host keeping the
+  list and `parts.json` remove.
+- **Modules anchored by document** (`{ file }`) mostly conform; the gaps were
+  `keep` missing on some lists, standing "outside" marks or scope lines about
+  the pick, and one module spelling another's id to find its folder.
+- **Modules anchored by reference** (`{ ref }`) conform once they pass `keep`
+  for selected rows and listen for epic content by epic, not by a module id.
+- **`partless` modules** are right when they show one selected thing (always
+  in hand) or are not about one epic (a shell, a log across projects, a list
+  of epics); wrong where their items carry a `{ ref }` or `{ file }`, which
+  then should react to parts.
+- **A module keying sessions by the picked set** conforms: it follows the pick
+  and has no list to narrow; a removed part's sessions stay under the gone id.
 
 ## Where a part's id is stored, and what happens when it goes
 
 | Place | Keyed how | An id the epic no longer has |
 |---|---|---|
 | Host: `projects.parts` in the frame database, and `"parts"` in `<project>/.kehikot/host/kehikot.json` | per project (with the open epic) | Kept, ignored, and said: an amber "a picked part is gone" in the picker; one press forgets it. Any other pick drops it. |
-| Claude: `<project>/.kehikot/claude/places.json` | `epic=…;parts=a+b;kehikko=n` | The entry stays in the file; the session can no longer be reached by a pick. |
-| Journeys: each step's `part` | per step | Cannot happen: the id IS the step's part. |
-| Paper, Learning, Notes, Slides, Citations, Checklist, References, Tests, Review, and the rest | — | None of them stores a part id. |
+| A module keying sessions by the pick, in its own folder | `epic=…;parts=a+b;kehikko=n` | The entry stays in the file; the session can no longer be reached by a pick. |
+| This module: each step's `part` | per step | Cannot happen: the id IS the step's part. |
+| Every other module | — | None of them stores a part id. |
 
 ## Protocol (additive; a 1.x minor)
 
@@ -153,7 +147,7 @@ local `main` was read).
    step is a part no host can list.
 6. `JOURNEYS_MODULE`, `readJourneys`, `journeyIn`, `partsOf(record)` and
    `stepPart` stay for 1.x and are deprecated: a host reads the epic's own
-   list and the holdings, and no longer the Journeys record, for parts.
+   list and the holdings, and no longer this module's record, for parts.
 
 ## Host
 
@@ -161,7 +155,7 @@ local `main` was read).
    `server/holdings.ts` beside `retitleEpic`, whole-file-preserving as that
    is. `epicOf` answers `parts` from the epic's own file when it has the key.
 2. **Adopt once, never guess twice.** For an epic whose file has no `parts`
-   key: read them as today, from the Journeys record's `groups` (this is the
+   key: read them as today, from this module's record's `groups` (this is the
    released behaviour and stays the fallback). The first time a person edits
    the list in the picker, write the adopted list into the epic's file — ids
    and names exactly as read — and from then on read only that.
@@ -175,16 +169,16 @@ local `main` was read).
    writes one, keep folding as today (group `files`, steps' refs).
 5. **Answer `parts.set`**, behind the grant, with the same writer.
 6. **Remove the module from the words.** `dividing.ts`: `MAKER`,
-   `MAKER_NAME`, `PARTS_REF` and "Parts are made in Journeys" go; "no parts"
+   `MAKER_NAME`, `PARTS_REF` and the sentence naming this module go; "no parts"
    opens the picker's own "+ part" row. (Until then: a journey with steps
    always has parts after this change, so the press is only ever offered for
-   an epic with no steps, and Journeys answers it — see below.)
+   an epic with no steps, and this module answers it — see below.)
 7. **MCP**: `set_parts` on the host's own door (add, rename, move, remove),
    and the ids already printed by `read_canvas`.
 8. Show a part's full name in a `title` on its row: a name is truncated with
    an ellipsis at about 320 px and there is nowhere to read the rest.
 
-## What this change builds (Journeys only)
+## What this change builds (this module only)
 
 - One step to a part. A step's `part` is the id of the part it is the step
   of. No parts box, no paragraph, no rows, no "add part", no "list all".
@@ -192,17 +186,17 @@ local `main` was read).
   the steps' order — **only because a released host reads it there**. Same
   wire shape; no host, protocol or module change is needed for this to work.
 - Until the host keeps the list, the part's name and its one document are
-  edited in the step's own editor, and Journeys still reads the paper's
-  folder to offer its chapters. Both leave with host step 3 and Paper's
-  change.
+  edited in the step's own editor, and this module still reads the paper's
+  folder to offer its chapters. Both leave with host step 3 and the document
+  module's change.
 - Reading an older record never writes; it is read as one step to a part.
   The first deliberate write stores it and keeps the record as it was in
   `journeys.before-parts.json`.
 
-## What the change after it built (Journeys on protocol 1.2.0)
+## What the change after it built (this module on protocol 1.2.0)
 
 The protocol and the host sections above have shipped (protocol 1.2.0; the
-host from app 0.1.17). This is what Journeys does about them.
+host from app 0.1.17). This is what this module does about them.
 
 - **Who keeps the list is decided in one place**, `keeper.ts`: the host,
   exactly when the epic's own file has a `parts` key — the host's own test —
@@ -224,9 +218,9 @@ host from app 0.1.17). This is what Journeys does about them.
   added in the picker has nothing drawn for it until its step is written,
   which one quiet control beside "add a step" offers.
 - **What a step holds for its part is published** — its references, in
-  `.kehikot/journeys/parts.json` (`writeHoldings`) — after every write of a
+  its own folder's `parts.json` (`writeHoldings`) — after every write of a
   journey and never on a read.
-- **Nothing here knows the Paper module.** `paper.ts`, `chapters.ts`, the
+- **Nothing here knows the document module.** `paper.ts`, `chapters.ts`, the
   chapter field, `/api/chapters`, `/api/steps/chapters` and "a step for each
   chapter" are gone. A document an earlier version recorded on a group is
   carried and never set.

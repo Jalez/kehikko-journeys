@@ -500,7 +500,7 @@ function Journey({
  * labelled with what it does to the CANVAS rather than to this page, and it is
  * drawn only while there is something on the canvas to clear. A "clear" that
  * appears with nothing picked is a control that is useless in the state it is
- * most often seen in, which is the argument References makes for having no
+ * most often seen in, which is the argument a list of references can make for having no
  * such button at all; here the whole-journey pick earns the pair, because
  * picking eight steps one tick at a time and unticking them one at a time is
  * sixteen presses for one idea.

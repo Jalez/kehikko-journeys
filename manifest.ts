@@ -111,8 +111,8 @@ export const PREFERRED_PORT = 7840
  *   extraction says this must stop being.
  * - **`selection:set` — declared, and it is the one write.** A person ticks a
  *   step and the references it carries become the canvas selection, which the
- *   host broadcasts to every framed module. It is what lets References narrow
- *   its list to what a journey's steps are about without either module knowing
+ *   host broadcasts to every framed module. It is what lets a list of references narrow
+ *   to what a journey's steps are about without either module knowing
  *   the other exists — the host does the joining, which is the only reason the
  *   joining can be believed. It is never called except from a press; the essay
  *   on picking in `src/journeys.ts` says why that is the whole design. The
@@ -155,7 +155,7 @@ export const PREFERRED_PORT = 7840
  * - **`content:report` — declared, and it hands nothing over.** A step saved
  *   on this page is said to the host (`content.changed`, for that epic), which
  *   tells every container standing in the project through `context.content` —
- *   a second Journeys container, References, this one. The journeys stay
+ *   a second container of this module, a list of references, this one. The journeys stay
  *   here; only the fact that one moved travels. The receiving half,
  *   `reacts: ['content']`, is below. The MCP door does not say it and cannot:
  *   it is answered by the server process, which has no host to say it to, and
@@ -207,8 +207,8 @@ export const PREFERRED_PORT = 7840
  * ## Storage, and why THIS module asks for it when the others do not
  *
  * `storage: true` makes the host frame this page with `allow-same-origin`, so
- * it keeps its real origin instead of running opaque. Atlas and References
- * declare `false` and are right to: they hold nothing, they ask the host for
+ * it keeps its real origin instead of running opaque. A module that holds
+ * nothing declares `false` and is right to: it holds nothing, they ask the host for
  * everything, and an origin would be a thing they had no use for.
  *
  * This module is different in the one way that matters — it OWNS its journeys,
@@ -294,7 +294,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * `src/journeys.ts` scrolls to and marks the first picked reference this
    * page is showing, and has done since the canvas started broadcasting one.
    * It was not declared before, which left the manifest saying less than the
-   * program did — a registry reading it could name References as a provider
+   * program did — a registry reading it could name a list of references as a provider
    * and nobody as the module it provided to, when this one was scrolling on
    * every pick. The protocol's essay on `reacts` is the test for the word:
    * tick it only if the program moves, and it does.
@@ -364,7 +364,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
       'epics:read',
       'parts:set',
       'view:navigate',
-      /* A reference's link goes to the canvas's Browser (protocol 2.16.0), not a new tab. */
+      /* A reference's link goes to the canvas, where a module that shows pages opens it (protocol 2.16.0), not a new tab. */
       'address:open',
       /* The kept view (protocol 2.70.0): the container's scroll and header toggles, kept by the host. */
       'state:keep',
@@ -389,4 +389,12 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     scopes: ['epic', 'project'],
   },
   health: '/healthz',
+  /* What this module provides to others (protocol 2.85.0), found through `services.find`, never by id.
+     It is the only writer of `.kehikot/journeys/`. */
+  services: {
+    'module.folders': {
+      name: 'Journeys',
+      folders: [{ folder: 'journeys', says: 'The journeys of each epic: their steps, gates and prose, and the steps and parts published for other modules.' }],
+    },
+  },
 })

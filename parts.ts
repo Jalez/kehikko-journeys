@@ -300,7 +300,7 @@ const quoted = (list: readonly string[]): string => list.map((one) => `“${shor
  *  - **Two parts covering one document**: the first in order keeps it.
  *  - **A part covering several documents**: it keeps the first no earlier
  *    part took.
- *  - **References listed under a part's heading** that its step does not
+ *  - **Refs listed under a part's heading** that its step does not
  *    name: added to that step.
  *  - **A journey whose steps are kept elsewhere** (`stepsFrom`, no stored
  *    step): no step is made here — that would turn "the steps are in the

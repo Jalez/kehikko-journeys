@@ -112,7 +112,7 @@ export function samePick(a: readonly string[], b: readonly string[]): boolean {
  * Everything above is about a selection ARRIVING. What follows is about one
  * LEAVING: a person presses a step on this page and the step's references go
  * onto the canvas, where every other framed module is told about them. It is
- * the same act References performs when a row is picked, and it is pure for
+ * the same act a list of references performs when a row is picked, and it is pure for
  * the same reason `firstShown` is — what a press means has to be checkable
  * without a browser, because the failure has no symptom. A toggle that added
  * when it should have removed would look like a checkbox that will not untick,
@@ -162,7 +162,7 @@ export function pickedState(selection: readonly string[], refs: readonly string[
  * all three. That is the ordinary tri-state a person expects from a checkbox
  * over a group, and the alternative — remove on any overlap — would have the
  * first press on a step delete a reference the reader had just picked in
- * References, with nothing on this page saying it had.
+ * another container, with nothing on this page saying it had.
  *
  * ## Order is kept, and additions go on the end
  *
@@ -170,7 +170,7 @@ export function pickedState(selection: readonly string[], refs: readonly string[
  * module has information about, and `firstShown` reads it. Sorting it, or
  * putting this step's references first, would change which card a
  * neighbouring module scrolls to for reasons the reader did not cause. The
- * same rule References keeps in its `toggle`.
+ * same rule a list of references keeps when it toggles a row.
  *
  * Every ref that leaves this function is one this page drew; nothing is
  * normalised, because `gh#41` and `#41` are two different references.

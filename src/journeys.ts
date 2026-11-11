@@ -176,7 +176,7 @@ export interface State {
    *
    * Never what this page asked for. A press on a step below asks the host to
    * change the selection and this field is filled in from the `kehikot.context`
-   * that comes back — the same discipline References keeps, and for the same
+   * that comes back — the same discipline a list of references keeps, and for the same
    * reason: an optimistic copy would tick a step for a pick the host refused or
    * clamped, and two containers would disagree about the one thing the round
    * trip exists to keep them agreed on. Standalone it stays empty forever,
@@ -1844,7 +1844,7 @@ function rowPressed(press: { item: string; value?: unknown; place?: 'footer' | '
  *
  * One `toggles` group called "hide", built by `offer()` from the shared
  * ref-facet vocabulary in `kehikot-module-protocol/facets` — the same group id
- * and the same option ids References offers, so "closed MRs/PRs" switched on
+ * and the same option ids a list of references offers, so "closed MRs/PRs" switched on
  * means the same thing in both containers. Nothing here keeps a copy of the
  * vocabulary; a facet the protocol learns arrives here with the next install.
  *
@@ -1881,7 +1881,7 @@ function announce(): void {
  * Lift whatever part of the filter hides one reference, for a walk that was
  * aimed at it.
  *
- * The rule References keeps, for its reason: a walk that answered `found` with
+ * The rule a list of references keeps, for its reason: a walk that answered `found` with
  * the card filtered out would send a reader to a page where their reference is
  * not drawn, which is worse than the fallback link `found: false` gets them.
  * So the facets hiding it are ASKED off — the choice is the host's — and the
@@ -2404,8 +2404,7 @@ async function readEverything(): Promise<void> {
  * of those would throw away the reading and redraw the whole journey every time
  * a reference was clicked: the steps would vanish and come back, and the
  * reader's scroll position — the very thing the click was about to move — would
- * be reset out from under the walk. References met this first and its
- * `use-kehikot.ts` carries the long version; the failure looks like a bug in
+ * be reset out from under the walk. The failure looks like a bug in
  * whichever container was clicked, which is the wrong container to go and read.
  *
  * So each field is acted on when IT changes, and a context that changed nothing
@@ -2684,7 +2683,7 @@ function showSelection(): void {
  * The other half of `showSelection`. That one is this page being TOLD what is
  * picked; these are this page SAYING so — a person ticks a step, and the
  * references that step carries go to the host, which holds them and tells
- * every framed module, this one included. It is the act References performs
+ * every framed module, this one included. It is the act a list of references performs
  * when a row is picked, arriving here for the reason the protocol's essay on
  * `selection` gives: a canvas with a list of references in one container and a
  * journey in another should let a person narrow the first to what the second
@@ -2700,7 +2699,7 @@ function showSelection(): void {
  * PERSON'S, and a module that wrote it because it had re-rendered, or because
  * the canvas moved to another epic, would be overwriting a pick made in another
  * container with nothing on screen to say why it had gone. An epic switch
- * leaves the selection alone on purpose — a reference picked in References is
+ * leaves the selection alone on purpose — a reference picked in another container is
  * no less picked for this page having turned to a different journey.
  * ------------------------------------------------------------------ */
 

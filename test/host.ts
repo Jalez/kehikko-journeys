@@ -12,7 +12,7 @@ import { mirrored, withPart, withStep, withStepMoved, withoutStep, type Divided 
  * every message after it would be answered twice. `started()` is the one
  * place that calls it.
  *
- * The host is the same one References uses: an object with a `postMessage`,
+ * The host is the same one any framed module uses: an object with a `postMessage`,
  * which is all a host is from inside a frame. The store is a `fetch` that
  * answers the doors this page knocks on, because `start()` reads the
  * index before anything else and a page with no journey has no steps to press.

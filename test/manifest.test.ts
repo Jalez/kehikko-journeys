@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { HELP_LIMITS, PROTOCOL, helpOf, manifestSchema, showsProject, speaks } from 'kehikot-module-protocol'
+import { HELP_LIMITS, MODULE_FOLDERS, PROTOCOL, helpOf, manifestSchema, moduleFolder, serviceDescriptor, showsProject, speaks } from 'kehikot-module-protocol'
 
 import { HELP, ID, MANIFEST } from '../manifest.ts'
 
@@ -191,5 +191,10 @@ describe('How to use (protocol 2.52.0)', () => {
 
   test('says what it shows, how to use it and what agents can do', () => {
     expect(HELP.sections.map((section) => section.title)).toEqual(expect.arrayContaining(['What it shows', 'How to use it', 'What agents can do']))
+  })
+
+  test('declares its own folder under .kehikot/, which is not a cache', () => {
+    const folders = serviceDescriptor(MODULE_FOLDERS, MANIFEST.services?.[MODULE_FOLDERS])
+    expect(folders?.folders.map((one) => [one.folder, one.derived])).toEqual([[moduleFolder(ID), false]])
   })
 })
