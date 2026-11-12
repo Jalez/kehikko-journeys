@@ -36,6 +36,7 @@ import { get, post, standIn, standingIn as projectStanding } from './store/api.t
 import { treeOf } from './tree.ts'
 import type { Pointing } from '../wire/pointing.ts'
 import { follower, streamFor } from './following.ts'
+import { repainter } from './repaint.ts'
 import type { Work, WorkJob } from './kinds.ts'
 
 /**
@@ -2207,6 +2208,20 @@ window.addEventListener('hashchange', () => {
  * The host, when there is one
  * ------------------------------------------------------------------ */
 
+/**
+ * The repaint after this page is shown (`src/repaint.ts`): after it says it is drawn (the host's
+ * cover comes off), when the host shows it again, when the window is shown again, and when the
+ * frame is resized (a container unfolded, tiled or resized). Never in place of drawing: the page is
+ * whole without it, and a scroll was only ever needed for the pixels.
+ */
+const afterShown = repainter()
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', () => afterShown.soon())
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) afterShown.soon()
+  })
+}
+
 /*
  * The protocol's `hostStore`: the listener, the grace before saying nobody is framing this page,
  * the theme on <html>, and the reload of a page older than its server. Its standing arrives
@@ -2217,6 +2232,10 @@ const host = hostStore(
   ID,
   {
     onHello: () => grow(),
+    /* Back on screen from another kehikko, a fold or a tile: repainted (`src/repaint.ts`). */
+    onVisible: (visible) => {
+      if (visible) afterShown.soon()
+    },
     /* A press on the host's refresh control, or the interval somebody set for
        this container. The same either way; see `refresh`. */
     onRefresh: () => void refresh(),
@@ -2299,7 +2318,10 @@ export async function retry(): Promise<void> {
  */
 export function sayDrawn(): void {
   host.ready()
+  /* The host flips the frame visible after it hears this; WebKit may not paint it (`src/repaint.ts`). */
+  afterShown.soon()
 }
+
 
 /** What the host's cover says while this page reads a journey: on the first load, and after a switch. */
 export const LOADING_JOURNEY = 'Loading the journey…'
