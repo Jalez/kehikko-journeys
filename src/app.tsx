@@ -159,7 +159,10 @@ export function App() {
             detail={cover === 'unhosted' ? UNHOSTED_SAID : cover === 'no-project' ? NO_PROJECT_SAID : null}
           />
         )}
-        <div hidden={whole} className={whole ? undefined : 'contents'}>
+        {/* A plain block, hidden or not. It was `display: contents` when shown, and a box that goes
+            from `display: none` to `contents` is one more thing whose children WebKit has had to be
+            told to repaint (`src/repaint.ts`); a block costs nothing here, the column has no gap. */}
+        <div hidden={whole}>
         <Head journey={state.journey} />
         {!state.framed && <Picker index={state.index} journey={state.journey} />}
         {/*
